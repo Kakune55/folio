@@ -2,9 +2,9 @@
 
 轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。真实文件是内容的唯一权威来源。
 
-技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；嵌入式 SQLite 保存账号/会话，搜索索引按 M2 推进。UI、必要的代码注释及实现说明默认使用中文。
+技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；嵌入式 SQLite 保存账号/会话与可重建搜索索引。UI、必要的代码注释及实现说明默认使用中文。
 
-**当前进度：M1 已通过验收，继续推进 M2。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。现已支持附件上传、位图/PDF预览、原文件下载与 Markdown 图片。基础重命名/移动与回收站恢复已接入，单容器交付及 M1 整体验收已完成（amd64 原生、arm64 QEMU）；搜索、外部变更提示与持久化草稿恢复尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
+**当前进度：M1 已通过验收，继续推进 M2。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。现已支持附件上传、位图/PDF预览、原文件下载与 Markdown 图片。基础重命名/移动与回收站恢复已接入，单容器交付及 M1 整体验收已完成（amd64 原生、arm64 QEMU）；M2 的中英文全文搜索与文件快开已接入；已打开编辑器的外部变更提示、拖拽移动与持久化草稿恢复尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
 
 ## 本地运行
 
@@ -31,7 +31,7 @@ make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 ## 数据目录与部署配置
 
 - `FOLIO_WORKSPACE`：真实文件目录，默认 `./workspace`。
-- `FOLIO_APP_DATA`：账号、会话和后续索引，默认 `./app-data`。
+- `FOLIO_APP_DATA`：账号、会话和可重建搜索索引，默认 `./app-data`。
 - `FOLIO_PASSWORD_FILE`：只用于首次初始化账号，后续启动不会重置既有密码。
 - `FOLIO_SECURE_COOKIE`：默认 `true`；`false` 仅允许绑定回环 IP。
 - `FOLIO_TLS_CERT` / `FOLIO_TLS_KEY`：可选的直接 HTTPS 证书链和私钥，必须同时设置。
@@ -40,6 +40,8 @@ make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 两个目录必须独立，不能相互包含。当前需要 Linux 5.6+、`openat2` 和 `/proc/self/fd`。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。
 
 上传默认上限为文本编辑 5 MiB、图片 20 MiB、PDF 50 MiB、其他附件 100 MiB，图片预览上限 3200 万像素。可分别用 `FOLIO_MAX_TEXT_BYTES`、`FOLIO_MAX_IMAGE_BYTES`、`FOLIO_MAX_PDF_BYTES`、`FOLIO_MAX_ATTACHMENT_BYTES`、`FOLIO_MAX_IMAGE_PIXELS` 配置，上传总上限最大 1 GiB。设置仅在启动时读取；`GET /api/v1/settings` 返回当前限制。
+
+使用 `Ctrl/Cmd+P` 按文件名/路径快开，`Ctrl/Cmd+Shift+F` 搜索已保存的文本。正文索引默认限制 1 MiB，可用 `FOLIO_MAX_INDEX_BYTES` 调整（1 字节至 100 MiB）；超限与二进制文件仅索引名称。外部文件变化每 10 秒扫描、每 5 分钟完整核对正文，详情见 [M2 实施记录](docs/M2.md)。
 
 PDF 采用浏览器 canvas 预览；加密文档和部分复杂字体/大图应下载原文件核对。SVG/HTML 不作为活动页面打开，未知二进制只提供下载。
 

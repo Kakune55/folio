@@ -2,12 +2,13 @@ import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState,
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import type { FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
 import { useUI } from '../stores/ui'
+import { SearchDialog } from '../features/search/SearchDialog'
 import { Explorer } from '../features/explorer/Explorer'
 import { TrashDialog } from '../features/explorer/TrashDialog'
 import { useEntryOperations } from '../features/explorer/useEntryOperations'
@@ -33,6 +34,8 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
   const [directory, setDirectory] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
+  const [searchMode, setSearchMode] = useState<'names' | 'full' | null>(null)
+  const [focusPath, setFocusPath] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const uploadInput = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -78,6 +81,22 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     finally { if (sequence === requestSequence.current) setLoading(false) }
   }, [open, setNotice, setLoading])
 
+  useEffect(() => {
+    if (!focusPath || activePath !== focusPath || loading || searchMode) return
+    const root = document.querySelector('.document-panel')
+    if (!root) return
+    const focus = () => {
+      const editor = root.querySelector<HTMLElement>('[role="textbox"]')
+      if (!editor || editor.closest('[inert]') || getComputedStyle(editor).visibility === 'hidden' || document.querySelector('[role="dialog"]')) return
+      editor.focus(); setFocusPath(null)
+    }
+    const observer = new MutationObserver(focus)
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'inert', 'aria-busy'] })
+    const frame = requestAnimationFrame(focus)
+    const timeout = setTimeout(() => setFocusPath(null), 5000)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timeout) }
+  }, [focusPath, activePath, loading, searchMode])
+
   const bridge = useMemo<CrepeBridge | undefined>(() => current?.viewer === 'markdown' ? {
     beginUpload: () => workspace.beginUpload(current.path),
     endUpload: () => workspace.endUpload(current.path),
@@ -118,10 +137,13 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') { event.preventDefault(); setSearchMode('names'); event.stopPropagation(); return }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setSearchMode('full'); event.stopPropagation(); return }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); useUI.getState().toggleSidebar(); return }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
     }
-    window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown)
-    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown) }
+    window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown, true)
+    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown, true) }
   }, [uploading])
 
   const closeFile = async (session: Session) => {
@@ -154,7 +176,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
       <input ref={uploadInput} className="visually-hidden" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
-      <div className="topbar-actions"><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
+      <div className="topbar-actions"><Button className="quick-open-trigger" aria-label="快速打开文件" title="快速打开（Ctrl/Cmd+P）" onClick={() => setSearchMode('names')}><Search size={16} /><span>查找文件…</span><kbd>Ctrl P</kbd></Button><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
         <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
@@ -184,6 +206,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     </section></main></div>
     <footer className="statusbar"><span className="save-status" role="status">{current ? current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
+    {searchMode && <SearchDialog key={searchMode} mode={searchMode} onClose={() => setSearchMode(null)} onMode={setSearchMode} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content">
       <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>

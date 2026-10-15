@@ -15,6 +15,7 @@ import (
 	"folio/internal/auth"
 	"folio/internal/config"
 	"folio/internal/httpapi"
+	"folio/internal/search"
 	"folio/internal/storage"
 	"folio/internal/trash"
 	"folio/web"
@@ -54,7 +55,12 @@ func main() {
 	}
 	defer recovery.Close()
 	store.SetTrash(recovery)
-	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(web.Assets(), httpapi.Options{Auth: accounts, Workspace: store, SecureCookie: cfg.SecureCookie, Origin: cfg.Origin}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	index, err := search.Open(cfg.AppData, store, cfg.IndexLimit)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer index.Close()
+	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(web.Assets(), httpapi.Options{Auth: accounts, Search: index, Workspace: store, SecureCookie: cfg.SecureCookie, Origin: cfg.Origin}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	shutdownDone := make(chan struct{})

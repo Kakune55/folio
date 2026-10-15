@@ -78,7 +78,7 @@ Responsive layout; browser draft recovery; backup/restore documentation and test
 Block database, graph, mandatory tags, bidirectional links, custom plugin marketplace, collaboration/CRDT, filesystem shell, server command execution, Git UI, AI authoring, Obsidian plugin emulation, offline sync, S3 and WebDAV backends, public anonymous sharing.
 
 ## 5. Persistence model
-Filesystem paths relative to a configured `/workspace` root. Preserve Unicode names. Store no authoritative file contents in SQLite. `/app-data` holds `app.db` (auth, settings, rebuildable index), trash and recovery data. External filesystem editors are allowed, so watch + reconcile changes; do not rely exclusively on inotify (network mounts may differ). Ignore app data, dangerous device files and unsafe symlinks.
+Filesystem paths relative to a configured `/workspace` root. Preserve Unicode names. Store no authoritative file contents in SQLite. `/app-data` holds `app.db` (auth/settings metadata), a separate rebuildable `search.db` cache, trash and recovery data. External filesystem editors are allowed, so watch + reconcile changes; do not rely exclusively on inotify (network mounts may differ). Ignore app data, dangerous device files and unsafe symlinks.
 
 ### Safe files API
 Reject absolute paths, traversal, NUL, unsupported special files and symlink escape. Normalize paths carefully; path-prefix string checks alone are insufficient. Use descriptor-relative safe open primitives where available (e.g. Go platform-specific openat2 beneath/no-symlinks) or a conservative no-symlink file policy with race-safe traversal. Deny out-of-root operations and test races.

@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"folio/internal/auth"
+	"folio/internal/search"
 	"folio/internal/storage"
 )
 
 type Options struct {
+	Search       *search.Index
 	Auth         *auth.Service
 	Workspace    *storage.Store
 	SecureCookie bool
@@ -138,12 +140,21 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		if a.Search != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !strings.HasPrefix(r.URL.Path, "/api/v1/search/") {
+			recorder := &statusRecorder{ResponseWriter: w, status: 200}
+			next(recorder, r)
+			if recorder.status >= 200 && recorder.status < 300 {
+				a.Search.Refresh(false)
+			}
+			return
+		}
 		next(w, r)
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
 	a.registerAttachments(mux)
 	a.registerEntries(mux)
+	a.registerSearch(mux)
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if a.Auth == nil {
 			writeError(w, 503, "unavailable", "认证服务不可用", nil)
@@ -296,3 +307,15 @@ func parseInt(raw string, out *int) (int, error) {
 	*out = value
 	return value, err
 }
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }

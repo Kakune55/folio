@@ -74,3 +74,9 @@ Storage adapters, S3, collaboration, PWA/offline sync and a full workspace plugi
 ## 8. Trash operations implemented in M1
 
 `internal/storage` owns descriptor-safe move, subtree revisions and staged cross-device copying. `internal/trash` owns private recovery directories and atomic JSON manifests under app-data. Payloads remain ordinary files, outside SQLite. Same-device moves use rename; cross-device deletion stages the original in its parent, durably copies to app-data, and only then removes the staged copy. Cross-device restoration publishes a verified, synced temporary payload with no-replace rename. Failed cleanup or divergent recovery copies are preserved for explicit recovery rather than silently discarded.
+
+## 9. Search cache implemented in M2
+
+`internal/search` uses a private `search.db` separate from authentication `app.db`, so a corrupt search cache does not prevent login or editing. FTS5 trigram indexes safe workspace-relative file paths and eligible UTF-8 text bodies. One- and two-character queries use a bounded-result substring scan; longer queries are quoted literal FTS phrases. SQLite remains secondary; no document is restored from this cache.
+
+Successful file mutations enqueue a coalesced asynchronous scan. External changes are reconciled every 10 seconds using device/inode/size/mtime/ctime; a full content scan every 5 minutes covers coarse timestamp behavior. Scans do not hold the storage write mutex. A transaction retains the previous cache if a scan fails, with an explicit warning. Manual rebuild quarantines a damaged search cache and its WAL/SHM before reconstructing it from workspace files; it never touches auth data. This cache reconciliation does not yet reconcile already-open editor buffers.

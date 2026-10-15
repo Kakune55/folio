@@ -30,7 +30,7 @@ Base path `/api/v1`, JSON except streaming file upload/download. All routes requ
 | POST | `/uploads?directory=` | Multipart stream upload with name collision policy |
 | GET | `/files/download?path=` | Authenticated attachment download |
 | GET | `/files/preview?path=` | Strict-safe inline previews (type and CSP controls) |
-| GET | `/search?q=&limit=` | File and full-text search |
+| GET | `/search?q=&mode=&limit=` | File and full-text search |
 | GET | `/settings` | Preferences and limits exposed safely |
 | PATCH | `/settings` | Change editable preferences |
 | GET | `/healthz` | Process liveness; no internal info |
@@ -98,3 +98,9 @@ PATCH move and DELETE entries require the exact revision in `If-Match` (428 when
 `GET /trash?offset=0&limit=200` returns `{entries,total,offset,limit}`, maximum page size 1000. States include ready, preparing/incomplete (recoverable operation not fully acknowledged) and damaged (requires inspection). POST restore needs CSRF but no content body. It returns `{path}` on success and rejects any target collision with 409; missing original parent is 404. Restore never silently creates a different destination.
 
 Additional errors: `operation_in_progress` (409), `trash_unavailable` (503), `trash_damaged` (422), `trash_failed` / `trash_incomplete` (500). A 500/connection failure can occur after a namespace change; clients retain buffers and refresh Explorer/trash to reconcile, rather than assuming the original path still exists. Failed or damaged recovery records are retained.
+
+### Search contract (M2 slice)
+
+Authenticated `GET /search?q=&mode=&limit=` returns `{entries:[{path,name,excerpt}],truncated,limit,status}`. Omit mode for full-text search or set `mode=names` for path/name substring search. Empty full-text queries return no results; empty name queries list files. Queries are literal, at most 200 Unicode characters, never FTS operators or regular expressions. Limit defaults to 50, maximum 200; results beyond that set `truncated=true`, without pagination. Excerpts are plain text. ASCII case-insensitive matching is supported; Unicode normalization/accent folding is not promised.
+
+`GET /search/status` returns `{indexing,indexedAt,files,warning?}`. `POST /search/rebuild` requires CSRF and returns 202 `{accepted:true}`; completion is asynchronous. Cache failure returns 503 `index_unavailable` without blocking file reads/writes. A warning means results may be stale. Both endpoints use the same authentication boundary as file APIs. Body size cap and refresh timing are documented in `M2.md`; unsaved browser text and PDF/OCR contents are never searched.

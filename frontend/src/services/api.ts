@@ -9,6 +9,9 @@ export type FileMetadata = { path: string; size: number; mediaType: string; view
 export type EntryRevision = { path: string; kind: 'file' | 'directory'; revision: string }
 export type TrashRecord = { id: string; path: string; kind: string; revision: string; deletedAt: string; state: string }
 export type TrashPage = { entries: TrashRecord[]; total: number; offset: number; limit: number }
+export type SearchStatus = { indexing: boolean; indexedAt: string; files: number; warning?: string }
+export type SearchResult = { path: string; name: string; excerpt: string }
+export type SearchResponse = { entries: SearchResult[]; truncated: boolean; limit: number; status: SearchStatus }
 export type Principal = { username: string; csrfToken: string }
 export type FileContent = { path: string; content: string; revision: string; size: number; encoding: string; mtime: string; kind: string }
 export type Entry = { name: string; path: string; kind: 'directory' | 'file'; size: number }
@@ -25,6 +28,9 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
   return response.json() as Promise<T>
 }
 export const api = {
+  search: (query: string, mode: 'names' | 'full', signal?: AbortSignal) => request<SearchResponse>(`/search?q=${encodeURIComponent(query)}&mode=${mode === 'names' ? 'names' : ''}`, { signal }),
+  searchStatus: () => request<SearchStatus>('/search/status'),
+  rebuildIndex: () => request('/search/rebuild', { method: 'POST' }),
   me: () => request<Principal>('/auth/me'),
   login: async (username: string, password: string) => { const principal = await request<Principal>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setCSRF(principal.csrfToken); return principal },
   logout: () => request('/auth/logout', { method: 'POST' }),

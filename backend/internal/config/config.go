@@ -12,6 +12,7 @@ import (
 )
 
 type Config struct {
+	IndexLimit                                        int64
 	TLSCert, TLSKey                                   string
 	Addr, Workspace, AppData, InitialPassword, Origin string
 	SecureCookie                                      bool
@@ -102,6 +103,14 @@ func Load() (Config, error) {
 			}
 			*target = value
 		}
+	}
+	c.IndexLimit = 1 << 20
+	if raw := os.Getenv("FOLIO_MAX_INDEX_BYTES"); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 1 || value > 100<<20 {
+			return c, errors.New("FOLIO_MAX_INDEX_BYTES 须为 1 字节到 100 MiB")
+		}
+		c.IndexLimit = value
 	}
 	return c, nil
 }
