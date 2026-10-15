@@ -1,10 +1,13 @@
+import type { FileMetadata, ViewerKind } from '../services/api'
+
 export type EditorMode = 'rich' | 'source'
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
 export type Session = {
   path: string; source: string; original: string; mode: EditorMode; dirty: boolean
   revision: string; state: SaveState; error: string; generation: number
+  viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number
 }
-type FileInput = { path: string; source: string; mode: EditorMode; revision?: string }
+type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
 
 // 正文只驻留在编辑会话中；全局状态仅管理导航和界面偏好。
@@ -20,7 +23,7 @@ export class WorkspaceSessions {
     // 已打开的脏会话永远不被重新获取的远端内容覆盖。
     const existing = this.sessions.get(file.path)
     if (existing) return existing
-    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0 }
+    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0, viewer: file.viewer ?? (/\.(md|markdown)$/i.test(file.path) ? 'markdown' : 'text'), pendingUploads: 0 }
     this.sessions.set(file.path, session); this.emit(); return session
   }
   has(path: string) { return this.sessions.has(path) }
@@ -62,6 +65,7 @@ export class WorkspaceSessions {
     return operation
   }
   async flush(path: string) {
+    if (this.get(path).pendingUploads) return false
     for (let attempt = 0; attempt < 10; attempt++) {
       const result = await this.save(path)
       if (!result) return false
@@ -79,9 +83,17 @@ export class WorkspaceSessions {
   }
   remove(path: string) {
     const session = this.get(path)
-    if (session.dirty || this.pending.has(path)) return false
+    if (session.dirty || session.pendingUploads || this.pending.has(path)) return false
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     this.sessions.delete(path); this.emit(); return true
+  }
+  beginUpload(path: string) { this.get(path).pendingUploads++; this.emit() }
+  endUpload(path: string) { this.get(path).pendingUploads--; this.emit() }
+  appendAttachment(path: string, markdown: string) {
+    const session = this.get(path)
+    const separator = session.source.endsWith('\n\n') || !session.source ? '' : session.source.endsWith('\n') ? '\n' : '\n\n'
+    this.update(path, `${session.source}${separator}${markdown}\n`)
+    session.generation++; this.emit()
   }
   setMode(path: string, mode: EditorMode) { const session = this.get(path); if (session.mode === mode) return; session.mode = mode; this.emit() }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }

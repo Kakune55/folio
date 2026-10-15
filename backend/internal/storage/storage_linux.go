@@ -31,8 +31,9 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
-	root *os.File
-	mu   sync.Mutex
+	root   *os.File
+	mu     sync.Mutex
+	limits Limits
 }
 type Entry struct {
 	Name string `json:"name"`
@@ -75,7 +76,7 @@ func Open(root string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{root: os.NewFile(uintptr(fd), "workspace")}
+	store := &Store{root: os.NewFile(uintptr(fd), "workspace"), limits: DefaultLimits}
 	// 不降级为有竞态的路径检查；旧内核不支持 openat2 时明确拒绝启动。
 	probe, err := store.open(".", unix.O_RDONLY|unix.O_DIRECTORY, 0)
 	if err != nil {
@@ -125,7 +126,7 @@ func mapError(err error) error {
 		return fail("not_found")
 	case errors.Is(err, unix.EEXIST):
 		return fail("target_exists")
-	case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV), errors.Is(err, unix.ENOTDIR):
+	case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV), errors.Is(err, unix.ENOTDIR), errors.Is(err, unix.ENAMETOOLONG):
 		return fail("path_invalid")
 	case errors.Is(err, unix.EACCES), errors.Is(err, unix.EPERM):
 		return fail("forbidden")
@@ -154,19 +155,19 @@ func digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
-func read(file *os.File) ([]byte, os.FileInfo, error) {
+func read(file *os.File, textLimit int64) ([]byte, os.FileInfo, error) {
 	info, err := regular(file)
 	if err != nil {
 		return nil, nil, err
 	}
-	if info.Size() > TextLimit {
+	if info.Size() > textLimit {
 		return nil, nil, fail("too_large")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, TextLimit+1))
+	data, err := io.ReadAll(io.LimitReader(file, textLimit+1))
 	if err != nil {
 		return nil, nil, err
 	}
-	if int64(len(data)) > TextLimit {
+	if int64(len(data)) > textLimit {
 		return nil, nil, fail("too_large")
 	}
 	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
@@ -192,7 +193,7 @@ func (s *Store) Read(name string) (*Content, error) {
 		return nil, err
 	}
 	defer file.Close()
-	data, info, err := read(file)
+	data, info, err := read(file, s.limits.Text)
 	if err != nil {
 		return nil, err
 	}
@@ -287,14 +288,14 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 	if !utf8.ValidString(source) || strings.IndexByte(source, 0) >= 0 {
 		return "", fail("unsupported_file_type")
 	}
-	if int64(len(source)) > TextLimit {
-		return "", fail("too_large")
-	}
 	if !create && revision == "" {
 		return "", fail("precondition_required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if int64(len(source)) > s.limits.Text {
+		return "", fail("too_large")
+	}
 	parent, base, err := s.parent(name)
 	if err != nil {
 		return "", err
@@ -306,7 +307,7 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 		if err != nil {
 			return "", err
 		}
-		data, info, err := read(current)
+		data, info, err := read(current, s.limits.Text)
 		current.Close()
 		if err != nil {
 			return "", err
@@ -345,7 +346,7 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 		if err != nil {
 			return "", err
 		}
-		data, _, err := read(current)
+		data, _, err := read(current, s.limits.Text)
 		current.Close()
 		if err != nil {
 			return "", err

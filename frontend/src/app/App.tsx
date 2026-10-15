@@ -17,7 +17,7 @@ export default function App() {
   }, retry: false, staleTime: Infinity })
   useEffect(() => {
     const onExpired = () => { setExpired(workspace.list().some((session) => session.dirty)); setCSRF(''); client.setQueryData(['me'], null) }
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (workspace.list().some((session) => session.dirty || session.state === 'saving')) event.preventDefault() }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     window.addEventListener('beforeunload', beforeUnload)
     window.addEventListener('folio:unauthenticated', onExpired)
     return () => { window.removeEventListener('folio:unauthenticated', onExpired); window.removeEventListener('beforeunload', beforeUnload) }

@@ -1,9 +1,12 @@
 import { Crepe } from '@milkdown/crepe'
 import { editorViewOptionsCtx } from '@milkdown/kit/core'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
-import { $prose } from '@milkdown/kit/utils'
-import { Plugin } from '@milkdown/kit/prose/state'
+import { $view, $prose } from '@milkdown/kit/utils'
+import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { codeTheme } from '../theme'
+import { imageSchema } from '@milkdown/kit/preset/commonmark'
+import type { EditorView } from '@milkdown/kit/prose/view'
+import type { CrepeBridge } from './bridge'
 import '@milkdown/crepe/theme/common/prosemirror.css'
 import '@milkdown/crepe/theme/common/reset.css'
 import '@milkdown/crepe/theme/common/block-edit.css'
@@ -22,7 +25,7 @@ export function equivalentSource(source: string, serialized: string) {
   return withoutFinalNewline(source) === withoutFinalNewline(serialized)
 }
 
-export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: () => void) {
+export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: (message?: string) => void, bridge?: CrepeBridge) {
   const crepe = new Crepe({
     root, defaultValue: source,
     features: { [Crepe.Feature.AI]: false, [Crepe.Feature.TopBar]: false, [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.Latex]: false },
@@ -38,12 +41,69 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
       },
     },
   })
+  const uploads = new PluginKey<Map<symbol, number>>('folio-image-uploads')
+  const handleFiles = (view: EditorView, event: ClipboardEvent | DragEvent, files: FileList | undefined) => {
+    if (!bridge || !files?.length) return false
+    event.preventDefault()
+    const position = event instanceof DragEvent ? view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from : view.state.selection.from
+    for (const file of Array.from(files)) {
+      const id = Symbol('图片上传')
+      view.dispatch(view.state.tr.setMeta(uploads, { add: id, position }))
+      bridge.beginUpload()
+      void bridge.upload(file).then((url) => {
+        if (view.isDestroyed || (bridge.attached && !bridge.attached())) { bridge.detachedImage(url, file.name); return }
+        const pos = uploads.getState(view.state)?.get(id)
+        if (pos === undefined) { bridge.detachedImage(url, file.name); return }
+        try { view.dispatch(view.state.tr.replaceRangeWith(pos, pos, view.state.schema.nodes.image.create({ src: url, alt: file.name })).setMeta(uploads, { remove: id })) }
+        catch { bridge.detachedImage(url, file.name); onUnsupported?.('图片已上传，插入位置发生变化，已追加到原笔记末尾。') }
+      }).catch((error: unknown) => onUnsupported?.(error instanceof Error ? error.message : '图片上传失败，原文保持不变'))
+        .finally(() => {
+          if (!view.isDestroyed && (!bridge.attached || bridge.attached())) view.dispatch(view.state.tr.setMeta(uploads, { remove: id }))
+          bridge.endUpload()
+        })
+    }
+    return true
+  }
+  if (bridge) {
+    crepe.editor.use($prose(() => new Plugin({
+      key: uploads,
+      state: {
+        init: () => new Map(),
+        apply: (tr, state) => {
+          const next = new Map([...state].map(([key, position]) => [key, tr.mapping.map(position)]))
+          const action = tr.getMeta(uploads)
+          if (action?.add) next.set(action.add, action.position)
+          if (action?.remove) next.delete(action.remove)
+          return next
+        },
+      },
+      view: () => {
+        const handleLink = (event: MouseEvent) => {
+          const link = event.target instanceof Element ? event.target.closest('a') : null
+          if (!link) return
+          event.preventDefault(); event.stopPropagation(); bridge.openLink(link.getAttribute('href') ?? '')
+        }
+        root.addEventListener('click', handleLink, true)
+        return { destroy: () => root.removeEventListener('click', handleLink, true) }
+      },
+    })))
+    crepe.editor.use($view(imageSchema.node, () => (initialNode) => {
+      const image = document.createElement('img')
+      image.loading = 'lazy'; image.className = 'folio-markdown-image'
+      const bind = (node: typeof initialNode) => { const url = bridge.imageURL(node.attrs.src); if (url) image.src = url; else image.removeAttribute('src'); image.alt = node.attrs.alt ?? ''; image.title = node.attrs.title ?? '' }
+      bind(initialNode)
+      image.onerror = () => onUnsupported?.('笔记中的图片加载失败，请确认文件仍存在、格式受支持且登录有效。')
+      return { dom: image, update: (node) => { if (node.type !== initialNode.type) return false; bind(node); return true }, destroy: () => { image.onerror = null } }
+    }))
+  }
   crepe.editor.config((ctx) => {
-    // M0 无上传端点，禁止默认生成无法持久化的 blob 图片地址。
+    // 不使用库的临时 blob 上传；真实上传由带会话保护的桥接处理。
     ctx.update(uploadConfig.key, (prev) => ({ ...prev, uploader: async () => { onUnsupported?.(); return [] } }))
     ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev,
       attributes: { 'aria-label': 'Markdown 富文本编辑器', role: 'textbox', 'aria-multiline': 'true' },
       handleDOMEvents: {
+        paste: (view, event) => handleFiles(view, event, event.clipboardData?.files),
+        drop: (view, event) => handleFiles(view, event, event.dataTransfer?.files),
         click: (_view, event) => {
           const link = (event.target as HTMLElement).closest('a')
           if (!link) return false

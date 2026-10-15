@@ -4,7 +4,7 @@
 
 技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；后续使用嵌入式 SQLite 保存索引和应用元数据。UI、必要的代码注释及实现说明默认使用中文。
 
-**当前进度：M1 实施中。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。上传、回收站、文件预览和容器交付尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
+**当前进度：M1 实施中。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。现已支持附件上传、位图/PDF预览、原文件下载与 Markdown 图片。重命名/移动、回收站和容器交付尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
 
 ## 本地运行
 
@@ -33,6 +33,10 @@ make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 - `FOLIO_ORIGIN`：反向代理后的精确外部 origin，例如 `https://notes.example.com`。
 
 两个目录必须独立，不能相互包含。当前需要 Linux 5.6+、`openat2` 和 `/proc/self/fd`。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。
+
+上传默认上限为文本编辑 5 MiB、图片 20 MiB、PDF 50 MiB、其他附件 100 MiB，图片预览上限 3200 万像素。可分别用 `FOLIO_MAX_TEXT_BYTES`、`FOLIO_MAX_IMAGE_BYTES`、`FOLIO_MAX_PDF_BYTES`、`FOLIO_MAX_ATTACHMENT_BYTES`、`FOLIO_MAX_IMAGE_PIXELS` 配置，上传总上限最大 1 GiB。设置仅在启动时读取；`GET /api/v1/settings` 返回当前限制。
+
+PDF 采用浏览器 canvas 预览；加密文档和部分复杂字体/大图应下载原文件核对。SVG/HTML 不作为活动页面打开，未知二进制只提供下载。
 
 ## 验证
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"folio/internal/storage"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 type Config struct {
 	Addr, Workspace, AppData, InitialPassword, Origin string
 	SecureCookie                                      bool
+	Limits                                            storage.Limits
 }
 
 func Load() (Config, error) {
@@ -74,6 +76,16 @@ func Load() (Config, error) {
 			return c, err
 		}
 		c.InitialPassword = strings.TrimSuffix(strings.TrimSuffix(string(bytes), "\n"), "\r")
+	}
+	c.Limits = storage.DefaultLimits
+	for key, target := range map[string]*int64{"FOLIO_MAX_TEXT_BYTES": &c.Limits.Text, "FOLIO_MAX_IMAGE_BYTES": &c.Limits.Image, "FOLIO_MAX_PDF_BYTES": &c.Limits.PDF, "FOLIO_MAX_ATTACHMENT_BYTES": &c.Limits.Attachment, "FOLIO_MAX_IMAGE_PIXELS": &c.Limits.ImagePixels} {
+		if raw := os.Getenv(key); raw != "" {
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || value < 1 {
+				return c, errors.New(key + " 必须是正整数")
+			}
+			*target = value
+		}
 	}
 	return c, nil
 }

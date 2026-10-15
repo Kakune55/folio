@@ -4,6 +4,8 @@ export class ApiError extends Error {
   details?: Record<string, string>
   constructor(status: number, code: string, message: string, details?: Record<string, string>) { super(message); this.status = status; this.code = code; this.details = details }
 }
+export type ViewerKind = 'markdown' | 'text' | 'image' | 'pdf' | 'binary'
+export type FileMetadata = { path: string; size: number; mediaType: string; viewer: ViewerKind; mtime: string }
 export type Principal = { username: string; csrfToken: string }
 export type FileContent = { path: string; content: string; revision: string; size: number; encoding: string; mtime: string; kind: string }
 export type Entry = { name: string; path: string; kind: 'directory' | 'file'; size: number }
@@ -24,6 +26,7 @@ export const api = {
   login: async (username: string, password: string) => { const principal = await request<Principal>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setCSRF(principal.csrfToken); return principal },
   logout: () => request('/auth/logout', { method: 'POST' }),
   tree: (path: string, offset = 0) => request<TreePage>(`/workspace/tree?path=${encodeURIComponent(path)}&offset=${offset}`),
+  metadata: (path: string) => request<FileMetadata>(`/files/metadata?path=${encodeURIComponent(path)}`),
   read: (path: string) => request<FileContent>(`/files/content?path=${encodeURIComponent(path)}`),
   write: (path: string, content: string, revision: string) => request<{ revision: string }>(`/files/content?path=${encodeURIComponent(path)}`, { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ content, encoding: 'utf-8' }) }),
   create: (path: string, content = '') => request<{ path: string; revision: string }>('/files', { method: 'POST', headers: { 'If-None-Match': '*' }, body: JSON.stringify({ path, content, encoding: 'utf-8' }) }),
@@ -37,4 +40,32 @@ export function downloadDraft(path: string, source: string) {
   const url = URL.createObjectURL(new Blob([source], { type: 'text/plain;charset=utf-8' }))
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = path.split('/').at(-1) ?? path; anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export const fileURL = (path: string, preview = false) => `/api/v1/files/${preview ? 'preview' : 'download'}?path=${encodeURIComponent(path)}`
+export function uploadFile(file: File, directory: string, onProgress?: (percent: number) => void, imageOnly = false, signal?: AbortSignal): Promise<FileMetadata> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/api/v1/uploads?directory=${encodeURIComponent(directory)}&image=${imageOnly}`)
+    xhr.withCredentials = true; xhr.setRequestHeader('X-CSRF-Token', csrf); xhr.timeout = 120_000
+    const abort = () => xhr.abort()
+    if (signal?.aborted) { reject(new Error('上传已取消')); return }
+    signal?.addEventListener('abort', abort, { once: true })
+    const finish = () => signal?.removeEventListener('abort', abort)
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress?.(Math.round(event.loaded / event.total * 100)) }
+    xhr.onerror = () => { finish(); reject(new Error('网络中断，上传结果待确认，请刷新目录后重试')) }
+    xhr.ontimeout = () => { finish(); reject(new Error('上传超时，请确认目录中的文件后重试')) }
+    xhr.onabort = () => { finish(); reject(new Error('上传已取消，请确认服务端是否已接收文件')) }
+    xhr.onload = () => {
+      finish()
+      let body: FileMetadata & { error?: { code: string; message: string } }
+      try { body = JSON.parse(xhr.responseText) } catch { reject(new Error(`上传响应无效（${xhr.status}），请确认文件是否已接收`)); return }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body)
+      else {
+        if (xhr.status === 401) window.dispatchEvent(new Event('folio:unauthenticated'))
+        reject(new ApiError(xhr.status, body.error?.code ?? 'upload_failed', body.error?.message ?? '上传失败'))
+      }
+    }
+    const form = new FormData(); form.append('file', file); xhr.send(form)
+  })
 }

@@ -1,18 +1,19 @@
-import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
-import { api, downloadDraft } from '../services/api'
+import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import type { FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
 import { useUI } from '../stores/ui'
 import { Explorer } from '../features/explorer/Explorer'
 import type { Session } from '../sessions/workspace'
+import { DocumentEditor } from '../editors/registry'
+import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/milkdown/bridge'
+import type { CrepeBridge } from '../editors/milkdown/bridge'
 
-const RichEditor = lazy(() => import('../editors/milkdown/RichEditor'))
-const SourceEditor = lazy(() => import('../editors/codemirror/SourceEditor'))
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path)
 const basename = (path: string) => path.split('/').at(-1) ?? path
 const saveLabels = { saved: '已保存', dirty: '未保存', saving: '正在保存…', error: '保存失败 · 草稿已保留', conflict: '版本冲突 · 草稿已保留' }
@@ -30,6 +31,8 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
   const [directory, setDirectory] = useState('')
   const [notice, setNotice] = useState('')
+  const uploadInput = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [createKind, setCreateKind] = useState<'file' | 'directory' | null>(null)
   const [name, setName] = useState('')
@@ -49,22 +52,60 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     if (workspace.has(path)) { open(path); setLoading(false); return }
     setLoading(true)
     try {
-      const file = await api.read(path)
+      const metadata = await api.metadata(path)
+      const file = ['markdown', 'text'].includes(metadata.viewer) ? await api.read(path) : undefined
       if (sequence !== requestSequence.current) return
-      workspace.add({ path, source: file.content, revision: file.revision, mode: isMarkdown(path) ? 'rich' : 'source' })
+      workspace.add({ path, source: file?.content ?? '', revision: file?.revision ?? '', viewer: metadata.viewer, metadata, mode: metadata.viewer === 'markdown' ? 'rich' : 'source' })
       open(path)
     } catch (error) { if (sequence === requestSequence.current) setNotice(error instanceof Error ? error.message : '文件打开失败') }
     finally { if (sequence === requestSequence.current) setLoading(false) }
   }, [open, setNotice, setLoading])
 
+  const bridge = useMemo<CrepeBridge | undefined>(() => current?.viewer === 'markdown' ? {
+    beginUpload: () => workspace.beginUpload(current.path),
+    endUpload: () => workspace.endUpload(current.path),
+    upload: async (file) => {
+      const extension = /\.(png|jpg|jpeg|webp|gif)$/i.exec(file.name)?.[1] ?? ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[file.type] ?? 'png'
+      const named = new File([file], `image-${crypto.randomUUID().slice(0, 12)}.${extension}`, { type: file.type })
+      const parent = current.path.split('/').slice(0, -1).join('/')
+      const metadata = await uploadFile(named, parent, (percent) => setNotice(`${basename(current.path)}：正在上传图片 ${percent}%`), true)
+      void client.invalidateQueries({ queryKey: ['tree'] }); setNotice(`${basename(current.path)}：图片已上传。`)
+      return relativeFileLink(current.path, metadata.path)
+    },
+    imageURL: (href) => { try { return fileURL(resolveFileLink(current.path, href), true) } catch { return '' } },
+    openLink: (href) => {
+      try {
+        if (/^https?:\/\//i.test(href)) { const url = new URL(href); window.open(url.href, '_blank', 'noopener,noreferrer'); return }
+        if (href.startsWith('#')) { setNotice('当前版本暂不支持段内锚点跳转。'); return }
+        void openFile(resolveFileLink(current.path, href))
+      } catch (error) { setNotice(error instanceof Error ? error.message : '此链接不受支持') }
+    },
+    detachedImage: (url, alt) => workspace.appendAttachment(current.path, imageMarkdown(url, alt)),
+  } : undefined, [current, client, openFile, setNotice])
+  const uploadAttachments = async (files: File[]) => {
+    if (uploading || files.length === 0) return
+    setUploading(true)
+    const failures: string[] = []
+    let completed = 0
+    try {
+      for (const file of files) {
+        try {
+          await uploadFile(file, directory, (percent) => setNotice(`正在上传 ${file.name} · ${percent}%`))
+          completed++; void client.invalidateQueries({ queryKey: ['tree'] })
+        } catch (error) { failures.push(`${file.name}：${error instanceof Error ? error.message : '上传失败'}`) }
+      }
+      setNotice(failures.length ? `已上传 ${completed} 个文件。以下文件未确认成功，请检查后重试：${failures.join('；')}` : `已上传 ${completed} 个文件。`)
+    } finally { setUploading(false); if (uploadInput.current) uploadInput.current.value = '' }
+  }
+
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (workspace.list().some((session) => session.dirty || session.state === 'saving')) event.preventDefault() }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path)) void workspace.save(path) }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
     }
     window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown)
     return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown) }
-  }, [])
+  }, [uploading])
 
   const closeFile = async (session: Session) => {
     if (!(await workspace.flush(session.path))) { setNotice('此文件尚未保存，已保留标签页。请重试保存或先处理冲突。'); return }
@@ -93,10 +134,11 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     finally { setBusy(false) }
   }
 
-  return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`}>
+  return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
-      <div className="topbar-actions"><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
-        <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" onClick={async () => {
+      <input ref={uploadInput} className="visually-hidden" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
+      <div className="topbar-actions"><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
+        <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
         }}><LogOut size={17} /></Button></div>
@@ -116,14 +158,14 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     </div></div>
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
-        {isMarkdown(current.path) && <div className="mode-switch" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
-        <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button><Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button>
+        {current.viewer === 'markdown' && <div className="mode-switch" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
+        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
       </div></div>}
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
-      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>{isMarkdown(current.path) && current.mode === 'rich' ? <RichEditor session={current} sessions={workspace} onBlocked={onBlocked} /> : <SourceEditor session={current} sessions={workspace} />}</Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
-    <footer className="statusbar"><span className="save-status" role="status">{current ? saveLabels[current.state] : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+    <footer className="statusbar"><span className="save-status" role="status">{current ? current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content">
       <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>

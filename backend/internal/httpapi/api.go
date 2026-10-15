@@ -42,8 +42,8 @@ func storageError(w http.ResponseWriter, err error) {
 		writeError(w, 500, "internal_error", "文件操作失败，草稿已保留，请检查服务日志和磁盘状态", nil)
 		return
 	}
-	statuses := map[string]int{"path_invalid": 400, "not_found": 404, "target_exists": 409, "forbidden": 403, "unsupported_file_type": 415, "too_large": 413, "revision_conflict": 412, "precondition_required": 428, "file_changed": 409, "durability_uncertain": 500}
-	messages := map[string]string{"path_invalid": "路径不安全或不受支持", "not_found": "文件或目录不存在", "target_exists": "同名文件或目录已存在", "forbidden": "没有操作权限", "unsupported_file_type": "仅支持普通 UTF-8 文本，拒绝特殊文件及硬链接", "too_large": "文本超过 5 MiB 限制", "revision_conflict": "文件已被其他编辑器修改，请比较两个版本", "precondition_required": "保存必须携带读取时的版本", "file_changed": "读取或操作期间文件发生变化，请重试", "durability_uncertain": "文件已替换，但目录同步失败，保存持久性待确认；请保留草稿并重新读取"}
+	statuses := map[string]int{"path_invalid": 400, "not_found": 404, "target_exists": 409, "forbidden": 403, "unsupported_file_type": 415, "too_large": 413, "revision_conflict": 412, "precondition_required": 428, "file_changed": 409, "durability_uncertain": 500, "preview_unavailable": 415}
+	messages := map[string]string{"path_invalid": "路径不安全或不受支持", "not_found": "文件或目录不存在", "target_exists": "同名文件或目录已存在", "forbidden": "没有操作权限", "unsupported_file_type": "仅支持普通 UTF-8 文本，拒绝特殊文件及硬链接", "too_large": "文件超过此类型的大小限制", "revision_conflict": "文件已被其他编辑器修改，请比较两个版本", "preview_unavailable": "此文件不支持安全预览或超过预览限制，请下载查看", "precondition_required": "保存必须携带读取时的版本", "file_changed": "读取或操作期间文件发生变化，请重试", "durability_uncertain": "文件已替换，但目录同步失败，保存持久性待确认；请保留草稿并重新读取"}
 	status := statuses[problem.Code]
 	if status == 0 {
 		status = 500
@@ -139,6 +139,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerAttachments(mux)
 	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if a.Auth == nil {
 			writeError(w, 503, "unavailable", "认证服务不可用", nil)
@@ -250,7 +251,7 @@ func (a *api) write(w http.ResponseWriter, r *http.Request, create bool) {
 		Encoding string `json:"encoding"`
 	}
 	// JSON 对控制字符的转义最多放大六倍，真正的正文限制仍由存储层执行。
-	if !decodeJSON(w, r, storage.TextLimit*6+16384, &body) {
+	if !decodeJSON(w, r, a.Workspace.Limits().Text*6+16384, &body) {
 		return
 	}
 	if body.Encoding != "" && body.Encoding != "utf-8" {

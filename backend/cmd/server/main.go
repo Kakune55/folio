@@ -27,6 +27,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer store.Close()
+	if err = store.SetLimits(cfg.Limits); err != nil {
+		log.Fatal(err)
+	}
 	accounts, err := auth.Open(cfg.AppData, cfg.InitialPassword)
 	if err != nil {
 		log.Fatal(err)

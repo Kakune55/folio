@@ -46,3 +46,14 @@ describe('条件自动保存', () => {
     expect(sessions.remove('甲.md')).toBe(false)
   })
 })
+
+it('异步图片回到原会话，上传中不关闭标签页', async () => {
+  const sessions = new WorkspaceSessions([{ path: '笔记.md', source: '正文\n', mode: 'rich' }])
+  sessions.beginUpload('笔记.md')
+  expect(sessions.remove('笔记.md')).toBe(false)
+  expect(await sessions.flush('笔记.md')).toBe(false)
+  sessions.setMode('笔记.md', 'source')
+  sessions.appendAttachment('笔记.md', '![图](./image.png)')
+  sessions.endUpload('笔记.md')
+  expect(sessions.get('笔记.md')).toMatchObject({ source: '正文\n\n![图](./image.png)\n', dirty: true, pendingUploads: 0, generation: 1 })
+})

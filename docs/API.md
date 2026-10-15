@@ -17,6 +17,7 @@ Base path `/api/v1`, JSON except streaming file upload/download. All routes requ
 | POST | `/auth/logout` | Revoke session |
 | GET | `/auth/me` | Current principal + CSRF token/metadata |
 | GET | `/workspace/tree?path=` | List immediate children of directory |
+| GET | `/files/metadata?path=` | Classify an authenticated regular file for editor/viewer dispatch |
 | GET | `/files/content?path=` | Read bounded text with revision, encoding, metadata |
 | PUT | `/files/content?path=` | Update existing text, conditional revision required |
 | POST | `/files` | Create empty/text file only if absent |
@@ -67,12 +68,22 @@ Moves must reject target collision unless an explicit separate policy is later s
 ## Security notes
 Authenticated downloads use correct `Content-Disposition` and `X-Content-Type-Options: nosniff`. Raw HTML/SVG must not execute in the app's origin. URL path normalization + filesystem-level race protection are mandatory. Session cookies are HttpOnly, Secure under HTTPS, SameSite; mutation endpoints enforce CSRF. Upload streaming applies size limits independently of declared Content-Length.
 
-## Implemented status (M1, first slice)
+## Implemented status (M1, first two slices)
 
-Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories. Other routes above remain proposed.
+Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories, metadata, uploads, authenticated downloads/previews and read-only GET settings. Other routes above remain proposed.
 
 Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaults to 200 (maximum 1000). Response is `{entries:[{name,path,kind,size}],total,offset,limit}`; `kind` is `directory` or `file`. Unsafe entries are omitted. Pagination is not a filesystem snapshot.
 
 Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
 
 Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.
+
+### Attachment contract
+
+`GET /files/metadata?path=` returns `{path,size,mtime,mediaType,viewer}`. `viewer` is `markdown`, `text`, `image`, `pdf` or `binary`. Classification inspects actual bytes; special files, symlinks and hardlinks remain forbidden. SVG/HTML are never active previews.
+
+`POST /uploads?directory=&image=false` requires one multipart part named `file`. The raw filename must be a basename; traversal is rejected, not silently stripped. `image=true` requires a supported, bounded raster image (clipboard/drop bridge). Success 201 returns the same metadata shape. Same-name files are rejected with 409, limits with 413, image-only/preview incompatibility with `preview_unavailable` (415). More than one part or an incomplete body never commits a target file. Multiple files use separate requests and are not transactional as a batch.
+
+Download always uses attachment disposition and octet-stream. Preview allows only validated supported raster images or a bounded PDF header type, with a sandbox CSP and nosniff; the client renders PDFs through PDF.js canvas rather than HTML/plugin embedding. Range downloads are supported by the Go HTTP file response. No archive extraction exists.
+
+`GET /settings` returns `{limits:{text,image,pdf,attachment,imagePixels}}` with byte counts, except imagePixels. Limits are startup configuration; PATCH settings is not yet implemented.
