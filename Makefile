@@ -1,4 +1,6 @@
-.PHONY: install dev api build run test
+CONTAINER_ENGINE ?= docker
+
+.PHONY: install dev api build run test tls image container-test
 install:
 	cd frontend && npm ci
 
@@ -19,3 +21,12 @@ run: build
 test:
 	cd frontend && npm run lint && npm test && npm run test:e2e
 	cd backend && go test ./...
+
+tls:
+	sh scripts/setup-local-tls.sh
+
+image:
+	$(CONTAINER_ENGINE) build -t folio:local .
+
+container-test:
+	python3 scripts/container-acceptance.py

@@ -1,0 +1,26 @@
+services:
+  folio:
+    build: .
+    image: folio:local
+    init: true
+    user: "${FOLIO_UID:-1000}:${FOLIO_GID:-1000}"
+    ports:
+      - "127.0.0.1:${FOLIO_PORT:-8443}:8080"
+    environment:
+      FOLIO_ORIGIN: "${FOLIO_ORIGIN:-https://localhost:${FOLIO_PORT:-8443}}"
+      FOLIO_TLS_CERT: /app-data/tls/server.crt
+      FOLIO_TLS_KEY: /app-data/tls/server.key
+    volumes:
+      - ./workspace:/workspace
+      - ./app-data:/app-data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    restart: unless-stopped
+    stop_grace_period: 15s

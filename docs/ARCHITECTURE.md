@@ -5,7 +5,7 @@ A Vite-built React SPA is embedded into a Go binary using `embed`. Go serves bot
 - `/workspace`: user content; the sole authority for file bytes.
 - `/app-data`: SQLite index/settings/auth, trash and optional draft recovery metadata.
 
-Caddy/Traefik terminates HTTPS in typical deployments; the Go server listens internally. No cloud dependencies, no background job platform, no Serverless runtime.
+An existing Caddy/Traefik can terminate HTTPS with Go listening internally; alternatively Go serves TLS directly from a configured certificate/key pair. No additional proxy service is bundled. No cloud dependencies, no background job platform, no Serverless runtime.
 
 ## 2. Frontend modules
 - `app/`: routing, global providers, shell and error boundaries.

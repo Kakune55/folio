@@ -1,0 +1,7 @@
+# 使用已有的 HTTPS 反向代理时，关闭容器内部 TLS；外部 origin 仍必须为 HTTPS。
+services:
+  folio:
+    environment:
+      FOLIO_ORIGIN: "${FOLIO_ORIGIN:?请设置外部 HTTPS origin}"
+      FOLIO_TLS_CERT: ""
+      FOLIO_TLS_KEY: ""

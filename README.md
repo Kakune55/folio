@@ -2,9 +2,9 @@
 
 轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。真实文件是内容的唯一权威来源。
 
-技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；后续使用嵌入式 SQLite 保存索引和应用元数据。UI、必要的代码注释及实现说明默认使用中文。
+技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；嵌入式 SQLite 保存账号/会话，搜索索引按 M2 推进。UI、必要的代码注释及实现说明默认使用中文。
 
-**当前进度：M1 实施中。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。现已支持附件上传、位图/PDF预览、原文件下载与 Markdown 图片。基础重命名/移动与回收站恢复已接入，容器交付和整体验收尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
+**当前进度：M1 已通过验收，继续推进 M2。** 已连接真实文件，支持单用户登录、目录与文本创建、Markdown/源码编辑、条件自动保存和冲突另存副本。现已支持附件上传、位图/PDF预览、原文件下载与 Markdown 图片。基础重命名/移动与回收站恢复已接入，单容器交付及 M1 整体验收已完成（amd64 原生、arm64 QEMU）；搜索、外部变更提示与持久化草稿恢复尚未完成。未成功保存的草稿仍只驻留在页面内存中，可下载保留。
 
 ## 本地运行
 
@@ -24,12 +24,17 @@ make api  # Go，127.0.0.1:8080
 make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 ```
 
+## 容器部署
+
+已提供 Dockerfile、Compose、直接 HTTPS/已有代理配置与两种 Linux 架构构建。部署命令、证书、挂载和实际验收边界见 [部署说明](docs/DEPLOY.md)。本地预览仍可使用 `make run`。
+
 ## 数据目录与部署配置
 
 - `FOLIO_WORKSPACE`：真实文件目录，默认 `./workspace`。
 - `FOLIO_APP_DATA`：账号、会话和后续索引，默认 `./app-data`。
 - `FOLIO_PASSWORD_FILE`：只用于首次初始化账号，后续启动不会重置既有密码。
 - `FOLIO_SECURE_COOKIE`：默认 `true`；`false` 仅允许绑定回环 IP。
+- `FOLIO_TLS_CERT` / `FOLIO_TLS_KEY`：可选的直接 HTTPS 证书链和私钥，必须同时设置。
 - `FOLIO_ORIGIN`：反向代理后的精确外部 origin，例如 `https://notes.example.com`。
 
 两个目录必须独立，不能相互包含。当前需要 Linux 5.6+、`openat2` 和 `/proc/self/fd`。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。

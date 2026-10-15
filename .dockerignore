@@ -1,0 +1,22 @@
+# 只发送应用源码和锁文件，工作区、账号数据与本地密钥不进入构建上下文。
+**
+!Dockerfile
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/tsconfig*.json
+!frontend/vite.config.ts
+!frontend/src/
+!frontend/src/**
+!backend/
+!backend/go.mod
+!backend/go.sum
+!backend/cmd/
+!backend/cmd/**
+!backend/internal/
+!backend/internal/**
+!backend/web/
+!backend/web/embed.go
+!backend/web/dist/
+!backend/web/dist/.gitkeep

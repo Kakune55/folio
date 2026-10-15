@@ -1,0 +1,113 @@
+// 容器验收专用浏览器驱动，不连接使用者的工作区。
+import { chromium, expect } from '@playwright/test'
+import { readFile, writeFile, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const phase = process.argv[2]
+const url = process.env.FOLIO_ACCEPT_URL
+const data = process.env.FOLIO_ACCEPT_DATA
+const profile = process.env.FOLIO_ACCEPT_PROFILE
+if (!url || !data || !profile) throw new Error('缺少容器验收环境配置')
+const workspace = path.join(data, 'workspace')
+const fixture = fileURLToPath(new URL('../tests/fixtures/preview.png', import.meta.url))
+const errors = []
+const context = await chromium.launchPersistentContext(profile, { executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome', args: ['--no-sandbox'], ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+const page = await context.newPage()
+page.on('pageerror', (error) => errors.push(error.message))
+await page.addInitScript(() => { window.policyFailures = []; document.addEventListener('securitypolicyviolation', (event) => window.policyFailures.push(event.violatedDirective)) })
+const report = { phase, url, checks: {}, errors }
+const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
+async function create(kind, name) {
+  await page.getByRole('button', { name: `新建${kind}`, exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('名称', { exact: true }).fill(name)
+  await dialog.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+}
+try {
+  await page.goto(url)
+  if (phase === 'write') {
+    await page.getByLabel('密码', { exact: true }).fill(process.env.FOLIO_ACCEPT_PASSWORD)
+    await page.getByRole('button', { name: '进入工作区' }).click()
+    await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+    await create('文件夹', '容器验收')
+    await create('笔记', '笔记.md')
+    const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+    await rich.fill('容器中的 Markdown 正文。')
+    const png = await readFile(fixture)
+    await rich.evaluate((element, bytes) => {
+      const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array(bytes)], '验收图片.png', { type: 'image/png' }))
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+    }, [...png])
+    await expect(page.locator('.folio-markdown-image')).toBeVisible()
+    await expect.poll(() => page.locator('.folio-markdown-image').evaluate((image) => image.naturalWidth)).toBe(320)
+    await expect(page.locator('.save-status')).toHaveText('已保存')
+    await create('笔记', '配置.json')
+    await page.getByRole('textbox', { name: '源码编辑器' }).fill('{"容器":true,"保存":"真实文件"}')
+    await expect(page.locator('.save-status')).toHaveText('已保存')
+    await page.getByRole('tab', { name: '笔记.md', exact: true }).click()
+    await expect(rich).toContainText('容器中的 Markdown 正文。')
+    const markdown = await readFile(path.join(workspace, '容器验收/笔记.md'), 'utf8')
+    expect(markdown).toContain('![验收图片.png](./image-')
+    expect(markdown).not.toContain('/api/')
+    const downloadPending = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载当前草稿' }).click()
+    expect(await readFile((await (await downloadPending).path()), 'utf8')).toBe(markdown)
+    const cookie = (await context.cookies()).find((value) => value.name === 'folio_session')
+    expect(cookie?.secure).toBe(true); expect(cookie?.httpOnly).toBe(true); expect(cookie?.sameSite).toBe('Strict')
+    expect(cookie.expires).toBeGreaterThan(Date.now() / 1000)
+    report.checks = { createFolder: true, richMarkdown: true, pasteImage: true, json: true, tabIsolation: true, realFile: true, standardRelativeImage: true, downloadDraft: true, securePersistentCookie: true, markdownHash: hash(markdown) }
+  } else if (phase === 'verify') {
+    await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+    await expect(page.getByLabel('密码', { exact: true })).not.toBeVisible()
+    await page.getByRole('button', { name: '容器验收', exact: true }).click()
+    await page.getByRole('button', { name: '笔记.md', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toContainText('容器中的 Markdown 正文。')
+    await expect(page.locator('.folio-markdown-image')).toBeVisible()
+    await expect.poll(() => page.locator('.folio-markdown-image').evaluate((image) => image.naturalWidth)).toBe(320)
+    await page.getByRole('button', { name: '配置.json', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('"保存":"真实文件"')
+    await page.getByRole('tab', { name: '笔记.md', exact: true }).click()
+    await page.getByRole('button', { name: '源码', exact: true }).click()
+    const source = page.getByRole('textbox', { name: '源码编辑器' })
+    const original = await readFile(path.join(workspace, '容器验收/笔记.md'), 'utf8')
+    const external = `${original}\n外部编辑器保存的新内容。\n`
+    await writeFile(path.join(workspace, '容器验收/笔记.md'), external)
+    await source.fill('# 本地冲突草稿\n\n这份草稿不能覆盖外部更新。\n')
+    await page.getByRole('button', { name: '保存当前文件' }).click()
+    await expect(page.locator('.save-status')).toContainText('版本冲突')
+    await expect(source).toContainText('本地冲突草稿')
+    await page.getByRole('button', { name: '比较版本' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByLabel('磁盘版本')).toHaveValue(external)
+    await dialog.getByRole('button', { name: '保留本地副本并加载磁盘版本' }).click()
+    await expect(dialog).not.toBeVisible()
+    expect(await readFile(path.join(workspace, '容器验收/笔记.md'), 'utf8')).toBe(external)
+    const files = await readdir(path.join(workspace, '容器验收'))
+    const copy = files.find((name) => name.includes('.本地-'))
+    expect(await readFile(path.join(workspace, '容器验收', copy), 'utf8')).toContain('本地冲突草稿')
+    const image = files.find((name) => name.startsWith('image-') && name.endsWith('.png'))
+    await page.getByRole('button', { name: image, exact: true }).click()
+    const pending = page.waitForEvent('download')
+    await page.getByRole('link', { name: '下载文件', exact: true }).first().click()
+    const downloaded = await readFile((await (await pending).path()))
+    expect(downloaded).toEqual(await readFile(fixture))
+    await page.getByRole('button', { name: '文件操作 容器验收', exact: true }).click()
+    await page.getByRole('menuitem', { name: '移到回收站', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '移到回收站', exact: true }).click()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await page.getByRole('button', { name: '打开回收站' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '恢复', exact: true }).click()
+    await expect(page.getByRole('dialog').getByText('已恢复 容器验收', { exact: true })).toBeVisible()
+    expect(await readFile(path.join(workspace, '容器验收/笔记.md'), 'utf8')).toBe(external)
+    expect(await readFile(path.join(workspace, '容器验收', image))).toEqual(await readFile(fixture))
+    report.checks = { containerTrashRestore: true, reopenedBrowserSession: true, containerRestartContent: true, imageAfterRestart: true, jsonAfterRestart: true, externalStaleWriteRejected: true, localDraftPreserved: true, separateCopy: copy, externalFilePreserved: true, attachmentDownload: true, imageHash: hash(downloaded) }
+    await page.screenshot({ path: path.join(process.env.FOLIO_ACCEPT_EVIDENCE, `acceptance-${process.env.FOLIO_ACCEPT_ARCH}.png`) })
+  } else throw new Error('未知验收阶段')
+  report.cspViolations = await page.evaluate(() => window.policyFailures)
+  expect(report.cspViolations).toEqual([]); expect(errors).toEqual([])
+  await writeFile(path.join(data, `${phase}.json`), JSON.stringify(report, null, 2))
+  console.log(`容器浏览器验收 ${phase}：通过`)
+} finally { await context.close() }

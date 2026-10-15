@@ -4,6 +4,7 @@ import (
 	"errors"
 	"folio/internal/storage"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 )
 
 type Config struct {
+	TLSCert, TLSKey                                   string
 	Addr, Workspace, AppData, InitialPassword, Origin string
 	SecureCookie                                      bool
 	Limits                                            storage.Limits
@@ -36,6 +38,20 @@ func Load() (Config, error) {
 		ip := net.ParseIP(host)
 		if err != nil || ip == nil || !ip.IsLoopback() {
 			return c, errors.New("非 HTTPS Cookie 仅允许绑定回环 IP")
+		}
+	}
+	c.TLSCert = os.Getenv("FOLIO_TLS_CERT")
+	c.TLSKey = os.Getenv("FOLIO_TLS_KEY")
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return c, errors.New("FOLIO_TLS_CERT 和 FOLIO_TLS_KEY 必须同时配置")
+	}
+	if c.Origin != "" {
+		origin, err := url.Parse(c.Origin)
+		if err != nil || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" || (origin.Scheme != "https" && origin.Scheme != "http") {
+			return c, errors.New("FOLIO_ORIGIN 必须是没有路径的完整 HTTP(S) origin")
+		}
+		if c.SecureCookie && origin.Scheme != "https" {
+			return c, errors.New("安全 Cookie 要求 HTTPS origin")
 		}
 	}
 	for _, dir := range []string{c.Workspace, c.AppData} {

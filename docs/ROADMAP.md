@@ -19,7 +19,7 @@ M0 implementation and verification notes: [`M0.md`](M0.md). This remains an in-m
 - Single Docker image and two mounts.
 **Exit gate:** end-to-end demo from SPEC acceptance; path security and stale-write tests pass.
 
-M1 is in progress. The auth/real-file/conditional-save attachment/viewer and file-operation/trash slices are recorded in [`M1.md`](M1.md); the whole M1 exit gate has not been passed.
+M1 exit gate passed on 2026-10-15: native amd64 and QEMU-user arm64 HTTPS container acceptance. Evidence and explicit runtime limits are recorded in [`M1.md`](M1.md), deployment instructions in [`DEPLOY.md`](DEPLOY.md). M3 security/recovery/performance QA remains outstanding.
 
 ## M2 — Workflow polish
 - Search (Chinese and English fixtures), quick-open.

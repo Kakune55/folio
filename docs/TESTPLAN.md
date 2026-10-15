@@ -24,3 +24,7 @@ Include headings, emphasis, escaped markup, code fences, language annotations, n
 
 ## Test priority
 P0: content preservation, auth, path isolation, concurrency. P1: edit/upload/search/restore. P2: visual polish, speed and convenience. Every P0 scenario must have automated coverage before public exposure.
+
+## Reproducible container gate
+
+`make image && make container-test` uses isolated mounts and a persistent Chromium profile, then closes the browser, restarts the container and reopens the browser before validating a real external-file stale-write conflict and trash restore. Set `CONTAINER_ENGINE=podman` for a rootless runtime; optional `FOLIO_TEST_QEMU` explicitly marks an emulated run. It writes per-architecture evidence under `artifacts/container/`; see `M1.md` for observed results and `DEPLOY.md` for prerequisites. This gate does not replace the M3 fault/backup/security/accessibility matrix.
