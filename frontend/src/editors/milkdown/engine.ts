@@ -47,9 +47,9 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     event.preventDefault()
     const position = event instanceof DragEvent ? view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from : view.state.selection.from
     for (const file of Array.from(files)) {
+      if (!bridge.beginUpload()) { onUnsupported?.('文件操作正在进行，请稍后再粘贴图片。'); continue }
       const id = Symbol('图片上传')
       view.dispatch(view.state.tr.setMeta(uploads, { add: id, position }))
-      bridge.beginUpload()
       void bridge.upload(file).then((url) => {
         if (view.isDestroyed || (bridge.attached && !bridge.attached())) { bridge.detachedImage(url, file.name); return }
         const pos = uploads.getState(view.state)?.get(id)

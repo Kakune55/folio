@@ -153,7 +153,18 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	if err := ValidPath(full, false); err != nil {
 		return nil, err
 	}
-	limits := s.Limits()
+	s.mu.Lock()
+	s.uploads[full]++
+	limits := s.limits
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.uploads[full]--
+		if s.uploads[full] == 0 {
+			delete(s.uploads, full)
+		}
+		s.mu.Unlock()
+	}()
 	parent, base, err := s.parent(full)
 	if err != nil {
 		return nil, err

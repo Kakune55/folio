@@ -57,3 +57,22 @@ it('异步图片回到原会话，上传中不关闭标签页', async () => {
   sessions.endUpload('笔记.md')
   expect(sessions.get('笔记.md')).toMatchObject({ source: '正文\n\n![图](./image.png)\n', dirty: true, pendingUploads: 0, generation: 1 })
 })
+
+it('移动目录同步重映射会话，并阻止目标路径与进行中的保存互相覆盖', async () => {
+  const calls: string[] = []
+  const sessions = new WorkspaceSessions([{ path: '旧目录/笔记.md', source: '正文', mode: 'rich', revision: 'v1' }], async (path) => { calls.push(path); return { revision: 'v2' } })
+  sessions.update('旧目录/笔记.md', '未保存的修改')
+  const affected = sessions.lockTree('旧目录', '新目录')
+  expect(sessions.beginUpload('旧目录/笔记.md')).toBe(false)
+  expect(await sessions.save('旧目录/笔记.md')).toBe(false)
+  expect(sessions.remove('旧目录/笔记.md')).toBe(false)
+  expect(() => sessions.add({ path: '新目录/笔记.md', source: '不能抢占', mode: 'source' })).toThrow()
+  expect(await sessions.flush('旧目录/笔记.md', true)).toBe(true)
+  sessions.remap('旧目录', '新目录')
+  sessions.unlock(affected, ['旧目录', '新目录'])
+  expect(sessions.get('新目录/笔记.md')).toMatchObject({ source: '未保存的修改', revision: 'v2', dirty: false, locked: false })
+  expect(sessions.has('旧目录/笔记.md')).toBe(false)
+  sessions.update('新目录/笔记.md', '继续编辑')
+  await sessions.flush('新目录/笔记.md')
+  expect(calls).toEqual(['旧目录/笔记.md', '新目录/笔记.md'])
+})

@@ -6,6 +6,9 @@ export class ApiError extends Error {
 }
 export type ViewerKind = 'markdown' | 'text' | 'image' | 'pdf' | 'binary'
 export type FileMetadata = { path: string; size: number; mediaType: string; viewer: ViewerKind; mtime: string }
+export type EntryRevision = { path: string; kind: 'file' | 'directory'; revision: string }
+export type TrashRecord = { id: string; path: string; kind: string; revision: string; deletedAt: string; state: string }
+export type TrashPage = { entries: TrashRecord[]; total: number; offset: number; limit: number }
 export type Principal = { username: string; csrfToken: string }
 export type FileContent = { path: string; content: string; revision: string; size: number; encoding: string; mtime: string; kind: string }
 export type Entry = { name: string; path: string; kind: 'directory' | 'file'; size: number }
@@ -26,6 +29,11 @@ export const api = {
   login: async (username: string, password: string) => { const principal = await request<Principal>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setCSRF(principal.csrfToken); return principal },
   logout: () => request('/auth/logout', { method: 'POST' }),
   tree: (path: string, offset = 0) => request<TreePage>(`/workspace/tree?path=${encodeURIComponent(path)}&offset=${offset}`),
+  entryRevision: (path: string) => request<EntryRevision>(`/entries/revision?path=${encodeURIComponent(path)}`),
+  move: (from: string, to: string, revision: string) => request('/entries/move', { method: 'PATCH', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ from, to }) }),
+  trash: (path: string, revision: string) => request<TrashRecord>(`/entries?path=${encodeURIComponent(path)}`, { method: 'DELETE', headers: { 'If-Match': `"${revision}"` } }),
+  trashList: (offset = 0) => request<TrashPage>(`/trash?offset=${offset}`),
+  restore: (id: string) => request<{ path: string }>(`/trash/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   metadata: (path: string) => request<FileMetadata>(`/files/metadata?path=${encodeURIComponent(path)}`),
   read: (path: string) => request<FileContent>(`/files/content?path=${encodeURIComponent(path)}`),
   write: (path: string, content: string, revision: string) => request<{ revision: string }>(`/files/content?path=${encodeURIComponent(path)}`, { method: 'PUT', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ content, encoding: 'utf-8' }) }),

@@ -182,3 +182,25 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 767px) { .image-viewer { padding: 20px; } .pdf-viewer { padding-inline: 12px; } .pdf-toolbar { gap: 2px; flex-wrap: wrap; } }
 .notice > span { overflow-wrap: anywhere; }
 .pdf-hint { font-size: 11px; line-height: 1.6; color: var(--muted-foreground); margin-bottom: 16px; }
+
+.tree-entry { display: flex; align-items: center; position: relative; border-radius: 5px; }
+.tree-entry.selected { background: var(--selected); }
+.tree-entry .file-row { flex: 1; min-width: 0; margin-bottom: 2px; padding-right: 30px; }
+.entry-menu-trigger { position: absolute; right: 2px; top: 1px; width: 26px; height: 28px; opacity: 0; }
+.tree-entry:hover .entry-menu-trigger, .tree-entry:focus-within .entry-menu-trigger, .entry-menu-trigger[data-state='open'] { opacity: 1; }
+.context-menu { z-index: 40; min-width: 150px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); box-shadow: 0 5px 20px #0002; font-size: 12px; }
+.context-menu [role='menuitem'] { outline: none; cursor: default; padding: 7px 10px; border-radius: 4px; }
+.context-menu [data-highlighted] { background: var(--surface-hover); }
+.context-menu [role='separator'] { height: 1px; background: var(--border); margin: 4px; }
+.context-menu .destructive { color: var(--destructive); }
+.inline-rename { display: flex; align-items: center; gap: 1px; width: 100%; padding: 2px 0; }
+.inline-rename input { min-width: 0; width: 100%; border: 1px solid var(--focus); border-radius: 4px; background: var(--background); color: var(--foreground); padding: 4px 6px; font-size: 12px; }
+.inline-rename .button-icon { width: 23px; height: 28px; }
+.editor-scroll[inert] { opacity: .65; }
+.trash-dialog { width: min(620px, calc(100vw - 32px)); }
+.trash-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.trash-row > div { min-width: 0; flex: 1; }
+.trash-row span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-row small { display: block; color: var(--muted-foreground); font-size: 10px; margin-top: 4px; }
+.trash-empty { padding: 24px 0; text-align: center; }
+@media (max-width: 767px) { .entry-menu-trigger { opacity: 1; height: 38px; width: 34px; } .inline-rename .button-icon { width: 32px; height: 38px; } .context-menu [role='menuitem'] { min-height: 40px; } }

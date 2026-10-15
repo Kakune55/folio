@@ -70,3 +70,7 @@ compose.yaml
 
 ## 7. Non-goals and future migrations
 Storage adapters, S3, collaboration, PWA/offline sync and a full workspace plugin system are deferred. Do not introduce speculative interfaces or microservices. Keep editor/viewer dispatch extensible without exposing arbitrary third-party executable plugins.
+
+## 8. Trash operations implemented in M1
+
+`internal/storage` owns descriptor-safe move, subtree revisions and staged cross-device copying. `internal/trash` owns private recovery directories and atomic JSON manifests under app-data. Payloads remain ordinary files, outside SQLite. Same-device moves use rename; cross-device deletion stages the original in its parent, durably copies to app-data, and only then removes the staged copy. Cross-device restoration publishes a verified, synced temporary payload with no-replace rename. Failed cleanup or divergent recovery copies are preserved for explicit recovery rather than silently discarded.

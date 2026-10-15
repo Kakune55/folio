@@ -1,0 +1,78 @@
+import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
+async function login(page: Page) {
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+}
+async function create(page: Page, kind: '笔记' | '文件夹', name: string) {
+  await page.getByRole('button', { name: `新建${kind}`, exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('名称', { exact: true }).fill(name)
+  await dialog.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+}
+async function menu(page: Page, name: string, action: string) {
+  await page.getByRole('button', { name: `文件操作 ${name}`, exact: true }).click()
+  await page.getByRole('menuitem', { name: action, exact: true }).click()
+}
+
+test('行内重命名与移动目录保留正文，后续保存使用新路径', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message))
+  await login(page)
+  const folder = `路径-${Date.now()}`
+  await create(page, '文件夹', folder)
+  await create(page, '笔记', '原名.md')
+  await page.getByRole('button', { name: folder, exact: true }).click()
+  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  await rich.fill('重命名前未保存的正文')
+  await menu(page, '原名.md', '重命名')
+  const rename = page.getByRole('textbox', { name: '重命名 原名.md', exact: true })
+  await rename.fill('新名.md'); await rename.press('Enter')
+  await expect(page.getByRole('tab', { name: '新名.md', exact: true })).toBeVisible()
+  await expect(rich).toContainText('重命名前未保存的正文')
+  await expect(page.locator('.save-status')).toHaveText('已保存')
+  await menu(page, folder, '移动到…')
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('目标路径').fill(`${folder}-已移动`)
+  await dialog.getByRole('button', { name: '移动', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await rich.fill('移动之后继续保存')
+  await expect(page.locator('.save-status')).toHaveText('已保存')
+  const result = await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(`${folder}-已移动/新名.md`)}`)
+  expect(result.status()).toBe(200)
+  expect((await result.json()).content).toContain('移动之后继续保存')
+  expect((await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(`${folder}/原名.md`)}`)).status()).toBe(404)
+  expect(errors).toEqual([])
+})
+
+test('文件夹移入回收站后恢复，碰撞保留两份内容', async ({ page }) => {
+  await login(page)
+  const folder = `回收-${Date.now()}`
+  await create(page, '文件夹', folder)
+  await create(page, '笔记', '恢复.md')
+  await page.getByRole('textbox', { name: 'Markdown 富文本编辑器' }).fill('删除前的完整内容')
+  await expect(page.locator('.save-status')).toHaveText('已保存')
+  await menu(page, folder, '移到回收站')
+  const confirmation = page.getByRole('dialog')
+  await confirmation.getByRole('button', { name: '移到回收站', exact: true }).click()
+  await expect(confirmation).not.toBeVisible()
+  await expect(page.getByRole('tab', { name: '恢复.md', exact: true })).not.toBeVisible()
+  await page.getByRole('button', { name: '打开回收站' }).click()
+  const trash = page.getByRole('dialog')
+  await expect(trash.getByText(folder, { exact: true })).toBeVisible()
+  const principal = await (await page.request.get('/api/v1/auth/me')).json()
+  expect((await page.request.post('/api/v1/directories', { headers: { 'X-CSRF-Token': principal.csrfToken }, data: { path: folder } })).status()).toBe(201)
+  await trash.getByRole('button', { name: '恢复', exact: true }).click()
+  await expect(trash.getByText('同名文件或目录已存在', { exact: true })).toBeVisible()
+  const placeholder = await (await page.request.get(`/api/v1/entries/revision?path=${encodeURIComponent(folder)}`)).json()
+  expect((await page.request.delete(`/api/v1/entries?path=${encodeURIComponent(folder)}`, { headers: { 'X-CSRF-Token': principal.csrfToken, 'If-Match': `"${placeholder.revision}"` } })).status()).toBe(200)
+  await trash.getByRole('button', { name: '恢复', exact: true }).first().click()
+  await expect(trash.getByText(`已恢复 ${folder}`, { exact: true })).toBeVisible()
+  await page.screenshot({ path: 'test-results/trash-restored.png' })
+  await trash.getByRole('button', { name: '关闭回收站' }).click()
+  await page.getByRole('button', { name: folder, exact: true }).click()
+  await page.getByRole('button', { name: '恢复.md', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toContainText('删除前的完整内容')
+})

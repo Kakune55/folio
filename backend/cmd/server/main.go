@@ -14,7 +14,9 @@ import (
 	"folio/internal/config"
 	"folio/internal/httpapi"
 	"folio/internal/storage"
+	"folio/internal/trash"
 	"folio/web"
+	"path/filepath"
 )
 
 func main() {
@@ -35,6 +37,12 @@ func main() {
 		log.Fatal(err)
 	}
 	defer accounts.Close()
+	recovery, err := trash.Open(filepath.Join(cfg.AppData, "trash"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer recovery.Close()
+	store.SetTrash(recovery)
 	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(web.Assets(), httpapi.Options{Auth: accounts, Workspace: store, SecureCookie: cfg.SecureCookie, Origin: cfg.Origin}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

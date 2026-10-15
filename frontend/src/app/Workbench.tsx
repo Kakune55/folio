@@ -2,13 +2,15 @@ import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState,
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, Upload, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import type { FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
 import { useUI } from '../stores/ui'
 import { Explorer } from '../features/explorer/Explorer'
+import { TrashDialog } from '../features/explorer/TrashDialog'
+import { useEntryOperations } from '../features/explorer/useEntryOperations'
 import type { Session } from '../sessions/workspace'
 import { DocumentEditor } from '../editors/registry'
 import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/milkdown/bridge'
@@ -30,6 +32,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const { activePath, sidebar, theme, open, toggleSidebar, setTheme } = useUI()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
   const [directory, setDirectory] = useState('')
+  const [trashOpen, setTrashOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const uploadInput = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -45,6 +48,20 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const onBlocked = useCallback((message: string) => setNotice(message), [setNotice])
   const ThemeIcon = theme === 'system' ? Monitor : theme === 'light' ? Sun : Moon
   const themeLabel = theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'
+
+  const operations = useEntryOperations({
+    uploading, onNotice: onBlocked,
+    onRemap: (from, to) => {
+      const active = useUI.getState().activePath
+      if (active === from || active.startsWith(`${from}/`)) open(to + active.slice(from.length))
+      setDirectory((current) => current === from || current.startsWith(`${from}/`) ? to + current.slice(from.length) : current)
+    },
+    onDelete: (path) => {
+      const active = useUI.getState().activePath
+      if (active === path || active.startsWith(`${path}/`)) open(workspace.list().at(-1)?.path ?? '')
+      setDirectory((current) => current === path || current.startsWith(`${path}/`) ? path.split('/').slice(0, -1).join('/') : current)
+    },
+  })
 
   const openFile = useCallback(async (path: string) => {
     const sequence = ++requestSequence.current
@@ -137,7 +154,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
       <input ref={uploadInput} className="visually-hidden" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
-      <div className="topbar-actions"><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
+      <div className="topbar-actions"><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
         <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
@@ -146,7 +163,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     <div className="workspace-body"><aside className="explorer" aria-label="文件资源管理器" inert={!sidebar}>
       <div className="explorer-heading"><span>文件</span><div className="explorer-tools"><Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" onClick={() => void client.invalidateQueries({ queryKey: ['tree'] })}><RefreshCw size={14} /></Button></div></div>
       <button className={`folder-label root-folder ${directory === '' ? 'directory-selected' : ''}`} onClick={() => setDirectory('')}><FolderOpen size={16} /> 工作区</button>
-      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} />
+      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} />
       <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>普通文件，标准 Markdown。<br />编辑后自动保存。</p></div>
     </aside>
     <main className="main-pane"><div className="tabs-row"><Button size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role="tablist" aria-label="打开的文件">
@@ -159,14 +176,15 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
         {current.viewer === 'markdown' && <div className="mode-switch" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
-        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
+        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
       </div></div>}
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
-      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
-    <footer className="statusbar"><span className="save-status" role="status">{current ? current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+    <footer className="statusbar"><span className="save-status" role="status">{current ? current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
+    {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content">
       <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>
       <form onSubmit={async (event) => {

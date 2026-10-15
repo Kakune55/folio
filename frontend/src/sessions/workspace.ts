@@ -5,7 +5,7 @@ export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
 export type Session = {
   path: string; source: string; original: string; mode: EditorMode; dirty: boolean
   revision: string; state: SaveState; error: string; generation: number
-  viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number
+  viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number; locked: boolean
 }
 type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
@@ -17,13 +17,15 @@ export class WorkspaceSessions {
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private pending = new Map<string, Promise<boolean>>()
   private version = 0
+  private reservations = new Set<string>()
   private transport?: SaveTransport
   constructor(files: FileInput[] = [], transport?: SaveTransport) { this.transport = transport; files.forEach((file) => this.add(file)) }
   add(file: FileInput) {
     // 已打开的脏会话永远不被重新获取的远端内容覆盖。
     const existing = this.sessions.get(file.path)
     if (existing) return existing
-    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0, viewer: file.viewer ?? (/\.(md|markdown)$/i.test(file.path) ? 'markdown' : 'text'), pendingUploads: 0 }
+    if (this.isLocked(file.path)) throw new Error('该路径正在进行文件操作，请稍后再打开')
+    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0, viewer: file.viewer ?? (/\.(md|markdown)$/i.test(file.path) ? 'markdown' : 'text'), pendingUploads: 0, locked: false }
     this.sessions.set(file.path, session); this.emit(); return session
   }
   has(path: string) { return this.sessions.has(path) }
@@ -42,11 +44,12 @@ export class WorkspaceSessions {
   private schedule(session: Session, delay = 800) {
     const previous = this.timers.get(session.path); if (previous) clearTimeout(previous)
     this.timers.delete(session.path)
-    if (!this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
+    if (session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
     this.timers.set(session.path, setTimeout(() => { this.timers.delete(session.path); void this.save(session.path) }, delay))
   }
-  save(path: string): Promise<boolean> {
+  save(path: string, duringOperation = false): Promise<boolean> {
     const session = this.get(path)
+    if (session.locked && !duringOperation) return Promise.resolve(false)
     const pending = this.pending.get(path); if (pending) return pending
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     if (!this.transport || !session.dirty) return Promise.resolve(!session.dirty)
@@ -64,10 +67,11 @@ export class WorkspaceSessions {
     this.pending.set(path, operation)
     return operation
   }
-  async flush(path: string) {
+  async flush(path: string, duringOperation = false) {
+    if (this.get(path).locked && !duringOperation) return false
     if (this.get(path).pendingUploads) return false
     for (let attempt = 0; attempt < 10; attempt++) {
-      const result = await this.save(path)
+      const result = await this.save(path, duringOperation)
       if (!result) return false
       if (!this.get(path).dirty) return true
     }
@@ -81,13 +85,48 @@ export class WorkspaceSessions {
     session.source = source; session.original = source; session.revision = revision; session.dirty = false
     session.state = 'saved'; session.error = ''; session.generation++; this.emit()
   }
-  remove(path: string) {
+  remove(path: string, duringOperation = false) {
     const session = this.get(path)
-    if (session.dirty || session.pendingUploads || this.pending.has(path)) return false
+    if ((session.locked && !duringOperation) || session.dirty || session.pendingUploads || this.pending.has(path)) return false
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     this.sessions.delete(path); this.emit(); return true
   }
-  beginUpload(path: string) { this.get(path).pendingUploads++; this.emit() }
+  isLocked(path: string) { return [...this.reservations].some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) }
+  lockTree(prefix: string, target?: string) {
+    const prefixes = [prefix, ...(target ? [target] : [])]
+    if (prefixes.some((path) => this.isLocked(path) || [...this.reservations].some((reserved) => reserved.startsWith(`${path}/`)))) throw new Error('相关路径正在进行文件操作，请稍后重试')
+    const affected = this.list().filter((session) => session.path === prefix || session.path.startsWith(`${prefix}/`))
+    if (affected.some((session) => session.locked || session.pendingUploads)) throw new Error('文件操作或图片上传尚未结束，请稍后重试')
+    for (const session of affected) { session.locked = true; const timer = this.timers.get(session.path); if (timer) clearTimeout(timer); this.timers.delete(session.path) }
+    prefixes.forEach((path) => this.reservations.add(path))
+    this.emit(); return affected
+  }
+  unlock(affected: Session[], prefixes: string[]) { prefixes.forEach((path) => this.reservations.delete(path)); for (const session of affected) { session.locked = false; if (this.has(session.path)) this.schedule(session) }; this.emit() }
+  canRemap(from: string, to: string) {
+    const affected = this.list().filter((session) => session.path === from || session.path.startsWith(`${from}/`))
+    return affected.every((session) => !this.sessions.has(to + session.path.slice(from.length)))
+  }
+  remap(from: string, to: string) {
+    if (!this.canRemap(from, to)) throw new Error('目标路径已有编辑会话，请先保存并关闭该标签页')
+    const affected = this.list().filter((session) => session.path === from || session.path.startsWith(`${from}/`))
+    for (const session of affected) {
+      const old = session.path; this.sessions.delete(old); const timer = this.timers.get(old); if (timer) clearTimeout(timer); this.timers.delete(old)
+      session.path = to + old.slice(from.length); session.generation++
+      if (session.metadata) session.metadata = { ...session.metadata, path: session.path }
+      this.sessions.set(session.path, session)
+    }
+    this.emit()
+  }
+  setMetadata(path: string, metadata: FileMetadata) {
+    const session = this.get(path); session.metadata = metadata; session.viewer = metadata.viewer
+    if (metadata.viewer !== 'markdown') session.mode = 'source'
+    session.generation++; this.emit()
+  }
+  operationFailed(affected: Session[], message: string, conflict: boolean) {
+    for (const session of affected) { session.dirty = true; session.state = conflict ? 'conflict' : 'error'; session.error = message }
+    this.emit()
+  }
+  beginUpload(path: string) { const session = this.get(path); if (session.locked || this.isLocked(path)) return false; session.pendingUploads++; this.emit(); return true }
   endUpload(path: string) { this.get(path).pendingUploads--; this.emit() }
   appendAttachment(path: string, markdown: string) {
     const session = this.get(path)

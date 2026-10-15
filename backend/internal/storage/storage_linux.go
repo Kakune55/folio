@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"folio/internal/trash"
 	"io"
 	"os"
 	"path"
@@ -31,9 +32,11 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
-	root   *os.File
-	mu     sync.Mutex
-	limits Limits
+	root    *os.File
+	mu      sync.Mutex
+	limits  Limits
+	trash   *trash.Repository
+	uploads map[string]int
 }
 type Entry struct {
 	Name string `json:"name"`
@@ -76,7 +79,7 @@ func Open(root string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{root: os.NewFile(uintptr(fd), "workspace"), limits: DefaultLimits}
+	store := &Store{root: os.NewFile(uintptr(fd), "workspace"), limits: DefaultLimits, uploads: make(map[string]int)}
 	// 不降级为有竞态的路径检查；旧内核不支持 openat2 时明确拒绝启动。
 	probe, err := store.open(".", unix.O_RDONLY|unix.O_DIRECTORY, 0)
 	if err != nil {

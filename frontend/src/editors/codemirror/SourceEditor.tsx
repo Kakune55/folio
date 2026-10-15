@@ -20,7 +20,8 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge }: {
       event.preventDefault()
       const position = event instanceof DragEvent ? view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head : view.state.selection.main.head
       for (const file of Array.from(files)) {
-        const id = Symbol('图片上传'); uploads.set(id, position); bridge.beginUpload()
+        if (!bridge.beginUpload()) { onBlocked?.('文件操作正在进行，请稍后再粘贴图片。'); continue }
+        const id = Symbol('图片上传'); uploads.set(id, position)
         void bridge.upload(file).then((url) => {
           if (disposed) { bridge.detachedImage(url, file.name); return }
           const position = uploads.get(id) ?? view.state.doc.length
