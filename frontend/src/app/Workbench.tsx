@@ -1,0 +1,147 @@
+import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import * as Dialog from '@radix-ui/react-dialog'
+import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Sun, X } from 'lucide-react'
+import { Button } from '../components/ui/button'
+import { api, downloadDraft } from '../services/api'
+import type { FileContent } from '../services/api'
+import { workspace } from '../sessions/current'
+import { useUI } from '../stores/ui'
+import { Explorer } from '../features/explorer/Explorer'
+import type { Session } from '../sessions/workspace'
+
+const RichEditor = lazy(() => import('../editors/milkdown/RichEditor'))
+const SourceEditor = lazy(() => import('../editors/codemirror/SourceEditor'))
+const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path)
+const basename = (path: string) => path.split('/').at(-1) ?? path
+const saveLabels = { saved: '已保存', dirty: '未保存', saving: '正在保存…', error: '保存失败 · 草稿已保留', conflict: '版本冲突 · 草稿已保留' }
+
+class EditorBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() { return this.state.failed ? <div className="editor-error" role="alert"><p>编辑器加载失败。草稿仍保留，可下载或重试源码模式。</p><Button variant="outline" onClick={this.props.retry}>重试源码模式</Button></div> : this.props.children }
+}
+
+export default function Workbench({ onLogout }: { onLogout: () => void }) {
+  useSyncExternalStore(workspace.subscribe, workspace.snapshot)
+  const client = useQueryClient()
+  const { activePath, sidebar, theme, open, toggleSidebar, setTheme } = useUI()
+  const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
+  const [directory, setDirectory] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [createKind, setCreateKind] = useState<'file' | 'directory' | null>(null)
+  const [name, setName] = useState('')
+  const [createError, setCreateError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [editorAttempt, setEditorAttempt] = useState(0)
+  const [compare, setCompare] = useState(false)
+  const [remote, setRemote] = useState<FileContent>()
+  const requestSequence = useRef(0)
+  const onBlocked = useCallback((message: string) => setNotice(message), [setNotice])
+  const ThemeIcon = theme === 'system' ? Monitor : theme === 'light' ? Sun : Moon
+  const themeLabel = theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'
+
+  const openFile = useCallback(async (path: string) => {
+    const sequence = ++requestSequence.current
+    setNotice('')
+    if (workspace.has(path)) { open(path); setLoading(false); return }
+    setLoading(true)
+    try {
+      const file = await api.read(path)
+      if (sequence !== requestSequence.current) return
+      workspace.add({ path, source: file.content, revision: file.revision, mode: isMarkdown(path) ? 'rich' : 'source' })
+      open(path)
+    } catch (error) { if (sequence === requestSequence.current) setNotice(error instanceof Error ? error.message : '文件打开失败') }
+    finally { if (sequence === requestSequence.current) setLoading(false) }
+  }, [open, setNotice, setLoading])
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (workspace.list().some((session) => session.dirty || session.state === 'saving')) event.preventDefault() }
+    const keydown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path)) void workspace.save(path) }
+    }
+    window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown)
+    return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown) }
+  }, [])
+
+  const closeFile = async (session: Session) => {
+    if (!(await workspace.flush(session.path))) { setNotice('此文件尚未保存，已保留标签页。请重试保存或先处理冲突。'); return }
+    if (workspace.remove(session.path) && activePath === session.path) open(workspace.list().at(-1)?.path ?? '')
+  }
+  const startCreate = (kind: 'file' | 'directory') => { setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
+  const loadComparison = async () => {
+    if (!current) return
+    setRemote(undefined); setCompare(true); setNotice('')
+    try { setRemote(await api.read(current.path)) }
+    catch (error) { setNotice(error instanceof Error ? error.message : '远端版本读取失败，请先下载本地草稿') }
+  }
+  const handleKeepSeparate = async () => {
+    if (!current || !remote) return
+    setBusy(true)
+    const source = current.source
+    try {
+      const saved = await api.createCopy(current.path, source)
+      const path = saved.path
+      workspace.add({ path, source, revision: saved.revision, mode: current.mode })
+      if (current.source !== source) { setNotice('副本已保存，但本地又有新修改，仍保留原草稿。'); return }
+      workspace.acceptRemote(current.path, remote.content, remote.revision)
+      setCompare(false); open(path); setNotice('已将本地草稿保存为独立文件，远端原文件未被覆盖。')
+      void client.invalidateQueries({ queryKey: ['tree'] })
+    } catch (error) { setNotice(error instanceof Error ? error.message : '保留副本失败，草稿仍在') }
+    finally { setBusy(false) }
+  }
+
+  return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`}>
+    <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
+      <div className="topbar-actions"><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
+        <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" onClick={async () => {
+          for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
+          try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
+        }}><LogOut size={17} /></Button></div>
+    </header>
+    <div className="workspace-body"><aside className="explorer" aria-label="文件资源管理器" inert={!sidebar}>
+      <div className="explorer-heading"><span>文件</span><div className="explorer-tools"><Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" onClick={() => void client.invalidateQueries({ queryKey: ['tree'] })}><RefreshCw size={14} /></Button></div></div>
+      <button className={`folder-label root-folder ${directory === '' ? 'directory-selected' : ''}`} onClick={() => setDirectory('')}><FolderOpen size={16} /> 工作区</button>
+      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} />
+      <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>普通文件，标准 Markdown。<br />编辑后自动保存。</p></div>
+    </aside>
+    <main className="main-pane"><div className="tabs-row"><Button size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role="tablist" aria-label="打开的文件">
+      {workspace.list().map((session, index, files) => <div key={session.path} className={`tab-container ${activePath === session.path ? 'active' : ''}`}><button id={`file-tab-${index}`} role="tab" aria-controls="document-panel" aria-selected={activePath === session.path} tabIndex={activePath === session.path ? 0 : -1} className={`tab ${activePath === session.path ? 'active' : ''}`} title={session.path} onClick={() => void openFile(session.path)} onKeyDown={(event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+        event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? files.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + files.length) % files.length
+        void openFile(files[next].path); document.getElementById(`file-tab-${next}`)?.focus()
+      }}><FileText size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}</button><Button size="icon" className="tab-close" aria-label={`关闭 ${session.path}`} onClick={() => void closeFile(session)}><X size={12} /></Button></div>)}
+    </div></div>
+    <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
+      {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
+        {isMarkdown(current.path) && <div className="mode-switch" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
+        <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button><Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button>
+      </div></div>}
+      {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
+      {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>{isMarkdown(current.path) && current.mode === 'rich' ? <RichEditor session={current} sessions={workspace} onBlocked={onBlocked} /> : <SourceEditor session={current} sessions={workspace} />}</Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+    </section></main></div>
+    <footer className="statusbar"><span className="save-status" role="status">{current ? saveLabels[current.state] : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+
+    <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content">
+      <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>
+      <form onSubmit={async (event) => {
+        event.preventDefault(); setBusy(true); setCreateError('')
+        const path = directory ? `${directory}/${name}` : name
+        try {
+          if (createKind === 'directory') { await api.mkdir(path); setDirectory(path) }
+          else { await api.create(path); await openFile(path) }
+          await client.invalidateQueries({ queryKey: ['tree'] }); setCreateKind(null)
+        } catch (error) { setCreateError(error instanceof Error ? error.message : '创建失败') }
+        finally { setBusy(false) }
+      }}><label htmlFor="entry-name">名称</label><input id="entry-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={255} autoFocus onFocus={(event) => event.target.select()} />{createError && <p className="form-error" role="alert">{createError}</p>}<div className="dialog-actions"><Button type="button" disabled={busy} onClick={() => setCreateKind(null)}>取消</Button><Button type="submit" variant="outline" disabled={busy}>{busy ? '正在创建…' : '创建'}</Button></div></form>
+    </Dialog.Content></Dialog.Portal></Dialog.Root>
+
+    <Dialog.Root open={compare} onOpenChange={(value) => { if (!busy) setCompare(value) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content conflict-dialog"><Dialog.Title>文件版本发生冲突</Dialog.Title><Dialog.Description>本地草稿与磁盘版本均已保留。关闭窗口不会覆盖任意版本。</Dialog.Description>
+      <div className="compare-columns"><label>本地草稿<textarea readOnly value={current?.source ?? ''} /></label><label>磁盘版本<textarea readOnly value={remote?.content ?? '正在读取磁盘版本…'} /></label></div>
+      <div className="dialog-actions"><Button onClick={() => current && downloadDraft(current.path, current.source)}>下载本地草稿</Button><Button variant="outline" disabled={!remote || busy} onClick={() => void handleKeepSeparate()}>{busy ? '正在保存副本…' : '保留本地副本并加载磁盘版本'}</Button><Button onClick={() => setCompare(false)} disabled={busy}>稍后处理</Button></div>
+    </Dialog.Content></Dialog.Portal></Dialog.Root>
+  </div>
+}

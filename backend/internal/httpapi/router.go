@@ -7,9 +7,11 @@ import (
 	"strings"
 )
 
-// M0 仅开放健康检查与静态页面；尚未提供文件和认证接口。
-func New(assets fs.FS) http.Handler {
+// 静态资源与 API 共享同源服务，所有文件操作均经过认证与 CSRF 边界。
+func New(assets fs.FS, options Options) http.Handler {
 	mux := http.NewServeMux()
+	api := &api{Options: options}
+	api.register(mux)
 	mux.HandleFunc("GET /api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -43,6 +45,9 @@ func New(assets fs.FS) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		mux.ServeHTTP(w, r)
 	})
 }

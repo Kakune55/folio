@@ -66,3 +66,13 @@ Moves must reject target collision unless an explicit separate policy is later s
 
 ## Security notes
 Authenticated downloads use correct `Content-Disposition` and `X-Content-Type-Options: nosniff`. Raw HTML/SVG must not execute in the app's origin. URL path normalization + filesystem-level race protection are mandatory. Session cookies are HttpOnly, Secure under HTTPS, SameSite; mutation endpoints enforce CSRF. Upload streaming applies size limits independently of declared Content-Length.
+
+## Implemented status (M1, first slice)
+
+Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories. Other routes above remain proposed.
+
+Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaults to 200 (maximum 1000). Response is `{entries:[{name,path,kind,size}],total,offset,limit}`; `kind` is `directory` or `file`. Unsafe entries are omitted. Pagination is not a filesystem snapshot.
+
+Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
+
+Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.

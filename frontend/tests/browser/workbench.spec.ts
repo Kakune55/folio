@@ -3,7 +3,7 @@ import fixtures from '../fixtures/markdown.json' with { type: 'json' }
 import { readFile } from 'node:fs/promises'
 
 test('Markdown 真实 Crepe 往返快照', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/?demo=1')
   await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
   const results = await page.evaluate(async (corpus) => {
     // @ts-expect-error 由 Vite 提供浏览器模块。
@@ -21,7 +21,7 @@ test('Markdown 真实 Crepe 往返快照', async ({ page }) => {
 test('快速切换保留最后输入，实例销毁后无旧回调写入', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/')
+  await page.goto('/?demo=1')
   const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
   await rich.click()
   await page.keyboard.press('Control+End')
@@ -48,7 +48,7 @@ test('快速切换保留最后输入，实例销毁后无旧回调写入', async
 })
 
 test('有损转换保留原文，下载导出完整草稿', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/?demo=1')
   await page.getByRole('button', { name: '源码', exact: true }).click()
   const source = page.getByRole('textbox', { name: '源码编辑器' })
   await expect(source).toBeVisible()
@@ -67,7 +67,7 @@ test('有损转换保留原文，下载导出完整草稿', async ({ page }) => 
 test('异步创建期间反复切换只留下一个活动编辑器', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/')
+  await page.goto('/?demo=1')
   for (let i = 0; i < 5; i++) {
     await page.getByRole('tab', { name: '工作区.json' }).click()
     await page.getByRole('tab', { name: '开始使用.md' }).click()
@@ -81,7 +81,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
   test(`主题与布局 ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport)
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
-    await page.goto('/')
+    await page.goto('/?demo=1')
     if (viewport.width < 768) await page.getByRole('button', { name: '收起文件列表' }).click()
     await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

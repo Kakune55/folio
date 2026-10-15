@@ -8,14 +8,14 @@ import (
 )
 
 func TestM0Routes(t *testing.T) {
-	handler := New(fstest.MapFS{"index.html": {Data: []byte("<!doctype html><html lang=\"zh-CN\">Folio</html>")}})
+	handler := New(fstest.MapFS{"index.html": {Data: []byte("<!doctype html><html lang=\"zh-CN\">Folio</html>")}}, Options{})
 	for _, tc := range []struct {
 		path   string
 		status int
 		body   string
 	}{
 		{"/api/v1/healthz", 200, `"status":"ok"`},
-		{"/api/v1/files/content?path=secret.md", 404, `"code":"not_found"`},
+		{"/api/v1/files/content?path=secret.md", 401, `"code":"unauthenticated"`},
 		{"/", 200, "Folio"},
 		{"/missing.js", 404, "404"},
 	} {

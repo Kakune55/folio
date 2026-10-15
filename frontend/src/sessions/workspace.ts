@@ -1,57 +1,90 @@
 export type EditorMode = 'rich' | 'source'
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
 export type Session = {
-  path: string
-  source: string
-  original: string
-  mode: EditorMode
-  dirty: boolean
+  path: string; source: string; original: string; mode: EditorMode; dirty: boolean
+  revision: string; state: SaveState; error: string; generation: number
 }
+type FileInput = { path: string; source: string; mode: EditorMode; revision?: string }
+type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
 
 // 正文只驻留在编辑会话中；全局状态仅管理导航和界面偏好。
 export class WorkspaceSessions {
   private sessions = new Map<string, Session>()
   private listeners = new Set<() => void>()
-  private revision = 0
-
-  constructor(files: { path: string; source: string; mode: EditorMode }[]) {
-    for (const file of files) this.sessions.set(file.path, { ...file, original: file.source, dirty: false })
+  private timers = new Map<string, ReturnType<typeof setTimeout>>()
+  private pending = new Map<string, Promise<boolean>>()
+  private version = 0
+  private transport?: SaveTransport
+  constructor(files: FileInput[] = [], transport?: SaveTransport) { this.transport = transport; files.forEach((file) => this.add(file)) }
+  add(file: FileInput) {
+    // 已打开的脏会话永远不被重新获取的远端内容覆盖。
+    const existing = this.sessions.get(file.path)
+    if (existing) return existing
+    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0 }
+    this.sessions.set(file.path, session); this.emit(); return session
   }
-  get(path: string) {
-    const session = this.sessions.get(path)
-    if (!session) throw new Error('文件会话不存在')
-    return session
-  }
+  has(path: string) { return this.sessions.has(path) }
+  get(path: string) { const session = this.sessions.get(path); if (!session) throw new Error('文件会话不存在'); return session }
   list() { return [...this.sessions.values()] }
   update(path: string, source: string) {
     const session = this.get(path)
     session.source = source
-    const dirty = source !== session.original
-    if (session.dirty !== dirty) {
-      session.dirty = dirty
-      this.emit()
-    }
+    const dirty = source !== session.original || ['saving', 'error', 'conflict'].includes(session.state)
+    const state: SaveState = session.state === 'saving' || session.state === 'error' || session.state === 'conflict' ? session.state : dirty ? 'dirty' : 'saved'
+    const changed = dirty !== session.dirty || state !== session.state
+    session.dirty = dirty; session.state = state
+    if (changed) this.emit()
+    this.schedule(session)
   }
-  setMode(path: string, mode: EditorMode) {
+  private schedule(session: Session, delay = 800) {
+    const previous = this.timers.get(session.path); if (previous) clearTimeout(previous)
+    this.timers.delete(session.path)
+    if (!this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
+    this.timers.set(session.path, setTimeout(() => { this.timers.delete(session.path); void this.save(session.path) }, delay))
+  }
+  save(path: string): Promise<boolean> {
     const session = this.get(path)
-    if (session.mode === mode) return
-    session.mode = mode
-    this.emit()
+    const pending = this.pending.get(path); if (pending) return pending
+    const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    if (!this.transport || !session.dirty) return Promise.resolve(!session.dirty)
+    if (session.state === 'conflict') return Promise.resolve(false)
+    const source = session.source
+    session.state = 'saving'; session.error = ''; this.emit()
+    const operation = this.transport(path, source, session.revision).then((response) => {
+      session.revision = response.revision; session.original = source; session.dirty = session.source !== source
+      session.state = session.dirty ? 'dirty' : 'saved'; this.emit(); return true
+    }).catch((error: unknown) => {
+      const code = error instanceof Error && 'code' in error ? error.code : ''
+      session.state = code === 'revision_conflict' || code === 'not_found' ? 'conflict' : 'error'
+      session.error = error instanceof Error ? error.message : '保存失败，草稿仍保留'; this.emit(); return false
+    }).finally(() => { this.pending.delete(path); this.schedule(session, 0) })
+    this.pending.set(path, operation)
+    return operation
   }
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
+  async flush(path: string) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const result = await this.save(path)
+      if (!result) return false
+      if (!this.get(path).dirty) return true
+    }
+    return false
   }
-  snapshot = () => this.revision
-  private emit() {
-    this.revision++
-    this.listeners.forEach((listener) => listener())
+  // 只在用户已下载/保留本地副本后，通过显式操作加载远端内容。
+  acceptRemote(path: string, source: string, revision: string) {
+    if (this.pending.has(path)) throw new Error('保存尚未结束，请稍后重试')
+    const session = this.get(path)
+    const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    session.source = source; session.original = source; session.revision = revision; session.dirty = false
+    session.state = 'saved'; session.error = ''; session.generation++; this.emit()
   }
+  remove(path: string) {
+    const session = this.get(path)
+    if (session.dirty || this.pending.has(path)) return false
+    const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    this.sessions.delete(path); this.emit(); return true
+  }
+  setMode(path: string, mode: EditorMode) { const session = this.get(path); if (session.mode === mode) return; session.mode = mode; this.emit() }
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  snapshot = () => this.version
+  private emit() { this.version++; this.listeners.forEach((listener) => listener()) }
 }
-
-export const workspace = new WorkspaceSessions([
-  {
-    path: '开始使用.md', mode: 'rich',
-    source: '# 留一处，安放想法\n\n这里是 Folio，一个以文件为中心的轻量工作区。\n\n## 从一段文字开始\n\n直接书写，或选中文字试试 **加粗**、*斜体* 与行内 `代码`。输入 / 可插入段落、列表和表格。\n\n> 文件属于你，工具只是让书写更顺手。\n\n## 试试切换文件\n\n1. 在这里写下一句话。\n2. 打开左侧的「工作区.json」。\n3. 再回到这里，文字仍在。\n\n## 当前阶段\n\n这是 M0 编辑器验证版本，修改仅保留在当前页面内存中。刷新前请下载草稿；文件保存将在下一阶段接入。\n',
-  },
-  { path: '工作区.json', mode: 'source', source: '{\n  "名称": "我的工作区",\n  "主题": "跟随系统",\n  "说明": "在这里试试编辑 JSON，再切回 Markdown。"\n}\n' },
-])

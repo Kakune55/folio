@@ -133,3 +133,39 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .rich-host .milkdown .ProseMirror .milkdown-list-item-block .children p { margin: 2px 0; }
 .rich-host .milkdown button:focus-visible, .rich-host .milkdown input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* 认证与真实文件工作区复用同一组视觉语义。 */
+.login-page { min-height: 100dvh; display: grid; place-items: center; padding: 32px 24px; }
+.login-form { width: min(340px, 100%); font-size: 13px; }
+.login-brand { font-size: 17px; font-weight: 650; display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
+.login-form h1 { font-size: 22px; font-weight: 600; letter-spacing: -.4px; margin-bottom: 10px; }
+.login-form p { color: var(--muted-foreground); line-height: 1.8; margin-bottom: 24px; }
+.login-form label, .dialog-content form label { display: block; font-size: 12px; margin: 16px 0 6px; }
+.login-form input, .dialog-content input { width: 100%; background: var(--background); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; color: var(--foreground); font: inherit; }
+.login-form input[readonly] { color: var(--muted-foreground); background: var(--sidebar); }
+.login-form > .button { width: 100%; margin-top: 24px; height: 38px; }
+.login-form .login-help { margin-top: 22px; font-size: 11px; }
+.form-error, .login-form .form-error { color: var(--destructive); font-size: 12px; margin: 12px 0; }
+.explorer-tools { display: flex; gap: 1px; }
+.explorer-tools .button-icon { width: 25px; height: 25px; }
+.explorer-heading:has(.explorer-tools) { align-items: center; padding: 0 3px 10px 10px; }
+.root-folder { background: transparent; border: 0; text-align: left; margin-bottom: 5px; border-radius: 5px; }
+.root-folder:hover { background: var(--surface-hover); }
+.directory-selected { color: var(--foreground); background: var(--surface-hover); }
+.tree-message { font-size: 11px; color: var(--muted-foreground); padding: 8px 12px; overflow-wrap: anywhere; }
+.folder-row { gap: 4px; }
+.tab-container { display: flex; align-items: center; border-right: 1px solid var(--border); }
+.tab-container .tab { min-width: auto; max-width: 200px; height: 100%; border-right: none; padding-right: 8px; }
+.tab-container .tab > span:not(.dirty-dot) { overflow: hidden; text-overflow: ellipsis; }
+.tab-container.active { background: var(--background); }
+.tab-container .tab-close { width: 24px; height: 24px; margin-right: 5px; }
+.empty-workspace { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 32px; color: var(--muted-foreground); text-align: center; }
+.empty-workspace h1 { color: var(--foreground); font-size: 20px; font-weight: 550; margin: 20px 0 10px; }
+.empty-workspace p { font-size: 13px; margin-bottom: 20px; line-height: 1.8; }
+.save-error > svg { color: var(--destructive); }
+.dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.conflict-dialog { width: min(920px, calc(100vw - 32px)); }
+.compare-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.compare-columns label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.compare-columns textarea { resize: vertical; min-height: 260px; background: var(--sidebar); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font: 12px/1.8 var(--font-code); }
+@media (max-width: 767px) { .compare-columns { grid-template-columns: 1fr; } .compare-columns textarea { min-height: 150px; } .explorer-tools .button-icon { width: 36px; height: 36px; } .tab-container .tab-close { width: 32px; height: 32px; } }

@@ -10,19 +10,34 @@ import (
 	"syscall"
 	"time"
 
+	"folio/internal/auth"
+	"folio/internal/config"
 	"folio/internal/httpapi"
+	"folio/internal/storage"
 	"folio/web"
 )
 
 func main() {
-	addr := os.Getenv("FOLIO_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
 	}
-	server := &http.Server{Addr: addr, Handler: httpapi.New(web.Assets()), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	store, err := storage.Open(cfg.Workspace)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	accounts, err := auth.Open(cfg.AppData, cfg.InitialPassword)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer accounts.Close()
+	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(web.Assets(), httpapi.Options{Auth: accounts, Workspace: store, SecureCookie: cfg.SecureCookie, Origin: cfg.Origin}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -30,8 +45,9 @@ func main() {
 			log.Printf("服务关闭失败：%v", err)
 		}
 	}()
-	log.Printf("Folio M0 已启动：http://%s（尚未接入真实文件）", addr)
+	log.Printf("Folio 已启动：%s；首次生成的密码位于应用数据目录 initial-password 文件，账号 admin", cfg.Addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	<-shutdownDone
 }

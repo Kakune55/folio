@@ -8,3 +8,8 @@ frontend/playwright-report/
 *.log
 
 bin/
+
+/workspace/
+/app-data/
+/backend/workspace/
+/backend/app-data/
