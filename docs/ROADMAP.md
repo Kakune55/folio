@@ -10,6 +10,8 @@ Implementation order is dependency-driven, not a fixed schedule. Each milestone 
 - Define unsafe/lossy Markdown fallback to source mode.
 **Exit gate:** M0 fixture suite passes or all incompatibilities are documented with safe fallback; an editor can be torn down/remounted without losing prior session data.
 
+M0 implementation and verification notes: [`M0.md`](M0.md). This remains an in-memory editor spike; it does not claim M1 persistence or auth.
+
 ## M1 — Daily-usable single-user build
 - Session auth; Explorer; file CRUD; Editor Registry.
 - Upload/download, Markdown images, previews; tabs.

@@ -1,0 +1,86 @@
+[
+  {
+    "name": "中文标题与强调",
+    "source": "# 中文标题\n\n正文包含 **加粗** 与 *斜体*，以及 `代码`。\n",
+    "serialized": "# 中文标题\n\n正文包含 **加粗** 与 *斜体*，以及 `代码`。\n",
+    "safe": true
+  },
+  {
+    "name": "相对链接与图片",
+    "source": "[笔记](./目录/笔记.md)\n\n![示意图](./assets/image.png)\n",
+    "serialized": "[笔记](./目录/笔记.md)\n\n![示意图](./assets/image.png)\n",
+    "safe": true
+  },
+  {
+    "name": "围栏语言",
+    "source": "```json\n{\"中文\": true}\n```\n",
+    "serialized": "```json\n{\"中文\": true}\n```\n",
+    "safe": true
+  },
+  {
+    "name": "嵌套任务列表",
+    "source": "- [ ] 第一项\n  - [x] 嵌套完成\n",
+    "serialized": "* [ ] 第一项\n  * [x] 嵌套完成\n",
+    "safe": false
+  },
+  {
+    "name": "表格",
+    "source": "| 名称 | 状态 |\n| --- | --- |\n| 笔记 | 完成 |\n",
+    "serialized": "| 名称 | 状态 |\n| -- | -- |\n| 笔记 | 完成 |\n",
+    "safe": false
+  },
+  {
+    "name": "frontmatter",
+    "source": "---\ntitle: 不可丢失的元数据\ntags: [笔记]\n---\n\n# 内容\n",
+    "serialized": "***\n\ntitle: 不可丢失的元数据\ntags: \\[笔记]\n-----------\n\n# 内容\n",
+    "safe": false
+  },
+  {
+    "name": "HTML",
+    "source": "<details><summary>说明</summary>原始 HTML</details>\n",
+    "serialized": "<details><summary>说明</summary>原始 HTML</details>\n",
+    "safe": true
+  },
+  {
+    "name": "HTML 注释",
+    "source": "<!-- 这段注释必须保留 -->\n\n正文\n",
+    "serialized": "<!-- 这段注释必须保留 -->\n\n正文\n",
+    "safe": true
+  },
+  {
+    "name": "公式未启用",
+    "source": "公式 $E = mc^2$\n\n$$\nx^2\n$$\n",
+    "serialized": "公式 $E = mc^2$\n\n$$\nx^2\n$$\n",
+    "safe": true
+  },
+  {
+    "name": "转义",
+    "source": "\\*不是斜体\\* 与 \\[方括号\\]，路径 C:\\\\notes。\n",
+    "serialized": "\\*不是斜体\\* 与 \\[方括号]，路径 C:\\notes。\n",
+    "safe": false
+  },
+  {
+    "name": "引用式链接",
+    "source": "[说明][ref]\n\n[ref]: ./note.md \"原始引用\"\n",
+    "serialized": "[说明](./note.md \"原始引用\")\n",
+    "safe": false
+  },
+  {
+    "name": "空白与换行",
+    "source": "# 空白\n\n\n段落尾随空格  \n下一行\n\n\n",
+    "serialized": "# 空白\n\n段落尾随空格\\\n下一行\n",
+    "safe": false
+  },
+  {
+    "name": "脚注未承诺支持",
+    "source": "正文[^1]\n\n[^1]: 需要保留的脚注\n",
+    "serialized": "正文[^1]\n\n[^1]: 需要保留的脚注\n",
+    "safe": true
+  },
+  {
+    "name": "Unicode",
+    "source": "# 你好 🌿\n\n中文、é、é 与日本語。\n",
+    "serialized": "# 你好 🌿\n\n中文、é、é 与日本語。\n",
+    "safe": true
+  }
+]

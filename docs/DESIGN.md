@@ -25,6 +25,9 @@ Use CSS custom properties and shadcn-compatible semantic tokens; values below ar
 
 Tokenize focus ring, destructive, selected, selection highlight, tooltip, scrollbar and code surfaces separately. Contrast must meet WCAG AA where feasible; adjust muted text when needed. Accent reserved for selected state, focus and links; not as background decoration.
 
+### Product language
+The default UI language is Simplified Chinese, including accessible labels, loading/error messages and editor menus. Code identifiers and API fields retain conventional technical naming. Necessary implementation comments and user-facing implementation notes are written in Chinese.
+
 ## 3. Typography
 System UI: `Inter` when already installed, otherwise `system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif`; do **not** embed or redistribute font files. Chinese readability matters. Editor body: 15–16px, line-height ~1.7; comfortable Markdown text distinct from UI chrome. Interface: 12–13px secondary, 13–14px main; headers deliberate, not oversized. Code: system monospace, 13–14px. Numeric status uses tabular nums.
 
