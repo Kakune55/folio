@@ -1,0 +1,96 @@
+# Web Markdown Workspace — Visual & Interaction Design
+
+Status: V1.0 · 2026-10-15
+
+## 1. Art direction
+**Minimal, not bare.** Calm, precise and dense enough for technical work; the editor is the hero. Reference points: Linear's polish, Obsidian's layout, Milkdown Crepe's typography. Do not clone those products. A modern desktop workspace, not a card-based dashboard, landing page or Notion-style block interface.
+
+Guiding attributes: **quiet, crisp, coherent, restrained, productive**.
+
+### Avoid
+Overlapping gradients, glassmorphism, giant rounded cards, bouncing animations, saturated status chips, ornamental illustrations, excessive icon buttons, large empty gutters, rainbow file icons, UI chrome competing with note body. Do not use random Tailwind colors from component to component.
+
+## 2. Design tokens
+Use CSS custom properties and shadcn-compatible semantic tokens; values below are *starting references*, adjust contrast in QA. Both themes are first-class. System theme by default, manual override persisted.
+
+| Token | Light | Dark |
+|---|---|---|
+| `--background` | `#FFFFFF` | `#202124` |
+| `--sidebar` | `#F7F7F8` | `#191A1C` |
+| `--surface-hover` | `#EEEEEF` | `#303135` |
+| `--border` | `#E7E7E9` | `#35363A` |
+| `--foreground` | `#202124` | `#EEEEEE` |
+| `--muted-foreground` | `#777B83` | `#A1A1A8` |
+| `--accent` | `#5365B8` | `#94A8FF` |
+
+Tokenize focus ring, destructive, selected, selection highlight, tooltip, scrollbar and code surfaces separately. Contrast must meet WCAG AA where feasible; adjust muted text when needed. Accent reserved for selected state, focus and links; not as background decoration.
+
+## 3. Typography
+System UI: `Inter` when already installed, otherwise `system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif`; do **not** embed or redistribute font files. Chinese readability matters. Editor body: 15–16px, line-height ~1.7; comfortable Markdown text distinct from UI chrome. Interface: 12–13px secondary, 13–14px main; headers deliberate, not oversized. Code: system monospace, 13–14px. Numeric status uses tabular nums.
+
+Editor prose measure: max width **760–820px** centered within the main pane, customizable eventually. Headings visually distinct; avoid huge vertical gaps. Markdown fenced code can expand inside document pane while retaining horizontal scroll.
+
+## 4. Geometry and spacing
+Spacing scale: 4px base (`4,8,12,16,20,24,32`). Sidebar default **240px**, resizable approximate range 200–360px. Top bar 40–44px, tabs 34–38px, Explorer row ~28–32px. Borders 1px low contrast. Typical radius 6px; popovers/dialogs 8–10px; avoid blanket 16–24px. Subtle shadows only on floating surfaces. Animations 120–180ms (opacity / translate 2–4px), honor reduced motion. Icons Lucide 15–18px, consistent stroke.
+
+## 5. Desktop layout
+```
+┌────────────────────────────────────────────────────────────┐
+│ Workspace                  Search             Theme  Settings│
+├──────────────────┬─────────────────────────────────────────┤
+│ EXPLORER         │ [PVE.md ×] [compose.yml ×]                │
+│ ▾ Linux          ├─────────────────────────────────────────┤
+│   ▾ PVE          │                                         │
+│     PVE.md       │        # PVE GPU passthrough            │
+│     compose.yml  │                                         │
+│     screenshot   │        Observations ...                  │
+│ ▸ Embedded       │                                         │
+│ Inbox.md         │                                         │
+├──────────────────┴─────────────────────────────────────────┤
+│ main / Linux/PVE                              Saved · MD    │
+└────────────────────────────────────────────────────────────┘
+```
+
+Top bar: one-line title, search affordance and compact controls. Avoid two competing navigation systems. Explorer: selected item uses muted tinted background and/or accent indicator, not filled primary-color pills. Tab strip quiet; modified tab has understated dot. Editor: generous internal margin, text dominates. Status line optional and discreet.
+
+## 6. Components and behaviors
+### File tree
+Use disclosure arrows, small type-specific Lucide icons, ellipsis menu shown on hover **and keyboard focus**, clearly highlighted active file, hover affordance. Root and nested indentation consistent. Rename inline with validation and Escape cancel. Drag-and-drop with visible target and keyboard-accessible move action. A large tree should use virtualization only after measured need.
+
+### Tabs
+One line, horizontal scroll; close button accessible. Closing dirty file should not destroy unsaved edits: flush save or preserve draft and disclose failure. Middle click optional. Limit unnecessary file-opening tabs via preview-tab behavior only if easy to understand.
+
+### Editor
+Milkdown Crepe default for Markdown. Preserve existing Crepe ergonomics; theme with scoped tokens rather than blanket CSS hacks. Floating toolbar, tables and code blocks must fit both dark/light themes. `Source` switch visible in file menu or toolbar. Always show subtle save state near document/tab; do not display toast on every save.
+
+### Modals, menus and search
+shadcn/ui + Radix interaction semantics, consistent padding, keyboard focus rings, `Esc` to close. Quick-open command dialog has path secondary label and keyboard navigation. Search results show matching context without dense highlight noise. Confirmation only for destructive operations; routine saves are silent.
+
+### Upload
+Paste/drop image into Markdown inserts relative link after upload succeeds. Show progress for larger uploads; retries and failures remain visible. File upload can use toolbar, context menu, and drop-zone cues rather than a giant permanent upload panel.
+
+### Empty, loading and error states
+Empty workspace: explain `Create note` and `Upload files` in one compact column. Empty directory: lightweight helper. Loading: unobtrusive skeleton in tree/editor, no blocking full-screen spinner. Offline/save error: sticky, actionable status, preserve edit buffer. 409/412 conflict: clearly distinguish local and remote versions; never overwrite on dismissal.
+
+## 7. Responsive behavior
+Desktop >=1024px: Explorer + editor; 768–1023px: optionally collapsed Explorer; below ~768px: main editor full width and Explorer drawer. Mobile touch targets >=40px; contextual controls via visible overflow, not hover-only. No tiny fixed-width editor layout. On-screen keyboard must not cover save/error indicators. Mobile first use should not request installing an app.
+
+## 8. Accessibility
+Semantic landmarks; visible focus, useful accessible names, full keyboard path for create/open/rename/move/delete; dialog focus trapping and return, contrast testing in both themes, reduced-motion support. Indicate save status with polite ARIA live region at transitions but avoid announcement spam. Editor screen reader behavior validated separately; do not assume library defaults suffice.
+
+## 9. UI build constraints for AI agents
+- Implement design tokens first; use them everywhere.
+- Reuse existing shadcn components; do not create competing button/dialog primitives.
+- Each screen should look intentional at 1440×900, 1024×768 and 390×844.
+- Avoid lorem ipsum in finished product; use representative filenames and documentation.
+- New UI requires hover, focus, disabled, empty, loading, error and dark mode checks.
+- Never substitute an elaborate dashboard for the core file tree/editor layout.
+- Prefer removing visual elements before adding decoration.
+
+## 10. Visual acceptance checklist
+- At desktop width the document is visually dominant; left sidebar is useful but unobtrusive.
+- Light/dark themes have matching hierarchy and readable contrast.
+- Milkdown Crepe headings, blockquotes, tables, fenced code, selection and toolbars are consistently themed.
+- Selected file, open tab and unsaved state are unambiguous without loud color.
+- Mobile navigation, edit, upload and recoverable error handling work without hover.
+- No unexpected horizontal scrolling of the entire application shell.
