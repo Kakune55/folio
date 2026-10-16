@@ -95,3 +95,12 @@ it('恢复稿总是暂停自动保存，基准不同进入冲突，并且脏正�
   expect(await sessions.save('恢复.md')).toBe(true)
   expect(writes).toBe(1)
 })
+
+it('异步图片追加沿用原始换行，不改写已有正文', () => {
+  for (const ending of ['\r\n', '\r', '\n']) {
+    const source = `正文${ending}${ending}`
+    const sessions = new WorkspaceSessions([{ path: '图.md', source, mode: 'source' }])
+    sessions.appendAttachment('图.md', '![图](./image.png)')
+    expect(sessions.get('图.md').source).toBe(`${source}![图](./image.png)${ending}`)
+  }
+})

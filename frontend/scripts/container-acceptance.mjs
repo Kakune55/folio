@@ -61,9 +61,27 @@ try {
     expect(cookie?.secure).toBe(true); expect(cookie?.httpOnly).toBe(true); expect(cookie?.sameSite).toBe('Strict')
     expect(cookie.expires).toBeGreaterThan(Date.now() / 1000)
     report.checks = { createFolder: true, richMarkdown: true, pasteImage: true, json: true, tabIsolation: true, realFile: true, standardRelativeImage: true, downloadDraft: true, securePersistentCookie: true, markdownHash: hash(markdown) }
+    const endings = '\ufeff甲\r\n乙\n丙\r丁\r\n', edited = '\ufeff甲X\r\n乙\n丙\r丁\r\n'
+    await writeFile(path.join(workspace, '容器验收/换行.txt'), endings)
+    await page.getByRole('button', { name: '刷新文件列表' }).click()
+    const folder = page.getByRole('button', { name: '容器验收', exact: true })
+    if (await folder.getAttribute('aria-expanded') !== 'true') await folder.click()
+    await page.getByRole('button', { name: '换行.txt', exact: true }).click()
+    const raw = page.getByRole('textbox', { name: '源码编辑器' })
+    await raw.focus(); await page.keyboard.press('Control+Home'); await page.keyboard.press('End'); await page.keyboard.insertText('X'); await page.keyboard.press('Control+s')
+    await expect(page.locator('.save-status')).toHaveText('已保存')
+    expect(await readFile(path.join(workspace, '容器验收/换行.txt'), 'utf8')).toBe(edited)
+    await page.keyboard.press('Control+z'); await page.keyboard.press('Control+s')
+    await expect(page.locator('.save-status')).toHaveText('已保存')
+    expect(await readFile(path.join(workspace, '容器验收/换行.txt'), 'utf8')).toBe(endings)
+    await page.keyboard.press('Control+Shift+z'); await page.keyboard.press('Control+s')
+    await expect(page.locator('.save-status')).toHaveText('已保存')
+    expect(await readFile(path.join(workspace, '容器验收/换行.txt'), 'utf8')).toBe(edited)
+    report.checks.mixedLineEndingsAndUndoRedo = hash(edited)
   } else if (phase === 'verify') {
     await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
     await expect(page.getByLabel('密码', { exact: true })).not.toBeVisible()
+    expect(await readFile(path.join(workspace, '容器验收/换行.txt'), 'utf8')).toBe('\ufeff甲X\r\n乙\n丙\r丁\r\n')
     await page.getByRole('button', { name: '容器验收', exact: true }).click()
     await page.getByRole('button', { name: '笔记.md', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toContainText('容器中的 Markdown 正文。')
@@ -123,7 +141,8 @@ try {
     await page.getByRole('button', { name: '配置.json', exact: true }).click()
     await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('"保存":"真实文件"')
     expect(await readFile(path.join(workspace, '容器验收/配置.json'), 'utf8')).toBe('{"容器":true,"保存":"真实文件"}')
-    report.checks = { oldCookieRejected: true, oldPasswordRejected: true, newPasswordLogin: true, stableWorkspaceIdentity: true, realFilesPreserved: true, resetWithoutWorkspaceMount: true }
+    expect(await readFile(path.join(workspace, '容器验收/换行.txt'), 'utf8')).toBe('\ufeff甲X\r\n乙\n丙\r丁\r\n')
+    report.checks = { oldCookieRejected: true, oldPasswordRejected: true, newPasswordLogin: true, stableWorkspaceIdentity: true, realFilesPreserved: true, mixedLineEndingsPreserved: true, resetWithoutWorkspaceMount: true }
   } else throw new Error('未知验收阶段')
   report.cspViolations = await page.evaluate(() => window.policyFailures)
   expect(report.cspViolations).toEqual([]); expect(errors).toEqual([])

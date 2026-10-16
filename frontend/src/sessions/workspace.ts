@@ -142,8 +142,9 @@ export class WorkspaceSessions {
   endUpload(path: string) { this.get(path).pendingUploads--; this.emit() }
   appendAttachment(path: string, markdown: string) {
     const session = this.get(path)
-    const separator = session.source.endsWith('\n\n') || !session.source ? '' : session.source.endsWith('\n') ? '\n' : '\n\n'
-    this.update(path, `${session.source}${separator}${markdown}\n`)
+    const ending = /\r\n|\r|\n/.exec(session.source)?.[0] ?? '\n'
+    const separator = session.source.endsWith(ending + ending) || !session.source ? '' : session.source.endsWith(ending) ? ending : ending + ending
+    this.update(path, `${session.source}${separator}${markdown}${ending}`)
     session.generation++; this.emit()
   }
   setMode(path: string, mode: EditorMode) { const session = this.get(path); if (session.mode === mode) return; session.mode = mode; this.emit() }

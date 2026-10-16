@@ -43,3 +43,9 @@ QA 独立于普通 `make test`，最终回归应运行 **`make test && make qa`*
 新增固定 `@axe-core/playwright` 4.14.0。审计发现 `micromark-extension-math` 间接 KaTeX 0.16.47 告警；检查其 HTML 渲染仍使用新版支持的 renderToString 后，将这条依赖定向对齐到 Crepe 自身使用的 0.19.0。保留 Crepe/remark 版本和禁用数学编辑的产品行为，没有用 `audit fix --force` 降级整个编辑器。
 
 条件与修复版本见 [KaTeX 官方安全公告](https://github.com/KaTeX/KaTeX/security/advisories/GHSA-238p-pmpm-9mq7)。普通 `npm ci` 与本次审计通过（0 已知告警）；这是当时的依赖数据库结果，不是未来无漏洞保证。Markdown 往返与移动流程继续纳入回归。
+
+## 源码保真补充
+
+最终审计发现并修复 CodeMirror 默认 toString 将原始 CRLF/CR 统一成 LF 的缺口。源码编辑保留原有换行及 BOM，混合格式随编辑事务移动并参与撤销/重做；新行使用本次打开时原文的第一个换行格式，没有换行则用 LF。标记只驻留编辑器模型，不进入文件或 React/Zustand；常见统一格式无需逐行标记。异步图片追加同样沿用原格式。
+
+模型测试、实际磁盘字节断言及恢复稿下载/刷新验证独立于视觉 textarea；浏览器显示控件的换行表示不能当作文件字节。当前回归变为 16 项前端单元、31 项常规浏览器测试，生产 QA 仍为 5 条。新产品构建/两架构 HTTPS 容器也加入 BOM/混合换行的编辑、撤销/重做、重启与改密后保真断言。

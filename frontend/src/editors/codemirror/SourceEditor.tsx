@@ -8,11 +8,13 @@ import { codeTheme } from '../theme'
 import type { Session, WorkspaceSessions } from '../../sessions/workspace'
 import type { CrepeBridge } from '../milkdown/bridge'
 import { imageMarkdown } from '../milkdown/bridge'
+import { preserveLineEndings } from './line-endings'
 
 export default function SourceEditor({ session, sessions, onBlocked, bridge }: { session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge }) {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let disposed = false
+    const lineEndings = preserveLineEndings(session.source)
     const language = new Compartment()
     const uploads = new Map<symbol, number>()
     const handleFiles = (event: ClipboardEvent | DragEvent, view: EditorView, files?: FileList) => {
@@ -32,15 +34,15 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge }: {
       return true
     }
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
-      doc: session.source,
+      doc: lineEndings.doc,
       extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(), highlightActiveLine(),
-        codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
+        lineEndings.extension, codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
         EditorView.domEventHandlers({ paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => handleFiles(event, view, event.dataTransfer?.files) }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             for (const [id, position] of uploads) uploads.set(id, update.changes.mapPos(position))
-            sessions.update(session.path, update.state.doc.toString())
+            sessions.update(session.path, lineEndings.serialize(update.state))
           }
         }),
       ],
