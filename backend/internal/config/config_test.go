@@ -10,6 +10,7 @@ func TestTLSConfigurationRequiresPairAndHTTPSOrigin(t *testing.T) {
 	t.Setenv("FOLIO_APP_DATA", filepath.Join(t.TempDir(), "data"))
 	t.Setenv("FOLIO_PASSWORD_FILE", "")
 	t.Setenv("FOLIO_SECURE_COOKIE", "true")
+	t.Setenv("FOLIO_MAX_INDEX_BYTES", "")
 	t.Setenv("FOLIO_TLS_CERT", "cert.pem")
 	t.Setenv("FOLIO_TLS_KEY", "")
 	if _, err := Load(); err == nil {
@@ -25,7 +26,9 @@ func TestTLSConfigurationRequiresPairAndHTTPSOrigin(t *testing.T) {
 		t.Fatal("含路径的 origin 未拒绝")
 	}
 	t.Setenv("FOLIO_ORIGIN", "https://notes.example")
-	if _, err := Load(); err != nil {
+	if cfg, err := Load(); err != nil {
 		t.Fatal(err)
+	} else if cfg.IndexLimit != 5<<20 {
+		t.Fatal("默认正文索引上限应为 5 MiB")
 	}
 }

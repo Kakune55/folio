@@ -8,7 +8,8 @@ export const codeTheme = [
     '&': { color: 'var(--foreground)', backgroundColor: 'var(--code)' },
     '.cm-gutters': { color: 'var(--muted-foreground)', backgroundColor: 'var(--code)', border: 'none' },
     '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
-    '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'var(--surface-hover)' },
+    '.cm-activeLine': { backgroundColor: 'transparent' },
+    '.cm-activeLineGutter': { backgroundColor: 'var(--surface-hover)' },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--selection)' },
   }),
   syntaxHighlighting(HighlightStyle.define([

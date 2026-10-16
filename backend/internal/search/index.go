@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type Response struct {
 }
 type scanRequest struct {
 	full       bool
+	paths      []string
 	generation uint64
 }
 type Index struct {
@@ -49,12 +51,15 @@ type Index struct {
 	db                   *sql.DB
 	mu                   sync.Mutex
 	status               Status
-	requests             chan scanRequest
+	requests             chan struct{}
+	pendingFull          bool
+	pendingRebuild       bool
+	pendingPaths         map[string]struct{}
 	cancel               context.CancelFunc
 	done                 chan struct{}
 }
 
-const DefaultBodyLimit int64 = 1 << 20
+const DefaultBodyLimit int64 = 5 << 20
 
 var ErrUnavailable = errors.New("搜索索引暂时不可用，文件编辑不受影响；可尝试重建索引")
 
@@ -62,7 +67,7 @@ func Open(directory string, store *storage.Store, bodyLimit int64) (*Index, erro
 	if bodyLimit < 1 || bodyLimit > 100<<20 {
 		return nil, errors.New("索引正文限制必须介于 1 字节和 100 MiB")
 	}
-	index := &Index{store: store, filename: filepath.Join(directory, "search.db"), bodyLimit: bodyLimit, requests: make(chan scanRequest, 1), done: make(chan struct{})}
+	index := &Index{store: store, filename: filepath.Join(directory, "search.db"), bodyLimit: bodyLimit, requests: make(chan struct{}, 1), pendingPaths: make(map[string]struct{}), done: make(chan struct{})}
 	db, err := openDB(index.filename)
 	index.db = db
 	if err != nil {
@@ -113,41 +118,104 @@ func (i *Index) Status() Status {
 	status.Indexing = status.Indexing || i.requested > i.completed
 	return status
 }
+
+// Refresh 仅供启动核对、手动重建与不确定结果补偿；不设置周期扫描。
 func (i *Index) Refresh(full bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.requested++
-	// 合并尚未消费的请求，同时保留 full 级别与最后请求序号。
+	i.pendingFull = true
+	i.pendingRebuild = i.pendingRebuild || full
+	clear(i.pendingPaths)
+	i.wake()
+}
+
+// Changed 在文件 API 操作后调用；合并同路径及已覆盖的子树，读取时以磁盘最新内容为准。
+func (i *Index) Changed(paths ...string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	added := false
+	for _, name := range paths {
+		if storage.ValidPath(name, false) != nil {
+			continue
+		}
+		added = true
+		if i.pendingFull {
+			continue
+		}
+		covered := false
+		for previous := range i.pendingPaths {
+			if name == previous || strings.HasPrefix(name, previous+"/") {
+				covered = true
+				break
+			}
+			if strings.HasPrefix(previous, name+"/") {
+				delete(i.pendingPaths, previous)
+			}
+		}
+		if !covered {
+			i.pendingPaths[name] = struct{}{}
+		}
+	}
+	if !added {
+		return
+	}
+	i.requested++
+	// 限制突发批量操作的队列内存；溢出仅安排一次全量核对，不开启轮询。
+	if len(i.pendingPaths) > 256 {
+		i.pendingFull = true
+		clear(i.pendingPaths)
+	}
+	i.wake()
+}
+func (i *Index) wake() {
 	select {
-	case previous := <-i.requests:
-		full = full || previous.full
+	case i.requests <- struct{}{}:
 	default:
 	}
-	i.requests <- scanRequest{full: full, generation: i.requested}
+}
+func (i *Index) take() (scanRequest, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.requested <= i.completed {
+		return scanRequest{}, false
+	}
+	request := scanRequest{full: i.pendingRebuild, generation: i.requested}
+	if !i.pendingFull {
+		request.paths = make([]string, 0, len(i.pendingPaths))
+		for name := range i.pendingPaths {
+			request.paths = append(request.paths, name)
+		}
+		sort.Strings(request.paths)
+	}
+	i.pendingFull = false
+	i.pendingRebuild = false
+	clear(i.pendingPaths)
+	return request, true
 }
 func (i *Index) run(ctx context.Context) {
 	defer close(i.done)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-	lastFull := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case request := <-i.requests:
-			i.scan(ctx, request.full)
+		case <-i.requests:
+			// 单次合并窗口，不会在工作区闲置时唤醒。
+			timer := time.NewTimer(50 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			request, ok := i.take()
+			if !ok {
+				continue
+			}
+			i.scan(ctx, request.full, request.paths)
 			i.mu.Lock()
 			i.completed = max(i.completed, request.generation)
 			i.mu.Unlock()
-			if request.full {
-				lastFull = time.Now()
-			}
-		case <-ticker.C:
-			full := time.Since(lastFull) >= 5*time.Minute && i.Status().Warning == ""
-			i.scan(ctx, full)
-			if full {
-				lastFull = time.Now()
-			}
 		}
 	}
 }
@@ -171,7 +239,7 @@ func (i *Index) recoverCache() error {
 	i.db, err = openDB(i.filename)
 	return err
 }
-func (i *Index) scan(ctx context.Context, full bool) {
+func (i *Index) scan(ctx context.Context, full bool, paths []string) {
 	previous := i.Status()
 	i.mu.Lock()
 	i.status.Indexing = true
@@ -183,16 +251,41 @@ func (i *Index) scan(ctx context.Context, full bool) {
 			return
 		}
 	}
-	i.dbMu.RLock()
-	defer i.dbMu.RUnlock()
-	if i.db == nil {
-		i.failed(ErrUnavailable)
-		return
+	// 文件在核对期间再次保存属于正常竞争，有限次重读最新磁盘内容，不开启后台轮询。
+	var count int
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		count, err = i.update(ctx, full, paths)
+		if err == nil {
+			break
+		}
+		var problem *storage.Error
+		if ctx.Err() != nil || !errors.As(err, &problem) || (problem.Code != "file_changed" && problem.Code != "not_found") {
+			break
+		}
 	}
-	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		i.failed(err)
 		return
+	}
+	i.mu.Lock()
+	i.status.Files = count
+	i.status.IndexedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if paths == nil {
+		i.status.Warning = ""
+	}
+	i.mu.Unlock()
+}
+
+func (i *Index) update(ctx context.Context, full bool, paths []string) (int, error) {
+	i.dbMu.RLock()
+	defer i.dbMu.RUnlock()
+	if i.db == nil {
+		return 0, ErrUnavailable
+	}
+	tx, err := i.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
 	}
 	defer tx.Rollback()
 	known := map[string]string{}
@@ -200,7 +293,17 @@ func (i *Index) scan(ctx context.Context, full bool) {
 		_, err = tx.ExecContext(ctx, "DELETE FROM documents")
 	} else {
 		var rows *sql.Rows
-		rows, err = tx.QueryContext(ctx, "SELECT path,stamp FROM documents")
+		query := "SELECT path,stamp FROM documents"
+		args := []any{}
+		if paths != nil {
+			conditions := make([]string, 0, len(paths))
+			for _, name := range paths {
+				conditions = append(conditions, "(path=? OR substr(path,1,?)=?)")
+				args = append(args, name, len([]rune(name))+1, name+"/")
+			}
+			query += " WHERE " + strings.Join(conditions, " OR ")
+		}
+		rows, err = tx.QueryContext(ctx, query, args...)
 		if err == nil {
 			for rows.Next() {
 				var name, stamp string
@@ -216,12 +319,9 @@ func (i *Index) scan(ctx context.Context, full bool) {
 		}
 	}
 	if err != nil {
-		i.failed(err)
-		return
+		return 0, err
 	}
-	count := 0
-	err = i.store.Scan(ctx, func(entry storage.IndexEntry) error {
-		count++
+	visit := func(entry storage.IndexEntry) error {
 		previous, exists := known[entry.Path]
 		delete(known, entry.Path)
 		if exists && previous == entry.Stamp {
@@ -240,7 +340,16 @@ func (i *Index) scan(ctx context.Context, full bool) {
 		}
 		_, err := tx.ExecContext(ctx, "INSERT INTO documents(path,body,stamp) VALUES(?,?,?)", entry.Path, body, entry.Stamp)
 		return err
-	})
+	}
+	if paths == nil {
+		err = i.store.Scan(ctx, visit)
+	} else {
+		for _, name := range paths {
+			if err = i.store.ScanPath(ctx, name, visit); err != nil {
+				break
+			}
+		}
+	}
 	if err == nil {
 		for name := range known {
 			if _, err = tx.ExecContext(ctx, "DELETE FROM documents WHERE path=?", name); err != nil {
@@ -248,19 +357,19 @@ func (i *Index) scan(ctx context.Context, full bool) {
 			}
 		}
 	}
+	count := 0
+	if err == nil {
+		err = tx.QueryRowContext(ctx, "SELECT count(*) FROM documents").Scan(&count)
+	}
 	if err == nil {
 		err = tx.Commit()
 	}
 	if err != nil {
-		i.failed(err)
-		return
+		return 0, err
 	}
-	i.mu.Lock()
-	i.status.Files = count
-	i.status.IndexedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	i.status.Warning = ""
-	i.mu.Unlock()
+	return count, nil
 }
+
 func (i *Index) failed(err error) {
 	if !errors.Is(err, context.Canceled) {
 		log.Printf("搜索索引刷新失败：%v", err)

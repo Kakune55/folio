@@ -17,6 +17,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge }: {
   useEffect(() => {
     const original = session.source
     const root = document.createElement('div')
+    root.className = 'rich-editor-root'
     root.style.visibility = 'hidden'
     host.current!.append(root)
     let disposed = false

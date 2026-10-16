@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -18,7 +19,7 @@ type IndexEntry struct {
 	Size        int64
 }
 
-// 小文本使用正文摘要，避免依赖平台 inode/ctime；大附件只比较元数据，防止周期扫描读完整大文件。
+// 小文本使用正文摘要，避免依赖平台 inode/ctime；大附件只比较元数据，防止索引核对读取完整大文件。
 func fileStamp(file *os.File) (string, int64, error) {
 	info, err := file.Stat()
 	if err != nil {
@@ -39,6 +40,41 @@ func fileStamp(file *os.File) (string, int64, error) {
 
 // Scan 不持有写锁，索引不能阻塞编辑；每次读取仍从根描述符安全解析。
 func (s *Store) Scan(ctx context.Context, visit func(IndexEntry) error) error {
+	return s.ScanPath(ctx, "", visit)
+}
+
+// ScanPath 只检查指定文件或子树；已删除或变成不安全条目的路径不再进入索引。
+func (s *Store) ScanPath(ctx context.Context, target string, visit func(IndexEntry) error) error {
+	if err := ValidPath(target, true); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if target != "" {
+		file, err := s.open(target, os.O_RDONLY, 0)
+		if err != nil {
+			var problem *Error
+			if errors.As(err, &problem) && (problem.Code == "not_found" || problem.Code == "path_invalid" || problem.Code == "unsupported_file_type") {
+				return nil
+			}
+			return err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			file.Close()
+			return err
+		}
+		if !info.IsDir() {
+			stamp, size, err := fileStamp(file)
+			file.Close()
+			if err != nil {
+				return err
+			}
+			return visit(IndexEntry{Path: target, Stamp: stamp, Size: size})
+		}
+		file.Close()
+	}
 	var walk func(string) error
 	walk = func(directory string) error {
 		if err := ctx.Err(); err != nil {
@@ -67,7 +103,7 @@ func (s *Store) Scan(ctx context.Context, visit func(IndexEntry) error) error {
 			}
 			file, err := s.open(relative, os.O_RDONLY, 0)
 			if err != nil {
-				// 不安全/不可读条目不进入索引；下一轮仍会重新检查。
+				// 不安全/不可读条目不进入索引；下次路径通知或重建时重新检查。
 				continue
 			}
 			info, err := file.Stat()
@@ -93,7 +129,7 @@ func (s *Store) Scan(ctx context.Context, visit func(IndexEntry) error) error {
 		}
 		return nil
 	}
-	return walk("")
+	return walk(target)
 }
 func (s *Store) ReadIndexText(name, expectedStamp string, limit int64) (string, error) {
 	if err := ValidPath(name, false); err != nil {
@@ -141,4 +177,21 @@ func (s *Store) ReadIndexText(name, expectedStamp string, limit int64) (string, 
 		return "", nil
 	}
 	return string(data), nil
+}
+
+// IndexFileSize 仅安全读取普通文件元数据，不因状态查询重新读取正文或计算摘要。
+func (s *Store) IndexFileSize(name string) (int64, error) {
+	if err := ValidPath(name, false); err != nil {
+		return 0, err
+	}
+	file, err := s.open(name, os.O_RDONLY, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	info, err := regular(file)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
 }

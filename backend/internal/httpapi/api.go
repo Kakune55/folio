@@ -158,14 +158,6 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
-		if a.Search != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !strings.HasPrefix(r.URL.Path, "/api/v1/search/") {
-			recorder := &statusRecorder{ResponseWriter: w, status: 200}
-			next(recorder, r)
-			if recorder.status >= 200 && recorder.status < 300 {
-				a.Search.Refresh(false)
-			}
-			return
-		}
 		next(w, r)
 	}
 }
@@ -341,6 +333,7 @@ func (a *api) write(w http.ResponseWriter, r *http.Request, create bool) {
 		revision = strings.Trim(revision, `"`)
 	}
 	newRevision, err := a.Workspace.Write(name, body.Content, revision, create)
+	a.indexChange(err, name)
 	if err != nil {
 		storageError(w, err)
 		return
@@ -359,17 +352,23 @@ func parseInt(raw string, out *int) (int, error) {
 	return value, err
 }
 
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
+// 文件系统报错可能发生在发布后；已知路径仍核对，不确定恢复路径时全量补偿。
+func (a *api) indexChange(err error, paths ...string) {
+	if a.Search == nil {
+		return
+	}
+	if err != nil {
+		var problem *storage.Error
+		if errors.As(err, &problem) && problem.Code != "durability_uncertain" && problem.Code != "trash_failed" && problem.Code != "trash_incomplete" {
+			return
+		}
+	}
+	if len(paths) == 0 {
+		a.Search.Refresh(false)
+	} else {
+		a.Search.Changed(paths...)
+	}
 }
-
-func (w *statusRecorder) WriteHeader(status int) {
-	w.status = status
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (a *api) workspaceFor(id int64) (string, error) {
 	if a.WorkspaceFor != nil {

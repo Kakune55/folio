@@ -67,7 +67,7 @@ for (const mobile of [false, true]) for (const theme of ['light', 'dark'] as con
     await page.keyboard.press('Escape')
     await page.keyboard.press('Tab')
     expect(await source.evaluate((element) => element.contains(document.activeElement))).toBe(false)
-    const trigger = page.getByRole('button', { name: '快速打开文件' })
+    const trigger = page.getByRole('button', { name: /^搜索(?: Ctrl P)?$/ })
     await trigger.focus(); await page.keyboard.press('Enter')
     const search = page.getByRole('combobox')
     await expect(search).toBeFocused()

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"folio/internal/auth"
+	"folio/internal/search"
 	"folio/internal/storage"
 	"net"
 	"net/url"
@@ -102,7 +103,7 @@ func Load() (Config, error) {
 			*target = value
 		}
 	}
-	c.IndexLimit = 1 << 20
+	c.IndexLimit = search.DefaultBodyLimit
 	if raw := os.Getenv("FOLIO_MAX_INDEX_BYTES"); raw != "" {
 		value, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || value < 1 || value > 100<<20 {

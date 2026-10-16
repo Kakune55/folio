@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightSpecialChars, drawSelection } from '@codemirror/view'
+import { EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, LanguageDescription } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
@@ -35,7 +35,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge }: {
     }
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
-      extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(), highlightActiveLine(),
+      extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(),
         lineEndings.extension, codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
         EditorView.domEventHandlers({ paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => handleFiles(event, view, event.dataTransfer?.files) }),

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"errors"
+	"folio/internal/search"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,6 +40,28 @@ func (a *api) registerSearch(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, 200, results)
+	}))
+	mux.HandleFunc("GET /api/v1/search/file-status", a.protect(func(w http.ResponseWriter, r *http.Request) {
+		if a.Search == nil {
+			writeError(w, 503, "index_unavailable", "搜索索引暂时不可用", nil)
+			return
+		}
+		if len(r.URL.Query().Get("revision")) > 80 {
+			writeError(w, 400, "invalid_request", "文件版本参数无效", nil)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		result, err := a.Search.FileState(ctx, r.URL.Query().Get("path"), r.URL.Query().Get("revision"))
+		if err != nil {
+			if errors.Is(err, search.ErrUnavailable) {
+				writeError(w, 503, "index_unavailable", "搜索索引暂时不可用，请重建索引", nil)
+			} else {
+				storageError(w, err)
+			}
+			return
+		}
+		writeJSON(w, 200, result)
 	}))
 	mux.HandleFunc("GET /api/v1/search/status", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		if a.Search == nil {

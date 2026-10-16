@@ -177,3 +177,45 @@ func TestCorruptCacheRebuildDoesNotTouchFiles(t *testing.T) {
 		t.Fatal("损坏缓存未保留诊断副本")
 	}
 }
+
+// 按内容识别文本，不通过扩展名白名单限制配置、源码或无扩展名文件。
+func TestCommonTextBodiesAndBinaryExclusion(t *testing.T) {
+	index, _, root := setup(t)
+	names := []string{"note.txt", "server.log", "data.json", "config.yaml", "settings.toml", "app.ini", "data.csv", "main.go", "script.py", "app.ts", "style.css", "page.html", "icon.svg", ".env", "Dockerfile", "LICENSE", "unknown.custom"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("文本索引正文 common_text_token\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range map[string][]byte{
+		"binary.bin":   []byte("common_text_token\x00"),
+		"legacy.txt":   append([]byte("common_text_token"), 0xff),
+		"large.txt":    []byte(strings.Repeat("x", 1025) + "common_text_token"),
+		"document.pdf": []byte("%PDF-1.7 common_text_token"),
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	index.Refresh(true)
+	ready(t, index, "")
+	results := find(t, index, "common_text_token", "")
+	if len(results.Entries) != len(names) {
+		t.Fatalf("常见文本正文索引不完整或混入二进制：%+v", results)
+	}
+	for _, name := range names {
+		found := false
+		for _, entry := range results.Entries {
+			if entry.Path == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("正文未索引：%s", name)
+		}
+	}
+	if len(find(t, index, "binary.bin", "names").Entries) != 1 {
+		t.Fatal("二进制名称应可检索")
+	}
+}

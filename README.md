@@ -37,11 +37,11 @@ make run
 | FOLIO_MAX_PDF_BYTES | 50 MiB，PDF 上限 |
 | FOLIO_MAX_ATTACHMENT_BYTES | 100 MiB，其他附件上限 |
 | FOLIO_MAX_IMAGE_PIXELS | 3200 万像素，图片预览上限 |
-| FOLIO_MAX_INDEX_BYTES | 1 MiB，正文索引上限；可设 1 字节至 100 MiB |
+| FOLIO_MAX_INDEX_BYTES | 5 MiB，正文索引上限；可设 1 字节至 100 MiB |
 
 配置只在启动读取，GET /api/v1/settings 返回文件限制，上传总上限最大 1 GiB。workspace 与 app-data 必须独立、不能相互包含，只支持单实例写工作区。运行用户和目录权限/ACL 由部署者保护，不应与外部工具同时写同一文件。
 
-Ctrl/Cmd+P 快开，Ctrl/Cmd+Shift+F 搜索已保存文本，其余快捷键见应用帮助。超限或二进制仅索引名称。PDF 复杂字体/大图等以下载原件核对；SVG/HTML 不活动预览。升级/关闭前保存或下载草稿及待上传原件，本机缓存不是备份。
+Ctrl/Cmd+P 或 Ctrl/Cmd+Shift+F 打开统一搜索，其余快捷键见应用帮助。超限或二进制仅索引名称。PDF 复杂字体/大图等以下载原件核对；SVG/HTML 不活动预览。升级/关闭前保存或下载草稿及待上传原件，本机缓存不是备份。
 
 ## 验证
 
@@ -72,3 +72,5 @@ make qa
 | [历史验收](docs/ACCEPTANCE.md) | 对应历史构建的逐项结果、镜像与归档摘要 |
 | [历史与兼容性](docs/HISTORY.md) | M0–M3 摘要、Markdown 样本及使用限制 |
 | [代理约定](AGENTS.md) | 实现与交付必须遵守的规则 |
+
+搜索索引由文件 API 变更异步更新，无定时工作区扫描或系统文件监听。直接修改宿主目录后，请在搜索窗口重建索引，或重启服务后访问工作区；启动重建同时补偿未完成的索引事件。打开文档的版本探测与 ETag 保存保护仍保留。

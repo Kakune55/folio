@@ -14,6 +14,7 @@ import { useExternalChanges } from '../features/explorer/useExternalChanges'
 import { useUI } from '../stores/ui'
 import { getDraftManager } from '../sessions/drafts'
 import { DraftRecovery } from '../features/recovery/DraftRecovery'
+import { FileStatus } from '../features/search/FileStatus'
 import { SearchDialog } from '../features/search/SearchDialog'
 import { useMobile } from './useMobile'
 import { uploadQueue } from '../sessions/uploads'
@@ -52,7 +53,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const [directory, setDirectory] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  const [searchMode, setSearchMode] = useState<'names' | 'full' | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [focusPath, setFocusPath] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const cameraInput = useRef<HTMLInputElement>(null)
@@ -108,7 +109,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   }, [open, setNotice, setLoading, setSidebar])
 
   useEffect(() => {
-    if (!focusPath || activePath !== focusPath || loading || searchMode) return
+    if (!focusPath || activePath !== focusPath || loading || searchOpen) return
     const root = document.querySelector('.document-panel')
     if (!root) return
     const focus = () => {
@@ -121,7 +122,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     const frame = requestAnimationFrame(focus)
     const timeout = setTimeout(() => setFocusPath(null), 5000)
     return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timeout) }
-  }, [focusPath, activePath, loading, searchMode])
+  }, [focusPath, activePath, loading, searchOpen])
 
   const bridge = useMemo<CrepeBridge | undefined>(() => current?.viewer === 'markdown' ? {
     beginUpload: () => workspace.beginUpload(current.path),
@@ -195,8 +196,8 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
         return
       }
       if (key === '?' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); setShortcutsOpen(true); return }
-      if (modifier && !event.altKey && !event.shiftKey && key === 'p') { event.preventDefault(); setSearchMode('names'); event.stopPropagation(); return }
-      if (modifier && !event.altKey && event.shiftKey && key === 'f') { event.preventDefault(); setSearchMode('full'); event.stopPropagation(); return }
+      if (modifier && !event.altKey && !event.shiftKey && key === 'p') { event.preventDefault(); setSearchOpen(true); event.stopPropagation(); return }
+      if (modifier && !event.altKey && event.shiftKey && key === 'f') { event.preventDefault(); setSearchOpen(true); event.stopPropagation(); return }
       if (modifier && !event.altKey && !event.shiftKey && key === 'b' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); useUI.getState().toggleSidebar(); return }
       if (modifier && !event.altKey && !event.shiftKey && key === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
     }
@@ -246,14 +247,14 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
       <input ref={uploadInput} className="visually-hidden" tabIndex={-1} aria-hidden="true" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
       <input ref={cameraInput} className="visually-hidden" tabIndex={-1} aria-hidden="true" type="file" accept="image/*" capture="environment" aria-label="拍照上传文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []).map((file) => new File([file], `photo-${crypto.randomUUID().slice(0, 12)}-${file.name}`, { type: file.type, lastModified: file.lastModified })))} />
-      <div className="topbar-actions"><Button className="quick-open-trigger" aria-label={mobile ? '快速打开文件' : '快速打开文件 Ctrl P'} aria-keyshortcuts="Control+p Meta+p" title="快速打开（Ctrl/Cmd+P）" onClick={() => setSearchMode('names')}><Search size={16} /><span>快速打开文件</span><kbd aria-hidden="true">Ctrl P</kbd></Button><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
+      <div className="topbar-actions"><Button className="quick-open-trigger" aria-label={mobile ? '搜索' : '搜索 Ctrl P'} aria-keyshortcuts="Control+p Meta+p Control+Shift+f Meta+Shift+f" title="搜索（Ctrl/Cmd+P）" onClick={() => setSearchOpen(true)}><Search size={16} /><span>搜索</span><kbd aria-hidden="true">Ctrl P</kbd></Button><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
         <Button size="icon" aria-label="查看快捷键" title="快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></Button><Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           if (uploadQueue.snapshot().length) { setNotice('还有待确认的附件，请先重试上传或下载原件并移除待上传记录。'); return }
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
         }}><LogOut size={17} /></Button></div>
     </header>
-    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || shortcutsOpen || recoveryOpen || !!searchMode || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
+    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || shortcutsOpen || recoveryOpen || !!searchOpen || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
       <div className="explorer-heading"><span>文件</span><div className="explorer-tools">{mobile && <Button size="icon" aria-label="关闭文件列表" onClick={() => setSidebar(false)}><X size={17} /></Button>}<Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" disabled={external.checking} onClick={() => void external.check()}><RefreshCw size={14} /></Button></div></div>
       {mobile && <div className="drawer-upload-row"><Button className="drawer-upload" variant="outline" disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={16} />上传到{directory ? `「${directory}」` : '工作区'}</Button><Button size="icon" variant="outline" disabled={uploading} aria-label="拍照上传" title="拍照上传到当前目录" onClick={() => cameraInput.current?.click()}><Camera size={17} /></Button></div>}
       {mobile && notice && <p className="tree-message" role="status">{notice}</p>}
@@ -287,14 +288,15 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     </section></main></div>
     <footer className="statusbar" aria-label="编辑状态">
       <div className="statusbar-left"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state">{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
+      {current && <FileStatus session={current} onSearch={() => setSearchOpen(true)} />}
       <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} />浏览器恢复稿<span className="recovery-count">{recovery.entries.length || ''}</span></Button>
     </footer>
 
     <Dialog.Root open={!!discardUpload} onOpenChange={(value) => { if (!value) setDiscardUpload(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>移除待上传原件？</Dialog.Title><Dialog.Description>「{discardUpload?.file.name}」移除后将不再由当前页面保留。请先确认已上传或已下载原件；此操作不会删除服务器文件。</Dialog.Description><div className="dialog-actions"><Button onClick={() => setDiscardUpload(undefined)}>取消</Button><Button variant="outline" onClick={() => { if (discardUpload) uploadQueue.remove(discardUpload.id); setDiscardUpload(undefined) }}>确认移除原件</Button></div></DialogContent></Dialog.Portal></Dialog.Root>
     <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />
-    {searchMode && <SearchDialog key={searchMode} mode={searchMode} onClose={() => setSearchMode(null)} onMode={setSearchMode} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
+    {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
     <Dialog.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>工作区快捷键</Dialog.Title><Dialog.Description>编辑时可使用以下按键，也可通过工具栏和文件菜单完成操作。</Dialog.Description>
-      <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>快速打开</dt><dd>Ctrl / Cmd + P</dd></div><div><dt>全文搜索</dt><dd>Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。在编辑器中先按 Escape，再按 Tab / Shift+Tab 可移出焦点；在文件标签上按 Delete 可保存并关闭。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
+      <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>搜索</dt><dd>Ctrl / Cmd + P 或 Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。在编辑器中先按 Escape，再按 Tab / Shift+Tab 可移出焦点；在文件标签上按 Delete 可保存并关闭。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
     </DialogContent></Dialog.Portal></Dialog.Root>
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content">

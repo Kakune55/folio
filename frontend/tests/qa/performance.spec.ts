@@ -86,7 +86,7 @@ test('1200 文件分页、中文全文搜索及较大正文实际交互测量', 
     await expect(page.locator('.save-status')).toHaveText('已保存', { timeout: 15_000 })
     const textSaved = await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(folder + '/large.log')}`)).json()
     expect(textSaved.content).toBe(textSource + '丁戊己')
-    await page.getByRole('button', { name: '快速打开文件' }).click()
+    await page.getByRole('button', { name: /^搜索(?: Ctrl P)?$/ }).click()
     const searchStart = performance.now()
     await page.getByRole('combobox').fill(`${folder}/note-1199`)
     await expect(page.getByRole('option')).toHaveCount(1)

@@ -13,6 +13,7 @@ export type EntryRevision = { path: string; kind: 'file' | 'directory'; revision
 export type TrashRecord = { id: string; path: string; kind: string; revision: string; deletedAt: string; state: string }
 export type TrashPage = { entries: TrashRecord[]; total: number; offset: number; limit: number }
 export type SearchStatus = { indexing: boolean; indexedAt: string; files: number; warning?: string }
+export type FileIndexStatus = { size: number; bodyLimit: number; state: 'indexed' | 'names_only' | 'too_large' | 'pending' | 'not_indexed' | 'error' }
 export type SearchResult = { path: string; name: string; excerpt: string }
 export type SearchResponse = { entries: SearchResult[]; truncated: boolean; limit: number; status: SearchStatus }
 export type Principal = { id: number; admin: boolean; username: string; csrfToken: string; workspaceId: string }
@@ -44,6 +45,7 @@ export const api = {
   purge: (id: string) => request(`/trash/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   search: (query: string, mode: 'names' | 'full', signal?: AbortSignal) => request<SearchResponse>(`/search?q=${encodeURIComponent(query)}&mode=${mode === 'names' ? 'names' : ''}`, { signal }),
+  fileIndexStatus: (path: string, revision: string, signal?: AbortSignal) => request<FileIndexStatus>(`/search/file-status?path=${encodeURIComponent(path)}&revision=${encodeURIComponent(revision)}`, { signal }),
   searchStatus: () => request<SearchStatus>('/search/status'),
   rebuildIndex: () => request('/search/rebuild', { method: 'POST' }),
   me: () => request<Principal>('/auth/me'),
