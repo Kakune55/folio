@@ -27,7 +27,7 @@ M1 exit gate passed on 2026-10-15: native amd64 and QEMU-user arm64 HTTPS contai
 - Better empty/loading/error states; refine dark/light and file tree.
 **Exit gate:** search and external-edit tests pass; UI reviewed against DESIGN.md.
 
-M2 is in progress: name quick-open and Chinese/English search are implemented and verified; see [`M2.md`](M2.md). Open-editor external-change reconciliation and the remaining workflow polish are pending.
+M2 is in progress: name quick-open and Chinese/English search are implemented and verified; see [`M2.md`](M2.md). Open-editor external-change reconciliation is implemented with explicit reload and draft-copy recovery; drag/drop moves and the remaining workflow polish are pending.
 
 ## M3 — Recovery & mobile
 - Mobile drawer/responsive editors; upload from phone.

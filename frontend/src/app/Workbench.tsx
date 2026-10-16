@@ -7,6 +7,8 @@ import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import type { FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
+import { reloadCleanSession } from '../sessions/reconcile'
+import { useExternalChanges } from '../features/explorer/useExternalChanges'
 import { useUI } from '../stores/ui'
 import { SearchDialog } from '../features/search/SearchDialog'
 import { Explorer } from '../features/explorer/Explorer'
@@ -19,6 +21,7 @@ import type { CrepeBridge } from '../editors/milkdown/bridge'
 
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path)
 const basename = (path: string) => path.split('/').at(-1) ?? path
+const isSessionBusy = (session: Session) => session.pendingUploads > 0 || session.locked || session.state === 'saving'
 const saveLabels = { saved: '已保存', dirty: '未保存', saving: '正在保存…', error: '保存失败 · 草稿已保留', conflict: '版本冲突 · 草稿已保留' }
 
 class EditorBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
@@ -45,7 +48,12 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const [createError, setCreateError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editorAttempt, setEditorAttempt] = useState(0)
-  const [compare, setCompare] = useState(false)
+  const [comparison, setComparison] = useState<{ session: Session; path: string }>()
+  const [comparisonError, setComparisonError] = useState('')
+  const [comparisonLoading, setComparisonLoading] = useState(false)
+  const [copyPath, setCopyPath] = useState('')
+  const comparisonSequence = useRef(0)
+  const external = useExternalChanges()
   const [remote, setRemote] = useState<FileContent>()
   const requestSequence = useRef(0)
   const onBlocked = useCallback((message: string) => setNotice(message), [setNotice])
@@ -153,24 +161,38 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const startCreate = (kind: 'file' | 'directory') => { setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
   const loadComparison = async () => {
     if (!current) return
-    setRemote(undefined); setCompare(true); setNotice('')
-    try { setRemote(await api.read(current.path)) }
-    catch (error) { setNotice(error instanceof Error ? error.message : '远端版本读取失败，请先下载本地草稿') }
+    const session = current, path = session.path, sequence = ++comparisonSequence.current
+    setComparison({ session, path }); setRemote(undefined); setComparisonError(''); setComparisonLoading(true)
+    setCopyPath(path.replace(/(\.[^/.]+)?$/, `.本地-${crypto.randomUUID().slice(0, 12)}$1`))
+    try { const file = await api.read(path); if (sequence === comparisonSequence.current) setRemote(file) }
+    catch (error) { if (sequence === comparisonSequence.current) setComparisonError(error instanceof Error ? error.message : '磁盘版本读取失败，可另存本地草稿') }
+    finally { if (sequence === comparisonSequence.current) setComparisonLoading(false) }
   }
+  const closeComparison = () => { if (!busy) { comparisonSequence.current++; setComparison(undefined) } }
   const handleKeepSeparate = async () => {
-    if (!current || !remote) return
-    setBusy(true)
-    const source = current.source
+    if (!comparison) return
+    const { session, path: originalPath } = comparison
+    if (!workspace.has(originalPath) || workspace.get(originalPath) !== session || session.path !== originalPath) { setComparisonError('原会话路径已变化，请关闭后重新比较'); return }
+    if (isSessionBusy(session)) { setComparisonError('保存、上传或文件操作尚未结束，请稍后重试'); return }
+    if (copyPath === originalPath || workspace.has(copyPath) || workspace.isLocked(copyPath)) { setComparisonError('请选择不同于原文件且未打开的新副本路径'); return }
+    setBusy(true); setComparisonError('')
+    const source = session.source, generation = session.generation
     try {
-      const saved = await api.createCopy(current.path, source)
-      const path = saved.path
-      workspace.add({ path, source, revision: saved.revision, mode: current.mode })
-      if (current.source !== source) { setNotice('副本已保存，但本地又有新修改，仍保留原草稿。'); return }
-      workspace.acceptRemote(current.path, remote.content, remote.revision)
-      setCompare(false); open(path); setNotice('已将本地草稿保存为独立文件，远端原文件未被覆盖。')
+      const saved = await api.create(copyPath, source)
+      if (workspace.has(saved.path) || workspace.isLocked(saved.path)) throw new Error('副本已写入，但目标路径的会话又有变化；原草稿仍保留，请刷新目录确认')
+      workspace.add({ path: saved.path, source, revision: saved.revision, mode: session.mode })
       void client.invalidateQueries({ queryKey: ['tree'] })
-    } catch (error) { setNotice(error instanceof Error ? error.message : '保留副本失败，草稿仍在') }
+      if (session.source !== source || session.path !== originalPath || session.generation !== generation || isSessionBusy(session)) { setComparisonError('副本已保存，但原会话又有新变化，仍保留原草稿。'); return }
+      if (remote) workspace.acceptRemote(originalPath, remote.content, remote.revision)
+      else { workspace.acceptRemote(originalPath, source, session.revision); workspace.remove(originalPath) }
+      comparisonSequence.current++; setComparison(undefined); open(saved.path); setNotice('本地副本已保存，未覆盖磁盘原文件。')
+    } catch (error) { setComparisonError(error instanceof Error ? error.message : '保留副本失败，草稿仍在') }
     finally { setBusy(false) }
+  }
+  const reloadCurrent = async () => {
+    if (!current) return
+    try { await reloadCleanSession(workspace, current); setNotice('已加载磁盘版本。') }
+    catch (error) { setNotice(error instanceof Error ? error.message : '重新加载失败，当前正文仍保留') }
   }
 
   return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
@@ -183,7 +205,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
         }}><LogOut size={17} /></Button></div>
     </header>
     <div className="workspace-body"><aside className="explorer" aria-label="文件资源管理器" inert={!sidebar}>
-      <div className="explorer-heading"><span>文件</span><div className="explorer-tools"><Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" onClick={() => void client.invalidateQueries({ queryKey: ['tree'] })}><RefreshCw size={14} /></Button></div></div>
+      <div className="explorer-heading"><span>文件</span><div className="explorer-tools"><Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" disabled={external.checking} onClick={() => void external.check()}><RefreshCw size={14} /></Button></div></div>
       <button className={`folder-label root-folder ${directory === '' ? 'directory-selected' : ''}`} onClick={() => setDirectory('')}><FolderOpen size={16} /> 工作区</button>
       <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} />
       <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>普通文件，标准 Markdown。<br />编辑后自动保存。</p></div>
@@ -198,13 +220,15 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
         {current.viewer === 'markdown' && <div className="mode-switch" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
-        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
+        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty || !!current.external} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
       </div></div>}
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
+      {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
+      {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
       {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
-    <footer className="statusbar"><span className="save-status" role="status">{current ? current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+    <footer className="statusbar"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
     {searchMode && <SearchDialog key={searchMode} mode={searchMode} onClose={() => setSearchMode(null)} onMode={setSearchMode} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
@@ -222,9 +246,11 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
       }}><label htmlFor="entry-name">名称</label><input id="entry-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={255} autoFocus onFocus={(event) => event.target.select()} />{createError && <p className="form-error" role="alert">{createError}</p>}<div className="dialog-actions"><Button type="button" disabled={busy} onClick={() => setCreateKind(null)}>取消</Button><Button type="submit" variant="outline" disabled={busy}>{busy ? '正在创建…' : '创建'}</Button></div></form>
     </Dialog.Content></Dialog.Portal></Dialog.Root>
 
-    <Dialog.Root open={compare} onOpenChange={(value) => { if (!busy) setCompare(value) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content conflict-dialog"><Dialog.Title>文件版本发生冲突</Dialog.Title><Dialog.Description>本地草稿与磁盘版本均已保留。关闭窗口不会覆盖任意版本。</Dialog.Description>
-      <div className="compare-columns"><label>本地草稿<textarea readOnly value={current?.source ?? ''} /></label><label>磁盘版本<textarea readOnly value={remote?.content ?? '正在读取磁盘版本…'} /></label></div>
-      <div className="dialog-actions"><Button onClick={() => current && downloadDraft(current.path, current.source)}>下载本地草稿</Button><Button variant="outline" disabled={!remote || busy} onClick={() => void handleKeepSeparate()}>{busy ? '正在保存副本…' : '保留本地副本并加载磁盘版本'}</Button><Button onClick={() => setCompare(false)} disabled={busy}>稍后处理</Button></div>
+    <Dialog.Root open={!!comparison} onOpenChange={(value) => { if (!value) closeComparison() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content conflict-dialog"><Dialog.Title>文件版本发生冲突</Dialog.Title><Dialog.Description>本地草稿与磁盘版本均已保留。关闭窗口不会覆盖任意版本。{comparison?.path}</Dialog.Description>
+      <div className="compare-columns"><div><label htmlFor="comparison-local">本地草稿</label><textarea id="comparison-local" readOnly value={comparison?.session.source ?? ''} /></div><div><label htmlFor="comparison-remote">磁盘版本</label><textarea id="comparison-remote" readOnly value={remote?.content ?? (comparisonLoading ? '正在读取磁盘版本…' : '磁盘正文不可读；仍可另存本地草稿。')} /></div></div>
+      {comparisonError && <p className="form-error" role="alert">{comparisonError}</p>}
+      <label htmlFor="copy-path">副本路径</label><input id="copy-path" value={copyPath} onChange={(event) => setCopyPath(event.target.value)} disabled={busy} /><p className="small-label">输入工作区相对路径。原目录已不存在时，请选择仍存在的目录；已有同名文件不会被覆盖。</p>
+      <div className="dialog-actions"><Button onClick={() => comparison && downloadDraft(comparison.path, comparison.session.source)}>下载本地草稿</Button><Button variant="outline" disabled={comparisonLoading || busy || !copyPath.trim()} onClick={() => void handleKeepSeparate()}>{busy ? '正在保存副本…' : remote ? '保留本地副本并加载磁盘版本' : '另存本地副本'}</Button><Button onClick={closeComparison} disabled={busy}>稍后处理</Button></div>
     </Dialog.Content></Dialog.Portal></Dialog.Root>
   </div>
 }

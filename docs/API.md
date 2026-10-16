@@ -18,6 +18,7 @@ Base path `/api/v1`, JSON except streaming file upload/download. All routes requ
 | GET | `/auth/me` | Current principal + CSRF token/metadata |
 | GET | `/workspace/tree?path=` | List immediate children of directory |
 | GET | `/files/metadata?path=` | Classify an authenticated regular file for editor/viewer dispatch |
+| GET | `/files/revision?path=` | Bounded regular-text revision check, no body |
 | GET | `/files/content?path=` | Read bounded text with revision, encoding, metadata |
 | PUT | `/files/content?path=` | Update existing text, conditional revision required |
 | POST | `/files` | Create empty/text file only if absent |
@@ -104,3 +105,7 @@ Additional errors: `operation_in_progress` (409), `trash_unavailable` (503), `tr
 Authenticated `GET /search?q=&mode=&limit=` returns `{entries:[{path,name,excerpt}],truncated,limit,status}`. Omit mode for full-text search or set `mode=names` for path/name substring search. Empty full-text queries return no results; empty name queries list files. Queries are literal, at most 200 Unicode characters, never FTS operators or regular expressions. Limit defaults to 50, maximum 200; results beyond that set `truncated=true`, without pagination. Excerpts are plain text. ASCII case-insensitive matching is supported; Unicode normalization/accent folding is not promised.
 
 `GET /search/status` returns `{indexing,indexedAt,files,warning?}`. `POST /search/rebuild` requires CSRF and returns 202 `{accepted:true}`; completion is asynchronous. Cache failure returns 503 `index_unavailable` without blocking file reads/writes. A warning means results may be stale. Both endpoints use the same authentication boundary as file APIs. Body size cap and refresh timing are documented in `M2.md`; unsaved browser text and PDF/OCR contents are never searched.
+
+### Open-editor reconciliation (M2 slice)
+
+`GET /files/revision?path=` is authenticated and returns `{path,revision}` plus the strong ETag used by content GET/PUT. It validates regular UTF-8 text under the configured text size limit, including symlink/hardlink policy; it never recursively hashes a directory. Missing files return 404, non-text/directory 415, oversized text 413. This is distinct from `/entries/revision`, which supports subtree operations. Clients retain buffers on probe errors and must not adopt a new base revision without loading/reconciling the content.

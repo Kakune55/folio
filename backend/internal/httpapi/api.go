@@ -222,6 +222,16 @@ func (a *api) register(mux *http.ServeMux) {
 		w.Header().Set("ETag", `"`+content.Revision+`"`)
 		writeJSON(w, 200, content)
 	}))
+	mux.HandleFunc("GET /api/v1/files/revision", a.protect(func(w http.ResponseWriter, r *http.Request) {
+		// 仅检查有编辑上限的普通文本；不递归散列被外部替换成目录的路径。
+		content, err := a.Workspace.Read(r.URL.Query().Get("path"))
+		if err != nil {
+			storageError(w, err)
+			return
+		}
+		w.Header().Set("ETag", `"`+content.Revision+`"`)
+		writeJSON(w, 200, map[string]string{"path": content.Path, "revision": content.Revision})
+	}))
 	mux.HandleFunc("PUT /api/v1/files/content", a.protect(func(w http.ResponseWriter, r *http.Request) { a.write(w, r, false) }))
 	mux.HandleFunc("POST /api/v1/files", a.protect(func(w http.ResponseWriter, r *http.Request) { a.write(w, r, true) }))
 	mux.HandleFunc("POST /api/v1/directories", a.protect(func(w http.ResponseWriter, r *http.Request) {

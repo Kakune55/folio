@@ -166,6 +166,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 .conflict-dialog { width: min(920px, calc(100vw - 32px)); }
 .compare-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.compare-columns > div { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .compare-columns label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
 .compare-columns textarea { resize: vertical; min-height: 260px; background: var(--sidebar); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font: 12px/1.8 var(--font-code); }
 @media (max-width: 767px) { .compare-columns { grid-template-columns: 1fr; } .compare-columns textarea { min-height: 150px; } .explorer-tools .button-icon { width: 36px; height: 36px; } .tab-container .tab-close { width: 32px; height: 32px; } }

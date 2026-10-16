@@ -73,6 +73,12 @@ func TestAuthenticatedFileFlow(t *testing.T) {
 	read := call("GET", "/api/v1/files/content?path=笔记/你好.md", "", "", false)
 	assertStatus(read, 200)
 	etag := read.Header().Get("ETag")
+	revision := call("GET", "/api/v1/files/revision?path=笔记/你好.md", "", "", false)
+	assertStatus(revision, 200)
+	if revision.Header().Get("ETag") != etag || strings.Contains(revision.Body.String(), `"content"`) {
+		t.Fatal("版本检查必须与正文读取使用相同 ETag，但不传输正文")
+	}
+	assertStatus(call("GET", "/api/v1/files/revision?path=笔记", "", "", false), 415)
 	assertStatus(call("PUT", "/api/v1/files/content?path=笔记/你好.md", `{"content":"缺少版本"}`, "", true), 428)
 	assertStatus(call("PUT", "/api/v1/files/content?path=笔记/你好.md", `{"content":"# 保存成功\n"}`, etag, true), 200)
 	assertStatus(call("PUT", "/api/v1/files/content?path=笔记/你好.md", `{"content":"陈旧写入"}`, etag, true), 412)

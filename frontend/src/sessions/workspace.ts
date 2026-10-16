@@ -6,6 +6,7 @@ export type Session = {
   path: string; source: string; original: string; mode: EditorMode; dirty: boolean
   revision: string; state: SaveState; error: string; generation: number
   viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number; locked: boolean
+  external?: 'changed' | 'missing'
 }
 type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
@@ -35,9 +36,10 @@ export class WorkspaceSessions {
     const session = this.get(path)
     session.source = source
     const dirty = source !== session.original || ['saving', 'error', 'conflict'].includes(session.state)
-    const state: SaveState = session.state === 'saving' || session.state === 'error' || session.state === 'conflict' ? session.state : dirty ? 'dirty' : 'saved'
+    const state: SaveState = session.external ? 'conflict' : session.state === 'saving' || session.state === 'error' || session.state === 'conflict' ? session.state : dirty ? 'dirty' : 'saved'
     const changed = dirty !== session.dirty || state !== session.state
     session.dirty = dirty; session.state = state
+    if (session.external) { session.dirty = true; session.error = '磁盘文件已变化，本地草稿仍保留，请比较版本或另存副本' }
     if (changed) this.emit()
     this.schedule(session)
   }
@@ -53,7 +55,7 @@ export class WorkspaceSessions {
     const pending = this.pending.get(path); if (pending) return pending
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     if (!this.transport || !session.dirty) return Promise.resolve(!session.dirty)
-    if (session.state === 'conflict') return Promise.resolve(false)
+    if (session.state === 'conflict' || session.external) return Promise.resolve(false)
     const source = session.source
     session.state = 'saving'; session.error = ''; this.emit()
     const operation = this.transport(path, source, session.revision).then((response) => {
@@ -83,7 +85,15 @@ export class WorkspaceSessions {
     const session = this.get(path)
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     session.source = source; session.original = source; session.revision = revision; session.dirty = false
-    session.state = 'saved'; session.error = ''; session.generation++; this.emit()
+    session.state = 'saved'; session.error = ''; session.external = undefined; session.generation++; this.emit()
+  }
+  markExternal(path: string, external: 'changed' | 'missing') {
+    const session = this.get(path)
+    if (session.external === external) return
+    session.external = external
+    const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    if (session.dirty) { session.state = 'conflict'; session.error = external === 'missing' ? '原文件已被移走或删除，本地草稿仍保留，可另存副本' : '磁盘文件已变化，本地草稿仍保留，请比较版本' }
+    this.emit()
   }
   remove(path: string, duringOperation = false) {
     const session = this.get(path)
