@@ -94,3 +94,9 @@ The frontend uses native desktop drag events with a page-local random gesture to
 A dedicated session buffer listener feeds a serial IndexedDB writer, independent of the React UI subscription. Each live editing session has a random record ID so different pages cannot replace each other's same-path draft. Transactions store ordinary text plus the original base revision; acknowledged saves delete only their own record. Recovery is an explicit copy into a fresh, paused source session or a create-only file, followed by conditional deletion of the old record. Cache failures preserve the queue and warn; unknown records are never automatically purged.
 
 The authenticated bootstrap adds an opaque root/account-bound `workspaceId`. The page pins it for requests, including a query equivalent on file URLs. A changed service root is rejected rather than allowing an old page to write to a new mount. The identity is a recovery namespace, not an authorization token or filesystem CAS. App-data/volume migration can change it; browser cache is device/origin-local and separate from server backup.
+
+## 13. Responsive shell and upload originals
+
+A media-query subscription switches only Explorer presentation between desktop aside and a Radix modal drawer. The document editor remains outside that branch; its upload/navigation bridge stays stable across a viewport resize. A cleaned-up VisualViewport subscription exposes visible height/offset as CSS variables on small screens, retaining browser zoom behavior.
+
+File-picker/camera uploads use a separate in-memory queue retaining the raw File until a server acknowledgment. It survives auth-boundary component unmounts, supports explicit retry/download/confirmed discard and participates in logout/beforeunload protection. This queue is neither persistent draft storage nor server authority; it cannot survive page destruction. Server content/type/size/no-overwrite validation remains unchanged.

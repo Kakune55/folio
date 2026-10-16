@@ -82,7 +82,8 @@ test('连续脏输入持久化，刷新后显式恢复并手动保存，成功�
 test('目录移走后另存恢复副本，首次失败保留缓存，成功不覆盖被移走原件', async ({ page }) => {
   const { path, name } = await prepare(page, true)
   await blockSaves(page)
-  await page.getByRole('textbox', { name: '源码编辑器' }).fill('可恢复的完整正文')
+  const source = page.getByRole('textbox', { name: '源码编辑器' })
+  await source.click(); await source.press('Control+a'); await page.keyboard.insertText('可恢复的完整正文')
   await expect.poll(async () => (await records(page)).find((draft) => draft.path === path)?.source).toBe('可恢复的完整正文')
   const root = (await readFile(resolve('../artifacts/browser-workspace-path'), 'utf8')).trim()
   await rename(join(root, name), join(root, `${name}-移走`))

@@ -40,7 +40,7 @@ test('真实目录、Markdown 与 JSON 自动保存，刷新后重新读取', as
   await page.getByRole('button', { name: '配置.json', exact: true }).click()
   await expect(source).toContainText('{"独立":true}')
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: '收起文件列表' }).click()
+  await page.getByRole('button', { name: '关闭文件列表' }).click()
   await page.screenshot({ path: 'test-results/real-workspace-390.png' })
 })
 

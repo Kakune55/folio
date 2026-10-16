@@ -13,10 +13,12 @@ export const useUI = create<{
   theme: Theme
   open: (path: string) => void
   toggleSidebar: () => void
+  setSidebar: (open: boolean) => void
   setTheme: (theme: Theme) => void
 }>((set) => ({
-  activePath: '开始使用.md', sidebar: true, theme: initialTheme,
+  activePath: '开始使用.md', sidebar: !window.matchMedia('(max-width: 767px)').matches, theme: initialTheme,
   open: (activePath) => set({ activePath }),
+  setSidebar: (sidebar) => set({ sidebar }),
   toggleSidebar: () => set((state) => ({ sidebar: !state.sidebar })),
   setTheme: (theme) => {
     try { localStorage.setItem('folio.theme', theme) } catch { /* 仅影响偏好持久化，不影响正文。 */ }

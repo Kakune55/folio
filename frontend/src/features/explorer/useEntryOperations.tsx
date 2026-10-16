@@ -62,6 +62,7 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
     } finally { workspace.unlock(affected, [entry.path, ...(destination ? [destination] : [])]) }
   }
   return {
+    dialogOpen: !!operation,
     moveToDirectory: async (entry: Entry, directory: string) => {
       const destination = directory ? `${directory}/${entry.name}` : entry.name
       await perform(entry, destination)

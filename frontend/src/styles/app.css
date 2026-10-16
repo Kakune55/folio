@@ -261,3 +261,63 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .recovery-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 .recovery-delete { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
 @media (max-width: 767px) { .recovery-layout { grid-template-columns: 1fr; } .recovery-list { max-height: 160px; } .draft-cache-state { display: none; } }
+
+/* 小屏目录独立为模态抽屉，正文编辑器始终保留在原位置。 */
+@media (max-width: 767px) {
+  .workbench { position: fixed; inset-inline: 0; top: var(--folio-visible-top, 0px); height: var(--folio-visible-height, 100dvh); padding-bottom: env(safe-area-inset-bottom); }
+  .topbar { padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right)); }
+  .explorer-drawer.explorer { position: fixed; top: var(--folio-visible-top, 0px); left: 0; bottom: auto; height: var(--folio-visible-height, 100dvh); width: min(320px, calc(100vw - 40px)); min-width: 0; max-width: none; z-index: 31; margin: 0; padding: max(16px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); box-shadow: 8px 0 30px #0003; }
+  .explorer-drawer .explorer-heading { padding: 0 0 12px 4px; gap: 8px; }
+  .explorer-drawer .explorer-foot { padding: 12px 4px 0; }
+  .explorer-overlay { top: var(--folio-visible-top, 0px); bottom: auto; height: var(--folio-visible-height, 100dvh); }
+  .drawer-upload { justify-content: flex-start; width: 100%; margin-bottom: 12px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
+  .button, .root-folder { min-height: 40px; }
+  .explorer-tools .button-icon, .entry-menu-trigger, .inline-rename .button-icon, .tab-container .tab-close { width: 40px; height: 40px; }
+  .tree-entry .file-row { padding-right: 44px; margin-bottom: 2px; }
+  .tab-container { flex-shrink: 0; }
+  .tabs-row { min-height: 44px; }
+  .statusbar { min-height: 42px; flex-shrink: 0; }
+  .draft-recovery-trigger { min-height: 40px; font-size: 11px; }
+  .mode-switch .button { min-height: 40px; }
+  .notice { flex-wrap: wrap; gap: 6px; }
+  .notice > span { flex: 1 1 180px; min-width: 0; }
+  .dialog-content { top: calc(var(--folio-visible-top, 0px) + var(--folio-visible-height, 100dvh) * .5); max-height: calc(var(--folio-visible-height, 100dvh) - 24px); padding: 20px; }
+  .dialog-content input { font-size: 16px; }
+  .search-dialog { padding: 0; }
+  .search-results { max-height: calc(var(--folio-visible-height, 100dvh) * .45); }
+  .search-footer .button { font-size: 11px; }
+  .recovery-dialog .compare-columns textarea { min-height: 140px; }
+  .viewer-caption { flex-wrap: wrap; justify-content: center; gap: 8px; }
+}
+
+@media (max-width: 767px) {
+  .inline-rename input, .login-form input { font-size: 16px; }
+  .source-host .cm-editor { font-size: 16px; }
+}
+
+@media (pointer: coarse) {
+  .button, .root-folder { min-height: 40px; }
+  .button-icon, .explorer-tools .button-icon, .entry-menu-trigger, .inline-rename .button-icon, .tab-container .tab-close { width: 40px; height: 40px; }
+  .file-row { min-height: 40px; }
+  .tabs-row { min-height: 44px; }
+  .statusbar { min-height: 42px; }
+  .context-menu [role='menuitem'] { min-height: 40px; }
+}
+
+@media (max-width: 767px) {
+  .drawer-upload-row { display: flex; gap: 6px; margin-bottom: 12px; }
+  .drawer-upload-row .drawer-upload { flex: 1; min-width: 0; margin-bottom: 0; }
+}
+
+.upload-failures { margin: 0 24px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--sidebar); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.upload-failures > p { margin: 0 0 8px; }
+.upload-failure { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.upload-failure > span { flex: 1 1 160px; min-width: 0; }
+.explorer-drawer .upload-failures { margin-inline: 0; max-height: 35dvh; overflow: auto; flex-shrink: 0; }
+@media (max-width: 767px) { .upload-failures { margin-inline: 12px; } }
+
+.upload-failures { max-height: 35dvh; overflow: auto; flex-shrink: 0; }
+@media (max-width: 767px) { .inline-rename input, .login-form input { min-height: 40px; } }
+
+/* 留出末尾操作空间，避免最后一行贴住滚动边界。 */
+.explorer > nav { padding-bottom: 24px; }

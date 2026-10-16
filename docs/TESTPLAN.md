@@ -38,3 +38,7 @@ Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×
 ## M3 browser recovery slice
 
 `cd frontend && npm run test:e2e -- recovery.spec.ts` uses real IndexedDB and an isolated server workspace. It covers latest dirty buffers across reload, explicit paused restore/manual save, missing-parent create-only recovery, same-path separate page drafts, namespace isolation, unavailable storage with working disk save/download, unknown-record export/confirmed deletion, and a separate temporary Chromium profile closed and reopened for an actual browser restart. Temporary profiles are created by the test and removed afterwards; no normal user browser profile is accessed. These tests do not stand in for the remaining mobile-touch, backup/power-loss, security/accessibility or performance gates.
+
+## M3 mobile slice
+
+`cd frontend && npm run test:e2e -- mobile.spec.ts` runs Chromium with a 390×844 mobile viewport and touch enabled. It verifies modal Explorer focus/backdrop/Escape, nested creation, editor-node identity after rotation, a shorter viewport's save-bar bounds, ordinary/capture file-chooser delivery, exact downloaded attachment bytes, failed upload original retention/retry and persisted source recovery. Camera files are supplied by the browser automation fixture; this does not verify a hardware camera or a real phone keyboard/IME. Existing desktop workflows remain part of `make test`.

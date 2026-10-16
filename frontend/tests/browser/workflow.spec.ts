@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 async function setup(page: Page) {
   await page.goto('/')
@@ -16,6 +16,20 @@ async function setup(page: Page) {
   return { create, file, row, name: `交互-${Date.now()}` }
 }
 
+async function dragAcrossList(page: Page, source: Locator, target: Locator) {
+  // 先在可见源条目上启动原生拖拽，再滚动目标；避免 dragTo 先滚动掉源节点后等待 Chromium 的拖拽拦截事件。
+  await source.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+  await source.hover()
+  const start = await source.boundingBox()
+  await page.mouse.down()
+  await page.mouse.move(start!.x + start!.width / 2 + 8, start!.y + start!.height / 2 + 4, { steps: 3 })
+  await expect(source).toHaveClass(/drag-source/)
+  await target.scrollIntoViewIfNeeded()
+  const end = await target.boundingBox()
+  await page.mouse.move(end!.x + end!.width / 2, end!.y + end!.height / 2, { steps: 4 })
+  await page.mouse.up()
+}
+
 test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路径', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
@@ -26,16 +40,16 @@ test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路�
   await row(note).click()
   const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
   await rich.fill('拖拽前的最后一笔输入')
-  await row(note).dragTo(row(folder))
-  await expect(page.locator('.breadcrumb')).toContainText(`${folder}/${note}`)
+  await dragAcrossList(page, row(note), row(folder))
+  await expect(page.locator('.breadcrumb span:last-child')).toHaveText(`${folder}/${note}`)
   expect((await file(`${folder}/${note}`)).content).toContain('拖拽前的最后一笔输入')
-  await row(folder).dragTo(row(parent))
-  await expect(page.locator('.breadcrumb')).toContainText(`${parent}/${folder}/${note}`)
+  await dragAcrossList(page, row(folder), row(parent))
+  await expect(page.locator('.breadcrumb span:last-child')).toHaveText(`${parent}/${folder}/${note}`)
   await rich.fill('目录移动后继续输入')
   await expect(page.locator('.save-status')).toHaveText('已保存')
   expect((await file(`${parent}/${folder}/${note}`)).content).toContain('目录移动后继续输入')
-  await row(`${parent}/${folder}`).dragTo(page.locator('[data-entry-path=""]'))
-  await expect(page.locator('.breadcrumb')).toContainText(`${folder}/${note}`)
+  await dragAcrossList(page, row(`${parent}/${folder}`), page.locator('[data-entry-path=""]'))
+  await expect(page.locator('.breadcrumb span:last-child')).toHaveText(`${folder}/${note}`)
   expect((await file(`${folder}/${note}`)).content).toContain('目录移动后继续输入')
   await page.getByRole('button', { name: '源码', exact: true }).click()
   const markdown = await page.evaluate(async (source) => {
@@ -50,7 +64,7 @@ test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路�
   await expect(rich.getByRole('heading', { name: '工作流验收' })).toBeVisible()
   for (const width of [1440, 1024, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : 900 })
-    if (width === 390) await page.getByRole('button', { name: '收起文件列表' }).click()
+    if (width === 390) await page.getByRole('button', { name: '关闭文件列表' }).click()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: `test-results/workflow-${width}-light.png` })
     await page.getByRole('button', { name: '主题：跟随系统', exact: true }).click()
@@ -63,9 +77,10 @@ test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路�
 test('拖拽重名不覆盖，原位和子目录拒绝移动，外部伪造拖拽不执行路径操作', async ({ page }) => {
   const { create, file, row, name } = await setup(page)
   const folder = `${name}-目录`, child = `${folder}/子目录`, note = `${name}.md`
+  await Promise.all(Array.from({ length: 24 }, (_, index) => create(`滚动-${name}-${index}`, true)))
   await create(folder, true); await create(child, true); await create(note, false, '源文件'); await create(`${folder}/${note}`, false, '目标原文')
   await page.getByRole('button', { name: '刷新文件列表' }).click()
-  await row(note).dragTo(row(folder))
+  await test.step('跨滚动列表拖拽到重名目标', async () => { await dragAcrossList(page, row(note), row(folder)) })
   await expect(page.getByText('同名文件或目录已存在', { exact: true })).toBeVisible()
   expect((await file(note)).content).toBe('源文件')
   expect((await file(`${folder}/${note}`)).content).toBe('目标原文')

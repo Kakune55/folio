@@ -14,7 +14,7 @@ export function Login({ onLogin, expired }: { onLogin: (principal: Principal) =>
     finally { setBusy(false) }
   }}><div className="login-brand"><span className="brand-mark">f</span> Folio</div>
     <h1>{expired ? '重新连接你的工作区' : '回到你的文件与想法'}</h1>
-    <p>{expired ? '当前页面的编辑草稿仍保留。登录后可以继续保存。' : '登录后，开始一段安静的书写。'}</p>
+    <p>{expired ? '当前页面的草稿与待确认附件仍保留。登录后可以继续处理。' : '登录后，开始一段安静的书写。'}</p>
     <label htmlFor="username">账号</label><input id="username" name="username" value="admin" readOnly autoComplete="username" />
     <label htmlFor="password">密码</label><input id="password" name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required autoFocus maxLength={1024} />
     {error && <p className="form-error" role="alert">{error}</p>}

@@ -82,7 +82,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await page.setViewportSize(viewport)
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
     await page.goto('/?demo=1')
-    if (viewport.width < 768) await page.getByRole('button', { name: '收起文件列表' }).click()
+    if (viewport.width < 768 && await page.getByRole('button', { name: '收起文件列表' }).isVisible()) await page.getByRole('button', { name: '收起文件列表' }).click()
     await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.screenshot({ path: `test-results/workbench-${viewport.width}-light.png` })

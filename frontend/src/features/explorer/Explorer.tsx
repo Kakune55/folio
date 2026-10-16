@@ -40,7 +40,7 @@ function FolderContents(props: ExplorerProps & { path: string; depth: number }) 
   </>
 }
 function EntryRow({ entry, ...props }: ExplorerProps & { depth: number; entry: Entry }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(() => window.matchMedia('(max-width: 767px)').matches && (props.directory === entry.path || props.directory.startsWith(`${entry.path}/`) || props.active.startsWith(`${entry.path}/`)))
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(entry.name)
