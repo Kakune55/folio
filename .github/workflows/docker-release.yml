@@ -1,0 +1,81 @@
+name: Docker Hub 镜像
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dockerhub-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  publish:
+    name: 构建并推送 OCI 镜像
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/folio', vars.DOCKERHUB_USERNAME) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 检查 Docker Hub 配置
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::请配置仓库变量 DOCKERHUB_USERNAME 和机密 DOCKERHUB_TOKEN'
+            exit 1
+          fi
+          if [[ ! "$DOCKERHUB_IMAGE" =~ ^[a-z0-9][a-z0-9_-]*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo '::error::DOCKERHUB_IMAGE 必须为小写的命名空间/仓库名，例如 yourname/folio'
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - name: 登录 Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: 生成镜像标签与 OCI 元数据
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: docker.io/${{ env.DOCKERHUB_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+      - name: 构建并推送多架构镜像
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,push=true,oci-mediatypes=true
+          cache-from: type=gha,scope=folio-release
+          cache-to: type=gha,mode=max,scope=folio-release
+          provenance: mode=min
+          sbom: true
+      - name: 记录发布结果
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          {
+            echo '### Docker Hub 镜像已发布'
+            printf '\n```text\n%s\n```\n' "$IMAGE_TAGS"
+            printf '\nDigest: `%s`\n' "$IMAGE_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,79 @@
+name: Release 附件
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  build:
+    needs: check
+    name: 构建 ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-amd64, linux-arm64, linux-armv7, windows-amd64, windows-arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: 读取已检查的前端构建结果
+        uses: actions/download-artifact@v4
+        with:
+          name: release-frontend
+          path: frontend/dist/
+      - name: 嵌入前端
+        run: python3 scripts/copy-dist.py
+      - name: 构建、打包并生成校验文件
+        env:
+          TARGET: ${{ matrix.target }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 scripts/release.py --target "$TARGET" --tag "$RELEASE_TAG"
+      - name: 保存平台附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: artifacts/release/dist/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: 上传 Release 附件
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 汇总全部平台附件
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: dist/
+      - name: 校验并上传
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check ./*.sha256
+          assets=(./*.tar.gz ./*.zip ./*.sha256)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
