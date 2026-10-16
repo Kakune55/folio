@@ -84,3 +84,7 @@ Successful file mutations enqueue a coalesced asynchronous scan. External change
 ## 10. Open session reconciliation
 
 A frontend session probe checks bounded text revisions every 10 seconds while visible and on focus/visibility restoration, separately from search indexing. Probes capture session identity, path, revision and generation; late responses after an in-app save, move, close or remount are ignored. They never replace source or advance the base revision. Clean buffers offer explicit reload; dirty buffers enter conflict and stop autosave. Reload checks again after reading so typing during the request wins. Missing paths preserve drafts and allow a user-chosen create-only copy path. External rename is not inferred from filenames or hashes. Attachment probes compare metadata rather than hashing unbounded binary files.
+
+## 11. Explorer workflow
+
+The frontend uses native desktop drag events with a page-local random gesture token; it never parses arbitrary external drop data into workspace paths. Folder/root targets route into the same conditional move controller as the keyboard-accessible move dialog. The controller flushes affected buffers, checks revisions, locks old/new path prefixes and remaps sessions only after success. Browser-owned tab shortcuts remain untouched; the workspace provides alternate close/switch chords and visible help. These controls never replace server authentication, root containment or no-overwrite checks.

@@ -58,7 +58,7 @@ Top bar: one-line title, search affordance and compact controls. Avoid two compe
 
 ## 6. Components and behaviors
 ### File tree
-Use disclosure arrows, small type-specific Lucide icons, ellipsis menu shown on hover **and keyboard focus**, clearly highlighted active file, hover affordance. Root and nested indentation consistent. Rename inline with validation and Escape cancel. Drag-and-drop with visible target and keyboard-accessible move action. A large tree should use virtualization only after measured need.
+Use disclosure arrows, small type-specific Lucide icons, ellipsis menu shown on hover **and keyboard focus**, clearly highlighted active file, hover affordance. Root and nested indentation consistent. Rename inline with validation and Escape cancel. Drag-and-drop with visible target and keyboard-accessible move action. Desktop drag moves one entry into a highlighted folder/root target, with hover expansion and no-overwrite errors. Touch and keyboard use the existing move menu. Arrow keys navigate visible rows; F2 renames and Delete opens confirmation. A large tree should use virtualization only after measured need.
 
 ### Tabs
 One line, horizontal scroll; close button accessible. Closing dirty file should not destroy unsaved edits: flush save or preserve draft and disclose failure. Middle click optional. Limit unnecessary file-opening tabs via preview-tab behavior only if easy to understand.

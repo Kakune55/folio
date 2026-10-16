@@ -70,9 +70,9 @@ Moves must reject target collision unless an explicit separate policy is later s
 ## Security notes
 Authenticated downloads use correct `Content-Disposition` and `X-Content-Type-Options: nosniff`. Raw HTML/SVG must not execute in the app's origin. URL path normalization + filesystem-level race protection are mandatory. Session cookies are HttpOnly, Secure under HTTPS, SameSite; mutation endpoints enforce CSRF. Upload streaming applies size limits independently of declared Content-Length.
 
-## Implemented status (M1, first three slices)
+## Implemented status (M1/M2)
 
-Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories, metadata, uploads, authenticated downloads/previews read-only GET settings, conditional entry move/delete, trash listing and restore. Other routes above remain proposed.
+Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories, metadata, uploads, authenticated downloads/previews read-only GET settings, conditional entry move/delete, trash listing and restore, bounded text revision checks, search/status/rebuild. Other routes above remain proposed.
 
 Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaults to 200 (maximum 1000). Response is `{entries:[{name,path,kind,size}],total,offset,limit}`; `kind` is `directory` or `file`. Unsafe entries are omitted. Pagination is not a filesystem snapshot.
 

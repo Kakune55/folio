@@ -100,7 +100,7 @@ Single local account for V1. Strong password hashing (Argon2id preferred), HttpO
 Default configurable maxima: editable text 5 MiB, images 20 MiB, PDF 50 MiB, arbitrary attachments 100 MiB; enforce limits while streaming and prevent decompression bombs by not auto-extracting. Identical names never silently overwrite.
 
 ## 8. Shortcuts
-`Ctrl/Cmd+S` save; `Ctrl/Cmd+P` quick open; `Ctrl/Cmd+Shift+F` global search; `Ctrl/Cmd+W` close tab where browser interception permits; `Ctrl/Cmd+Tab` switch tabs where permitted; `Ctrl/Cmd+B` toggle Explorer. Do not override editor formatting or browser-critical shortcuts without fallback controls.
+`Ctrl/Cmd+S` save; `Ctrl/Cmd+P` quick open; `Ctrl/Cmd+Shift+F` global search; `Ctrl/Cmd+W` close tab where browser interception permits; `Ctrl/Cmd+Tab` switch tabs where permitted; `Ctrl/Cmd+B` toggle Explorer. Do not override editor formatting or browser-critical shortcuts without fallback controls. Browser-owned close/switch chords remain untouched in the current browser build; `Ctrl/Cmd+Alt+W` saves/closes the workspace tab and `Alt+PageUp/PageDown` switches workspace tabs. The toolbar exposes shortcut help.
 
 ## 9. Quality and acceptance tests
 - Round-trip Markdown corpus, with documented unsupported cases.

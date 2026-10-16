@@ -2,7 +2,7 @@ import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState,
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderOpen, FolderPlus, Info, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, ChevronRight, FilePlus2, FileText, FolderPlus, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import type { FileContent } from '../services/api'
@@ -37,6 +37,7 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
   const [directory, setDirectory] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [searchMode, setSearchMode] = useState<'names' | 'full' | null>(null)
   const [focusPath, setFocusPath] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
@@ -142,22 +143,44 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     } finally { setUploading(false); if (uploadInput.current) uploadInput.current.value = '' }
   }
 
+  const closeFile = useCallback(async (session: Session) => {
+    const path = session.path
+    if (!workspace.has(path) || workspace.get(path) !== session) return
+    if (!(await workspace.flush(path))) { setNotice('此文件尚未保存，已保留标签页。请重试保存或先处理冲突。'); return }
+    if (!workspace.has(path) || workspace.get(path) !== session || session.path !== path) return
+    if (workspace.remove(path) && useUI.getState().activePath === path) open(workspace.list().at(-1)?.path ?? '')
+  }, [open])
+
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') { event.preventDefault(); setSearchMode('names'); event.stopPropagation(); return }
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setSearchMode('full'); event.stopPropagation(); return }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); useUI.getState().toggleSidebar(); return }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
+      const key = event.key.toLowerCase(), modifier = event.ctrlKey || event.metaKey
+      if (document.querySelector('[role="dialog"]')) {
+        if (modifier && !event.altKey && ((!event.shiftKey && (key === 'p' || key === 's')) || (event.shiftKey && key === 'f'))) event.preventDefault()
+        return
+      }
+      if (modifier && event.altKey && key === 'w') {
+        event.preventDefault(); event.stopPropagation()
+        const path = useUI.getState().activePath; if (workspace.has(path)) void closeFile(workspace.get(path))
+        return
+      }
+      if (event.altKey && !modifier && ['PageUp', 'PageDown'].includes(event.key)) {
+        event.preventDefault(); event.stopPropagation()
+        const files = workspace.list(), index = files.findIndex((session) => session.path === useUI.getState().activePath)
+        if (files.length) void openFile(files[(index + (event.key === 'PageDown' ? 1 : -1) + files.length) % files.length].path)
+        return
+      }
+      if (key === '?' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); setShortcutsOpen(true); return }
+      if (modifier && !event.altKey && !event.shiftKey && key === 'p') { event.preventDefault(); setSearchMode('names'); event.stopPropagation(); return }
+      if (modifier && !event.altKey && event.shiftKey && key === 'f') { event.preventDefault(); setSearchMode('full'); event.stopPropagation(); return }
+      if (modifier && !event.altKey && !event.shiftKey && key === 'b' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); useUI.getState().toggleSidebar(); return }
+      if (modifier && !event.altKey && !event.shiftKey && key === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
     }
     window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown, true)
     return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown, true) }
-  }, [uploading])
+  }, [uploading, closeFile, openFile])
 
-  const closeFile = async (session: Session) => {
-    if (!(await workspace.flush(session.path))) { setNotice('此文件尚未保存，已保留标签页。请重试保存或先处理冲突。'); return }
-    if (workspace.remove(session.path) && activePath === session.path) open(workspace.list().at(-1)?.path ?? '')
-  }
+
   const startCreate = (kind: 'file' | 'directory') => { setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
   const loadComparison = async () => {
     if (!current) return
@@ -199,15 +222,14 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
       <input ref={uploadInput} className="visually-hidden" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
       <div className="topbar-actions"><Button className="quick-open-trigger" aria-label="快速打开文件" title="快速打开（Ctrl/Cmd+P）" onClick={() => setSearchMode('names')}><Search size={16} /><span>查找文件…</span><kbd>Ctrl P</kbd></Button><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
-        <Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
+        <Button size="icon" aria-label="查看快捷键" title="快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></Button><Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
         }}><LogOut size={17} /></Button></div>
     </header>
     <div className="workspace-body"><aside className="explorer" aria-label="文件资源管理器" inert={!sidebar}>
       <div className="explorer-heading"><span>文件</span><div className="explorer-tools"><Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" disabled={external.checking} onClick={() => void external.check()}><RefreshCw size={14} /></Button></div></div>
-      <button className={`folder-label root-folder ${directory === '' ? 'directory-selected' : ''}`} onClick={() => setDirectory('')}><FolderOpen size={16} /> 工作区</button>
-      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} />
+      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} onDropMove={operations.moveToDirectory} onNotice={onBlocked} disabled={uploading} />
       <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>普通文件，标准 Markdown。<br />编辑后自动保存。</p></div>
     </aside>
     <main className="main-pane"><div className="tabs-row"><Button size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role="tablist" aria-label="打开的文件">
@@ -231,6 +253,9 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
     <footer className="statusbar"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
     {searchMode && <SearchDialog key={searchMode} mode={searchMode} onClose={() => setSearchMode(null)} onMode={setSearchMode} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
+    <Dialog.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title>工作区快捷键</Dialog.Title><Dialog.Description>编辑时可使用以下按键，也可通过工具栏和文件菜单完成操作。</Dialog.Description>
+      <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>快速打开</dt><dd>Ctrl / Cmd + P</dd></div><div><dt>全文搜索</dt><dd>Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
+    </Dialog.Content></Dialog.Portal></Dialog.Root>
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content">
       <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>

@@ -28,3 +28,9 @@ P0: content preservation, auth, path isolation, concurrency. P1: edit/upload/sea
 ## Reproducible container gate
 
 `make image && make container-test` uses isolated mounts and a persistent Chromium profile, then closes the browser, restarts the container and reopens the browser before validating a real external-file stale-write conflict and trash restore. Set `CONTAINER_ENGINE=podman` for a rootless runtime; optional `FOLIO_TEST_QEMU` explicitly marks an emulated run. It writes per-architecture evidence under `artifacts/container/`; see `M1.md` for observed results and `DEPLOY.md` for prerequisites. This gate does not replace the M3 fault/backup/security/accessibility matrix.
+
+## M2 workflow gate
+
+`cd frontend && npm run test:e2e -- workflow.spec.ts` exercises real Chromium mouse drags for file/folder/root moves and name collisions, keyboard browsing/rename/menu move, workspace tab shortcuts and close refusal on conflict. Invalid self/descendant/original-parent targets and forged external payloads use DOM drag-event probes with an assertion that no move request is issued; this is distinct from native pointer gesture coverage. `external.spec.ts` uses a test-only marker pointing at the isolated temporary workspace to edit/rename real files, not the development preview's workspace.
+
+Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×768 and 390×844 in both themes. The visual Markdown sample is generated in the installed serializer's format; the independent fixed-original Markdown corpus remains the authority for compatibility/fallback checks. Mobile touch, other browsers, assistive technologies, 1,000+ item measurements and backup/crash drills remain M3 work.
