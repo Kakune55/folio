@@ -1,6 +1,7 @@
 CONTAINER_ENGINE ?= docker
+IMAGE_FORMAT_FLAGS = $(if $(filter podman,$(notdir $(CONTAINER_ENGINE))),--format=docker,)
 
-.PHONY: install dev api build run test tls image container-test
+.PHONY: install dev api build run test tls image container-test backup-test
 install:
 	cd frontend && npm ci
 
@@ -21,12 +22,16 @@ run: build
 test:
 	cd frontend && npm run lint && npm test && npm run test:e2e
 	cd backend && go test ./...
+	python3 scripts/backup-test.py
 
 tls:
 	sh scripts/setup-local-tls.sh
 
 image:
-	$(CONTAINER_ENGINE) build -t folio:local .
+	$(CONTAINER_ENGINE) build $(IMAGE_FORMAT_FLAGS) -t folio:local .
 
 container-test:
 	python3 scripts/container-acceptance.py
+
+backup-test:
+	python3 scripts/backup-test.py

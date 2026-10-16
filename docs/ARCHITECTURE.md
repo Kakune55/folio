@@ -100,3 +100,9 @@ The authenticated bootstrap adds an opaque root/account-bound `workspaceId`. The
 A media-query subscription switches only Explorer presentation between desktop aside and a Radix modal drawer. The document editor remains outside that branch; its upload/navigation bridge stays stable across a viewport resize. A cleaned-up VisualViewport subscription exposes visible height/offset as CSS variables on small screens, retaining browser zoom behavior.
 
 File-picker/camera uploads use a separate in-memory queue retaining the raw File until a server acknowledgment. It survives auth-boundary component unmounts, supports explicit retry/download/confirmed discard and participates in logout/beforeunload protection. This queue is neither persistent draft storage nor server authority; it cannot survive page destruction. Server content/type/size/no-overwrite validation remains unchanged.
+
+## 14. Offline backup boundary
+
+A host-side Python utility acquires the same app-data instance flock while Folio is stopped. Descriptor-relative openat2 traversal copies ordinary files to a private sibling staging directory, rejects unsafe entries and source/output overlap, then revalidates source hashes. Only the private app.db copy is opened by SQLite to consolidate committed WAL and run integrity checks; rebuildable search caches and the runtime lock are explicitly excluded. The published snapshot is an ordinary two-directory tree with a SHA-256/metadata manifest.
+
+Restore checks the entire snapshot, copies/rechecks into a fresh private directory, preserves account credentials while clearing old sessions, then publishes a new pair of roots with no-replace rename. It never writes into existing mounts. The tool cannot freeze uncooperative external writers, preserve arbitrary filesystem metadata or include browser-local drafts. It adds no server runtime, network endpoint or cloud dependency; see `BACKUP.md`.

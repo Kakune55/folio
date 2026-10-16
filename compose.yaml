@@ -11,8 +11,8 @@ services:
       FOLIO_TLS_CERT: /app-data/tls/server.crt
       FOLIO_TLS_KEY: /app-data/tls/server.key
     volumes:
-      - ./workspace:/workspace
-      - ./app-data:/app-data
+      - ${FOLIO_WORKSPACE_DIR:-./workspace}:/workspace
+      - ${FOLIO_APP_DATA_DIR:-./app-data}:/app-data
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m

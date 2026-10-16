@@ -35,7 +35,7 @@ M2 exit gate passed: Chinese/English search, quick-open, external-change reconci
 - Security and accessibility reviews; measured performance regression suite.
 **Exit gate:** mobile flows, recoverability and deploy/recovery drill verified.
 
-M3 is in progress: browser-local recovery, a responsive modal Explorer and phone file-picker/capture upload flow are implemented; evidence and remaining limits are in [`M3.md`](M3.md). The overall M3 gate is not yet passed.
+M3 is in progress: browser-local recovery, a responsive modal Explorer, phone file-picker/capture uploads and offline dual-volume backup/restore are implemented; evidence and remaining limits are in [`M3.md`](M3.md). The overall M3 gate is not yet passed.
 
 ## Change control
 When introducing a feature, update SPEC/API/DESIGN (as applicable), list failure modes, implement test coverage, and record any deliberately unsupported behavior. Do not silently expand scope or switch frameworks.

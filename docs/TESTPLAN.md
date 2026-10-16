@@ -42,3 +42,7 @@ Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×
 ## M3 mobile slice
 
 `cd frontend && npm run test:e2e -- mobile.spec.ts` runs Chromium with a 390×844 mobile viewport and touch enabled. It verifies modal Explorer focus/backdrop/Escape, nested creation, editor-node identity after rotation, a shorter viewport's save-bar bounds, ordinary/capture file-chooser delivery, exact downloaded attachment bytes, failed upload original retention/retry and persisted source recovery. Camera files are supplied by the browser automation fixture; this does not verify a hardware camera or a real phone keyboard/IME. Existing desktop workflows remain part of `make test`.
+
+## M3 backup slice
+
+`make backup-test` is also included in `make test`. The isolated Go-process drill rejects active-instance backup, kills its own process after committed writes to leave WAL, checks a verified snapshot, rejects corruption/traversal/links/FIFO/existing targets, and starts the restored pair in a new directory. It verifies original password login, old-session invalidation, exact Markdown/attachment bytes, trash recovery, rebuilt search and conditional writes. `python3 scripts/backup-test.py --engine podman --container-image <image>` repeats the same contract against actual HTTPS containers with certificate validation and two bind mounts. Reports include tool hash, time and container image/architecture under `artifacts/backup/`. This does not replace the remaining crash, accessibility, security and measured performance reviews.

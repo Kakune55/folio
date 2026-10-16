@@ -7,7 +7,7 @@ Folio 将 Vite 构建结果嵌入 Go 静态二进制，运行镜像基于 scratc
 | 挂载点 | 内容 |
 | --- | --- |
 | `/workspace` | Markdown、源码与附件，正文唯一权威 |
-| `/app-data` | SQLite 账号/会话与后续索引、回收站、TLS 证书及引导密码 |
+| `/app-data` | SQLite 账号/会话与可重建索引、回收站、TLS 证书及引导密码 |
 
 构建上下文使用白名单，默认 workspace/app-data、本地 `.env`、浏览器配置与构建产物不会进入镜像。不要把私密工作区或密钥放入应用源码目录。
 
@@ -117,3 +117,11 @@ podman tag <导入时显示的镜像ID> folio:local
 ```
 
 镜像归档、截图和 JSON 验收记录属于本机构建产物，不进入 Git。源码和 Dockerfile 可重建它们。
+
+## 备份与切换恢复副本
+
+一致性备份、SHA-256 校验、新目录恢复和实际演练见 [双卷备份恢复](BACKUP.md)。必须先停止 Folio 与外部写入者，备份工具通过实例锁拒绝运行中的服务。不要只复制 app.db 主文件或把浏览器草稿当作服务器备份。
+
+Compose 的宿主路径可由 `FOLIO_WORKSPACE_DIR` 与 `FOLIO_APP_DATA_DIR` 配置，默认仍为 `./workspace`、`./app-data`。恢复时两项必须一起切换，旧卷保持不动。恢复保留密码并清除旧登录会话；新位置启动后需重新登录、等待搜索重建并核对回收站/附件。备份工具运行在宿主机，需要 Python 3.11+，不向 scratch 镜像加入解释器。
+
+`make CONTAINER_ENGINE=podman image` 现在显式使用 Docker 镜像格式，以保留 HEALTHCHECK 元数据。M3 原生 amd64 HTTPS 容器恢复演练不等同于 arm64 或 Docker daemon 的重新验收，具体证据见 M3 记录。
