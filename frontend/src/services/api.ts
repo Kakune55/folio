@@ -12,16 +12,19 @@ export type TrashPage = { entries: TrashRecord[]; total: number; offset: number;
 export type SearchStatus = { indexing: boolean; indexedAt: string; files: number; warning?: string }
 export type SearchResult = { path: string; name: string; excerpt: string }
 export type SearchResponse = { entries: SearchResult[]; truncated: boolean; limit: number; status: SearchStatus }
-export type Principal = { username: string; csrfToken: string }
+export type Principal = { username: string; csrfToken: string; workspaceId: string }
 export type FileContent = { path: string; content: string; revision: string; size: number; encoding: string; mtime: string; kind: string }
 export type Entry = { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export type TreePage = { entries: Entry[]; total: number; offset: number; limit: number }
 let csrf = ''
+let workspaceScope = ''
+export function pinWorkspace(scope: string) { if (workspaceScope && workspaceScope !== scope) throw new Error('工作区身份已变化，请重新加载页面'); workspaceScope = scope }
 export function setCSRF(token: string) { csrf = token }
 export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api/v1${url}`, { ...init, credentials: 'same-origin', headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.method && !['GET', 'HEAD'].includes(init.method) ? { 'X-CSRF-Token': csrf } : {}), ...init.headers } })
+  const response = await fetch(`/api/v1${url}`, { ...init, credentials: 'same-origin', headers: { ...(!url.startsWith('/auth/') && workspaceScope ? { 'X-Folio-Workspace': workspaceScope } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.method && !['GET', 'HEAD'].includes(init.method) ? { 'X-CSRF-Token': csrf } : {}), ...init.headers } })
   if (!response.ok) {
     const problem = await response.json().catch(() => ({ error: { code: 'http_error', message: `请求失败（${response.status}）` } }))
+    if (problem.error?.code === 'workspace_changed') window.dispatchEvent(new Event('folio:workspace-changed'))
     if (response.status === 401 && url !== '/auth/login') window.dispatchEvent(new Event('folio:unauthenticated'))
     throw new ApiError(response.status, problem.error?.code ?? 'http_error', problem.error?.message ?? '请求失败', problem.error?.details)
   }
@@ -57,11 +60,12 @@ export function downloadDraft(path: string, source: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export const fileURL = (path: string, preview = false) => `/api/v1/files/${preview ? 'preview' : 'download'}?path=${encodeURIComponent(path)}`
+export const fileURL = (path: string, preview = false) => `/api/v1/files/${preview ? 'preview' : 'download'}?path=${encodeURIComponent(path)}${workspaceScope ? `&workspace=${encodeURIComponent(workspaceScope)}` : ''}`
 export function uploadFile(file: File, directory: string, onProgress?: (percent: number) => void, imageOnly = false, signal?: AbortSignal): Promise<FileMetadata> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `/api/v1/uploads?directory=${encodeURIComponent(directory)}&image=${imageOnly}`)
+    if (workspaceScope) xhr.setRequestHeader('X-Folio-Workspace', workspaceScope)
     xhr.withCredentials = true; xhr.setRequestHeader('X-CSRF-Token', csrf); xhr.timeout = 120_000
     const abort = () => xhr.abort()
     if (signal?.aborted) { reject(new Error('上传已取消')); return }
@@ -77,6 +81,7 @@ export function uploadFile(file: File, directory: string, onProgress?: (percent:
       try { body = JSON.parse(xhr.responseText) } catch { reject(new Error(`上传响应无效（${xhr.status}），请确认文件是否已接收`)); return }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body)
       else {
+        if (body.error?.code === 'workspace_changed') window.dispatchEvent(new Event('folio:workspace-changed'))
         if (xhr.status === 401) window.dispatchEvent(new Event('folio:unauthenticated'))
         reject(new ApiError(xhr.status, body.error?.code ?? 'upload_failed', body.error?.message ?? '上传失败'))
       }

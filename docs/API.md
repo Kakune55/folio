@@ -76,7 +76,7 @@ Implemented: health, login/logout/me, immediate-child tree listing, text content
 
 Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaults to 200 (maximum 1000). Response is `{entries:[{name,path,kind,size}],total,offset,limit}`; `kind` is `directory` or `file`. Unsafe entries are omitted. Pagination is not a filesystem snapshot.
 
-Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
+Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken,workspaceId}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
 
 Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.
 
@@ -109,3 +109,7 @@ Authenticated `GET /search?q=&mode=&limit=` returns `{entries:[{path,name,excerp
 ### Open-editor reconciliation (M2 slice)
 
 `GET /files/revision?path=` is authenticated and returns `{path,revision}` plus the strong ETag used by content GET/PUT. It validates regular UTF-8 text under the configured text size limit, including symlink/hardlink policy; it never recursively hashes a directory. Missing files return 404, non-text/directory 415, oversized text 413. This is distinct from `/entries/revision`, which supports subtree operations. Clients retain buffers on probe errors and must not adopt a new base revision without loading/reconciling the content.
+
+### Workspace identity (M3 recovery slice)
+
+`workspaceId` is a stable opaque browser-recovery namespace derived from the account initialization salt and the opened root device/inode. It is neither a token nor a content revision. Browser API requests pin it with `X-Folio-Workspace`; authenticated preview/download links use the equivalent `workspace` query parameter. If a supplied identity differs from the running workspace, protected non-auth routes return 409 `workspace_changed` before invoking storage. Missing identity retains the existing API behavior for older clients. Clients must stop writes, preserve/download drafts and reload on this error; they must not silently retry against a newly returned workspace ID. Restoring mounts elsewhere can change the namespace; browser drafts are not part of server backups. See `M3.md`.

@@ -5,7 +5,8 @@ import { Check, ChevronRight, Folder, FolderOpen, MoreHorizontal, X } from 'luci
 import { Button } from '../../components/ui/button'
 import { api } from '../../services/api'
 import type { Entry } from '../../services/api'
-import { EntryDragProvider, useEntryDrag } from './EntryDrag'
+import { EntryDragProvider } from './EntryDrag'
+import { useEntryDrag } from './drag-context'
 import { FileIcon } from './FileIcon'
 
 function focusEntry(nav: Element | null, path: string) {

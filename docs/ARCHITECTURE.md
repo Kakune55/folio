@@ -88,3 +88,9 @@ A frontend session probe checks bounded text revisions every 10 seconds while vi
 ## 11. Explorer workflow
 
 The frontend uses native desktop drag events with a page-local random gesture token; it never parses arbitrary external drop data into workspace paths. Folder/root targets route into the same conditional move controller as the keyboard-accessible move dialog. The controller flushes affected buffers, checks revisions, locks old/new path prefixes and remaps sessions only after success. Browser-owned tab shortcuts remain untouched; the workspace provides alternate close/switch chords and visible help. These controls never replace server authentication, root containment or no-overwrite checks.
+
+## 12. Browser recovery cache
+
+A dedicated session buffer listener feeds a serial IndexedDB writer, independent of the React UI subscription. Each live editing session has a random record ID so different pages cannot replace each other's same-path draft. Transactions store ordinary text plus the original base revision; acknowledged saves delete only their own record. Recovery is an explicit copy into a fresh, paused source session or a create-only file, followed by conditional deletion of the old record. Cache failures preserve the queue and warn; unknown records are never automatically purged.
+
+The authenticated bootstrap adds an opaque root/account-bound `workspaceId`. The page pins it for requests, including a query equivalent on file URLs. A changed service root is rejected rather than allowing an old page to write to a new mount. The identity is a recovery namespace, not an authorization token or filesystem CAS. App-data/volume migration can change it; browser cache is device/origin-local and separate from server backup.

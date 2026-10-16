@@ -76,3 +76,22 @@ it('移动目录同步重映射会话，并阻止目标路径与进行中的保�
   await sessions.flush('新目录/笔记.md')
   expect(calls).toEqual(['旧目录/笔记.md', '新目录/笔记.md'])
 })
+
+it('恢复稿总是暂停自动保存，基准不同进入冲突，并且脏正文每次更新都发出缓存通知', async () => {
+  let writes = 0, changes = 0
+  const sessions = new WorkspaceSessions([], async () => { writes++; return { revision: '新版本' } })
+  sessions.watchBuffers(() => changes++)
+  const restored = sessions.restoreDraft({ path: '恢复.md', source: '恢复原文', original: '基准原文', revision: 'v1', mode: 'source' }, false)
+  expect(restored).toMatchObject({ dirty: true, state: 'error', source: '恢复原文', revision: 'v1' })
+  const before = changes
+  sessions.update('恢复.md', '第一笔'); sessions.update('恢复.md', '第二笔')
+  expect(changes - before).toBe(2)
+  expect(writes).toBe(0)
+  expect(() => sessions.restoreDraft({ path: '恢复.md', source: '不得覆盖', original: '', mode: 'source' }, true)).toThrow()
+  const conflict = sessions.restoreDraft({ path: '冲突.md', source: '旧稿', original: '', revision: 'v0', mode: 'source' }, true)
+  expect(conflict.state).toBe('conflict')
+  expect(await sessions.save('冲突.md')).toBe(false)
+  expect(writes).toBe(0)
+  expect(await sessions.save('恢复.md')).toBe(true)
+  expect(writes).toBe(1)
+})

@@ -1,19 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import type { Entry } from '../../services/api'
+import { DragContext } from './drag-context'
+import type { DragControls } from './drag-context'
 import { workspace } from '../../sessions/current'
 
 const mime = 'application/x-folio-entry'
-type DragControls = {
-  entry?: Entry; target: string | null; busy: boolean
-  start: (event: DragEvent<HTMLElement>, entry: Entry) => void
-  end: () => void
-  over: (event: DragEvent<HTMLElement>, directory: string) => void
-  leave: (event: DragEvent<HTMLElement>) => void
-  drop: (event: DragEvent<HTMLElement>, directory: string) => boolean
-}
-const DragContext = createContext<DragControls | null>(null)
-export function useEntryDrag() { const value = useContext(DragContext); if (!value) throw new Error('文件拖拽上下文不存在'); return value }
 
 export function EntryDragProvider({ children, disabled, onMove, onNotice, onDirectory }: {
   children: ReactNode; disabled: boolean; onMove: (entry: Entry, directory: string) => Promise<void>

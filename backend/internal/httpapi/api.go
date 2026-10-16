@@ -19,6 +19,7 @@ import (
 )
 
 type Options struct {
+	WorkspaceID  string
 	Search       *search.Index
 	Auth         *auth.Service
 	Workspace    *storage.Store
@@ -140,6 +141,16 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+			expected := r.Header.Get("X-Folio-Workspace")
+			if expected == "" {
+				expected = r.URL.Query().Get("workspace")
+			}
+			if expected != "" && expected != a.WorkspaceID {
+				writeError(w, 409, "workspace_changed", "服务工作区已切换，请保留当前草稿后重新加载页面", nil)
+				return
+			}
+		}
 		if a.Search != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !strings.HasPrefix(r.URL.Path, "/api/v1/search/") {
 			recorder := &statusRecorder{ResponseWriter: w, status: 200}
 			next(recorder, r)
@@ -194,7 +205,10 @@ func (a *api) register(mux *http.ServeMux) {
 			return
 		}
 		a.cookie(w, token, false)
-		writeJSON(w, 200, principal)
+		writeJSON(w, 200, struct {
+			*auth.Principal
+			WorkspaceID string `json:"workspaceId"`
+		}{principal, a.WorkspaceID})
 	})
 	mux.HandleFunc("GET /api/v1/auth/me", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		principal, err := a.Auth.Authenticate(sessionToken(r))
@@ -202,7 +216,10 @@ func (a *api) register(mux *http.ServeMux) {
 			writeError(w, 401, "unauthenticated", "请重新登录", nil)
 			return
 		}
-		writeJSON(w, 200, principal)
+		writeJSON(w, 200, struct {
+			*auth.Principal
+			WorkspaceID string `json:"workspaceId"`
+		}{principal, a.WorkspaceID})
 	}))
 	mux.HandleFunc("POST /api/v1/auth/logout", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		if err := a.Auth.Logout(sessionToken(r)); err != nil {

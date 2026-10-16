@@ -69,6 +69,9 @@ Milkdown Crepe default for Markdown. Preserve existing Crepe ergonomics; theme w
 ### Modals, menus and search
 shadcn/ui + Radix interaction semantics, consistent padding, keyboard focus rings, `Esc` to close. Quick-open command dialog has path secondary label and keyboard navigation. Search results show matching context without dense highlight noise. Confirmation only for destructive operations; routine saves are silent.
 
+### Browser recovery
+A quiet footer entry lists recoverable local records after authentication. Display source and disk text separately, with explicit paused restore, download and create-only copy actions. Never auto-apply a recovery record or replace an open dirty tab. Cache failure is a persistent, actionable notice; successful local caching is a subtle secondary status and never labeled as a completed disk save. Deleting a cache record requires confirmation.
+
 ### Upload
 Paste/drop image into Markdown inserts relative link after upload succeeds. Show progress for larger uploads; retries and failures remain visible. File upload can use toolbar, context menu, and drop-zone cues rather than a giant permanent upload panel.
 

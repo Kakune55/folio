@@ -89,6 +89,15 @@ func Open(root string) (*Store, error) {
 	probe.Close()
 	return store, nil
 }
+
+// Identity 仅用于绑定浏览器恢复命名空间，不作为文件内容版本。
+func (s *Store) Identity() (string, error) {
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(s.root.Fd()), &stat); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino), nil
+}
 func (s *Store) Close() error { return s.root.Close() }
 func (s *Store) open(name string, flags int, mode uint32) (*os.File, error) {
 	how := &unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC | unix.O_NONBLOCK), Mode: uint64(mode), Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_XDEV}

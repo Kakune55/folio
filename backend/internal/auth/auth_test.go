@@ -12,6 +12,10 @@ func TestSessionPersistenceRotationAndThrottling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceID := service.WorkspaceID("root-identity-a")
+	if workspaceID == service.WorkspaceID("root-identity-b") {
+		t.Fatal("不同根目录复用了恢复命名空间")
+	}
 	token, _, err := service.Login("admin", password, "", "local")
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +35,9 @@ func TestSessionPersistenceRotationAndThrottling(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer service.Close()
+	if service.WorkspaceID("root-identity-a") != workspaceID {
+		t.Fatal("重启后恢复命名空间发生变化")
+	}
 	if _, err = service.Authenticate(replacement); err != nil {
 		t.Fatal("重启后会话丢失")
 	}

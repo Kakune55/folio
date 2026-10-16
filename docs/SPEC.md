@@ -88,7 +88,7 @@ Reject absolute paths, traversal, NUL, unsupported special files and symlink esc
 - Writes supply `If-Match` (or explicit base revision); mismatches return HTTP 409/412 consistently per API contract. No last-write-wins.
 - Server serializes writes per canonical path; externally modified files are detected by validating current revision immediately before replacement.
 - Same-directory temporary write, flush, atomic rename and directory sync where supported; avoid partial writes. Preserve reasonable permissions.
-- Autosave: ~800ms after last edit; visible Saving/Saved/Unsaved/Error/Conflict state. `Ctrl/Cmd+S` forces save. Failed requests retain dirty buffer. Browser draft cache keyed by workspace and canonical path is optional for M3 but worth early prototyping.
+- Autosave: ~800ms after last edit; visible Saving/Saved/Unsaved/Error/Conflict state. `Ctrl/Cmd+S` forces save. Failed requests retain dirty buffer. M3 implements a browser-local recovery cache keyed by workspace namespace, relative path and independent editing-session ID; explicit restore is paused and never automatically replaces disk content. Browser cache has a commit window and can be cleared/evicted, so it is not a backup.
 - Deletion moves to app-managed trash with safe restore; file revisions and backup are distinct concerns. Define a documented backup procedure for both mounts, including SQLite consistency.
 
 ## 6. Search

@@ -10,6 +10,8 @@ import { workspace } from '../sessions/current'
 import { reloadCleanSession } from '../sessions/reconcile'
 import { useExternalChanges } from '../features/explorer/useExternalChanges'
 import { useUI } from '../stores/ui'
+import { getDraftManager } from '../sessions/drafts'
+import { DraftRecovery } from '../features/recovery/DraftRecovery'
 import { SearchDialog } from '../features/search/SearchDialog'
 import { Explorer } from '../features/explorer/Explorer'
 import { TrashDialog } from '../features/explorer/TrashDialog'
@@ -30,11 +32,15 @@ class EditorBoundary extends Component<{ children: ReactNode; retry: () => void 
   render() { return this.state.failed ? <div className="editor-error" role="alert"><p>编辑器加载失败。草稿仍保留，可下载或重试源码模式。</p><Button variant="outline" onClick={this.props.retry}>重试源码模式</Button></div> : this.props.children }
 }
 
-export default function Workbench({ onLogout }: { onLogout: () => void }) {
+export default function Workbench({ onLogout, workspaceId }: { onLogout: () => void; workspaceId: string }) {
   useSyncExternalStore(workspace.subscribe, workspace.snapshot)
   const client = useQueryClient()
   const { activePath, sidebar, theme, open, toggleSidebar, setTheme } = useUI()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
+  const manager = useMemo(() => getDraftManager(workspaceId, workspace), [workspaceId])
+  const recovery = useSyncExternalStore(manager.subscribe, manager.snapshot)
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
+  useEffect(() => { manager.start() }, [manager])
   const [directory, setDirectory] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -245,13 +251,15 @@ export default function Workbench({ onLogout }: { onLogout: () => void }) {
         {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty || !!current.external} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
       </div></div>}
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
+      {recovery.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{recovery.warning}</span><Button onClick={() => void manager.retry().catch(() => {})}>重试本地存储</Button></div>}
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
       {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
-    <footer className="statusbar"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+    <footer className="statusbar"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" onClick={() => setRecoveryOpen(true)}>恢复稿{recovery.entries.length ? `（${recovery.entries.length}）` : ''}</Button>{current?.dirty && ['markdown', 'text'].includes(current.viewer) && <span className="draft-cache-state">{recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…'}</span>}<span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
 
+    <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />
     {searchMode && <SearchDialog key={searchMode} mode={searchMode} onClose={() => setSearchMode(null)} onMode={setSearchMode} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
     <Dialog.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title>工作区快捷键</Dialog.Title><Dialog.Description>编辑时可使用以下按键，也可通过工具栏和文件菜单完成操作。</Dialog.Description>
       <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>快速打开</dt><dd>Ctrl / Cmd + P</dd></div><div><dt>全文搜索</dt><dd>Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>

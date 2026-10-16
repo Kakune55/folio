@@ -118,6 +118,12 @@ func Open(dir, initialPassword string) (*Service, error) {
 	}
 	return service, nil
 }
+
+// WorkspaceID 混入账号初始化盐，既不暴露根路径，也不复用另一套应用数据的恢复记录。
+func (s *Service) WorkspaceID(identity string) string {
+	sum := sha256.Sum256([]byte("folio-workspace-v1:" + hex.EncodeToString(s.salt) + ":" + identity))
+	return hex.EncodeToString(sum[:])
+}
 func (s *Service) Close() error {
 	if s.db != nil {
 		s.db.Close()

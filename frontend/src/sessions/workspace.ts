@@ -3,7 +3,7 @@ import type { FileMetadata, ViewerKind } from '../services/api'
 export type EditorMode = 'rich' | 'source'
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
 export type Session = {
-  path: string; source: string; original: string; mode: EditorMode; dirty: boolean
+  id: string; path: string; source: string; original: string; mode: EditorMode; dirty: boolean
   revision: string; state: SaveState; error: string; generation: number
   viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number; locked: boolean
   external?: 'changed' | 'missing'
@@ -20,13 +20,15 @@ export class WorkspaceSessions {
   private version = 0
   private reservations = new Set<string>()
   private transport?: SaveTransport
+  private suspended = false
+  private bufferListeners = new Set<() => void>()
   constructor(files: FileInput[] = [], transport?: SaveTransport) { this.transport = transport; files.forEach((file) => this.add(file)) }
   add(file: FileInput) {
     // 已打开的脏会话永远不被重新获取的远端内容覆盖。
     const existing = this.sessions.get(file.path)
     if (existing) return existing
     if (this.isLocked(file.path)) throw new Error('该路径正在进行文件操作，请稍后再打开')
-    const session: Session = { ...file, original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0, viewer: file.viewer ?? (/\.(md|markdown)$/i.test(file.path) ? 'markdown' : 'text'), pendingUploads: 0, locked: false }
+    const session: Session = { ...file, id: crypto.randomUUID(), original: file.source, dirty: false, revision: file.revision ?? '', state: 'saved', error: '', generation: 0, viewer: file.viewer ?? (/\.(md|markdown)$/i.test(file.path) ? 'markdown' : 'text'), pendingUploads: 0, locked: false }
     this.sessions.set(file.path, session); this.emit(); return session
   }
   has(path: string) { return this.sessions.has(path) }
@@ -40,18 +42,18 @@ export class WorkspaceSessions {
     const changed = dirty !== session.dirty || state !== session.state
     session.dirty = dirty; session.state = state
     if (session.external) { session.dirty = true; session.error = '磁盘文件已变化，本地草稿仍保留，请比较版本或另存副本' }
-    if (changed) this.emit()
+    if (changed) this.emit(); else this.notifyBuffers()
     this.schedule(session)
   }
   private schedule(session: Session, delay = 800) {
     const previous = this.timers.get(session.path); if (previous) clearTimeout(previous)
     this.timers.delete(session.path)
-    if (session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
+    if (this.suspended || session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
     this.timers.set(session.path, setTimeout(() => { this.timers.delete(session.path); void this.save(session.path) }, delay))
   }
   save(path: string, duringOperation = false): Promise<boolean> {
     const session = this.get(path)
-    if (session.locked && !duringOperation) return Promise.resolve(false)
+    if (this.suspended || (session.locked && !duringOperation)) return Promise.resolve(false)
     const pending = this.pending.get(path); if (pending) return pending
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     if (!this.transport || !session.dirty) return Promise.resolve(!session.dirty)
@@ -145,7 +147,17 @@ export class WorkspaceSessions {
     session.generation++; this.emit()
   }
   setMode(path: string, mode: EditorMode) { const session = this.get(path); if (session.mode === mode) return; session.mode = mode; this.emit() }
+  suspend() { this.suspended = true; for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear() }
+  restoreDraft(file: FileInput & { original: string }, conflict: boolean) {
+    if (this.has(file.path) || this.isLocked(file.path)) throw new Error('该文件已有标签页，请先保存并关闭，或把恢复稿另存为新文件')
+    const session = this.add(file)
+    session.original = file.original; session.dirty = true; session.state = conflict ? 'conflict' : 'error'
+    session.error = conflict ? '恢复稿与磁盘版本不同或尚未核对，请比较版本或另存副本' : '浏览器恢复稿已加载，请核对正文后手动保存'
+    this.emit(); return session
+  }
+  watchBuffers = (listener: () => void) => { this.bufferListeners.add(listener); return () => { this.bufferListeners.delete(listener) } }
+  private notifyBuffers() { this.bufferListeners.forEach((listener) => listener()) }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   snapshot = () => this.version
-  private emit() { this.version++; this.listeners.forEach((listener) => listener()) }
+  private emit() { this.notifyBuffers(); this.version++; this.listeners.forEach((listener) => listener()) }
 }
