@@ -9,15 +9,16 @@ const phase = process.argv[2]
 const url = process.env.FOLIO_ACCEPT_URL
 const data = process.env.FOLIO_ACCEPT_DATA
 const profile = process.env.FOLIO_ACCEPT_PROFILE
-if (!url || !data || !profile) throw new Error('缺少容器验收环境配置')
+const spki = process.env.FOLIO_ACCEPT_SPKI
+if (!url || !data || !profile || !spki) throw new Error('缺少容器验收环境配置或临时证书公钥')
 const workspace = path.join(data, 'workspace')
 const fixture = fileURLToPath(new URL('../tests/fixtures/preview.png', import.meta.url))
 const errors = []
-const context = await chromium.launchPersistentContext(profile, { executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome', args: ['--no-sandbox'], ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+const context = await chromium.launchPersistentContext(profile, { executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome', args: ['--no-sandbox', `--ignore-certificate-errors-spki-list=${spki}`], ignoreHTTPSErrors: false, viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
 const page = await context.newPage()
 page.on('pageerror', (error) => errors.push(error.message))
 await page.addInitScript(() => { window.policyFailures = []; document.addEventListener('securitypolicyviolation', (event) => window.policyFailures.push(event.violatedDirective)) })
-const report = { phase, url, checks: {}, errors }
+const report = { phase, url, ignoreHTTPSErrors: false, pinnedTestCertificate: true, checks: {}, errors }
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
 async function create(kind, name) {
   await page.getByRole('button', { name: `新建${kind}`, exact: true }).first().click()
@@ -32,6 +33,7 @@ try {
     await page.getByLabel('密码', { exact: true }).fill(process.env.FOLIO_ACCEPT_PASSWORD)
     await page.getByRole('button', { name: '进入工作区' }).click()
     await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+    report.workspaceId = await page.evaluate(async () => (await (await fetch('/api/v1/auth/me')).json()).workspaceId)
     await create('文件夹', '容器验收')
     await create('笔记', '笔记.md')
     const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
@@ -105,6 +107,23 @@ try {
     expect(await readFile(path.join(workspace, '容器验收', image))).toEqual(await readFile(fixture))
     report.checks = { containerTrashRestore: true, reopenedBrowserSession: true, containerRestartContent: true, imageAfterRestart: true, jsonAfterRestart: true, externalStaleWriteRejected: true, localDraftPreserved: true, separateCopy: copy, externalFilePreserved: true, attachmentDownload: true, imageHash: hash(downloaded) }
     await page.screenshot({ path: path.join(process.env.FOLIO_ACCEPT_EVIDENCE, `acceptance-${process.env.FOLIO_ACCEPT_ARCH}.png`) })
+  } else if (phase === 'reset') {
+    await expect(page.getByLabel('密码', { exact: true })).toBeVisible()
+    expect(await page.evaluate(async () => (await fetch('/api/v1/auth/me')).status)).toBe(401)
+    await page.getByLabel('密码', { exact: true }).fill(process.env.FOLIO_ACCEPT_PASSWORD)
+    await page.getByRole('button', { name: '进入工作区' }).click()
+    await expect(page.getByRole('alert')).toHaveText('账号或密码错误')
+    await page.getByLabel('密码', { exact: true }).fill(process.env.FOLIO_ACCEPT_RESET_PASSWORD)
+    await page.getByRole('button', { name: '进入工作区' }).click()
+    await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+    const original = JSON.parse(await readFile(path.join(data, 'write.json'), 'utf8'))
+    const workspaceId = await page.evaluate(async () => (await (await fetch('/api/v1/auth/me')).json()).workspaceId)
+    expect(workspaceId).toBe(original.workspaceId)
+    await page.getByRole('button', { name: '容器验收', exact: true }).click()
+    await page.getByRole('button', { name: '配置.json', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('"保存":"真实文件"')
+    expect(await readFile(path.join(workspace, '容器验收/配置.json'), 'utf8')).toBe('{"容器":true,"保存":"真实文件"}')
+    report.checks = { oldCookieRejected: true, oldPasswordRejected: true, newPasswordLogin: true, stableWorkspaceIdentity: true, realFilesPreserved: true, resetWithoutWorkspaceMount: true }
   } else throw new Error('未知验收阶段')
   report.cspViolations = await page.evaluate(() => window.policyFailures)
   expect(report.cspViolations).toEqual([]); expect(errors).toEqual([])

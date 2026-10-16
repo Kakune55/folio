@@ -31,10 +31,17 @@
 
 同一时间只运行一次 Argon2id 校验。忙时返回 429 `rate_limited`、`Retry-After: 1`，用户稍后重试即可；不自动重发密码，不建立后台等待队列。按连接来源的失败次数上限仍为 10 分钟内 5 次，触发后 `Retry-After: 600`。来源记录最多 1000 条；不信任任意 X-Forwarded-For，因此代理后的来源限速可能共享。全局在途上限控制高成本计算和等待连接，不替代代理级流量限制或抵御分布式拒绝服务。
 
-## 仍待最终检查
+## HTTPS 候选镜像验证（2026-10-16）
 
-- 在最终嵌入 SPA 的 HTTPS 镜像中验证生产 CSP、恶意 HTML/SVG/Markdown 及链接的实际浏览器行为，不能用 Vite 开发服务替代 CSP 证据。
-- 用受限容器临时文件系统复现真实 ENOSPC，核对原文与恢复路径；本节点 EFBIG 不是磁盘已满证据。现有 SIGKILL 覆盖从临时文件创建后到替换完成的竞争窗口，不精确控制每个 fsync/rename 指令，也不等同断电。
-- 最终 amd64/arm64 部署回归另行记录，当前证据不能替代该镜像门槛。
+`CONTAINER_ENGINE=podman FOLIO_TEST_IMAGE=<image> make container-review` 使用实际嵌入 SPA 的 HTTPS 容器和 512 KiB tmpfs 工作区，未填满宿主磁盘。已在原生 amd64 与 QEMU 11.1.2 arm64 上通过：生产 CSP 实际阻止 DOM 插入的内联/外部脚本，HTML/SVG/Markdown 原文保留、活动预览拒绝、原件下载隔离，危险链接主/辅助点击、站内打开、外链 noopener/无 Cookie/Referrer、远程图片不发请求及匿名读取拒绝。保留例外仅为本次测试证书 SPKI，浏览器未全局忽略 HTTPS 错误；宿主另行完整验证 CA/主机名。
+
+磁盘满使用真实内核 ENOSPC：占位文件后保存较大草稿得到 500，日志确认 no space left on device，旧正文精确不变；完整草稿可下载并在实际刷新后从 IndexedDB 显式恢复，移除占位文件到跨设备回收站后可条件保存原稿。保存请求没有注入模拟失败。工作区是临时容器 tmpfs，不以它证明持久卷断电恢复。
+
+证据为 `artifacts/security/container-review-{amd64,arm64}.json`，镜像 ID 和时间记录在其中。两架构的实际两 bind mount 部署/重启/离线改密验收另见 `artifacts/container/container-acceptance-*.json`；健康检查保留。ARM 运行的是 ARM Go 二进制，但使用 QEMU 与宿主内核，非原生硬件。
+
+## 剩余范围与边界
+
+- 候选镜像的安全/ENOSPC 与双架构运行已验证；后续产品代码改变后需要更新对应镜像证据，不能沿用旧 ID 声称新构建已测。
+- SIGKILL 覆盖从临时文件创建后到替换完成的竞争窗口，不精确控制每个 fsync/rename 指令，也不等同断电或所有文件系统证明。
 - 无障碍与 1202 文件/较大正文检查现已形成独立的生产构建 QA，当前结果和适用范围见 `QUALITY.md`；真实读屏器与全部动态编辑器部件仍未宣称通过。依赖审计发现的间接 KaTeX 旧副本已定向对齐到 Crepe 使用的 0.19.0，本次普通 npm ci/审计为 0 已知告警，没有强制降级编辑器。
 - 实际外部代理的 TLS、Host/Origin、请求大小和状态码透传需要部署者核验；当前环境的 rootless Podman 证据不能冒充 Docker daemon 部署。

@@ -1,7 +1,7 @@
 CONTAINER_ENGINE ?= docker
 IMAGE_FORMAT_FLAGS = $(if $(filter podman,$(notdir $(CONTAINER_ENGINE))),--format=docker,)
 
-.PHONY: install dev api build run test qa tls image container-test backup-test
+.PHONY: install dev api build run test qa tls image container-test container-review backup-test
 install:
 	cd frontend && npm ci
 
@@ -32,6 +32,9 @@ image:
 
 container-test:
 	python3 scripts/container-acceptance.py
+
+container-review:
+	python3 scripts/container-review.py
 
 backup-test:
 	python3 scripts/backup-test.py

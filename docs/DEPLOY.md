@@ -125,3 +125,9 @@ podman tag <导入时显示的镜像ID> folio:local
 Compose 的宿主路径可由 `FOLIO_WORKSPACE_DIR` 与 `FOLIO_APP_DATA_DIR` 配置，默认仍为 `./workspace`、`./app-data`。恢复时两项必须一起切换，旧卷保持不动。恢复保留密码并清除旧登录会话；新位置启动后需重新登录、等待搜索重建并核对回收站/附件。备份工具运行在宿主机，需要 Python 3.11+，不向 scratch 镜像加入解释器。
 
 `make CONTAINER_ENGINE=podman image` 现在显式使用 Docker 镜像格式，以保留 HEALTHCHECK 元数据。M3 原生 amd64 HTTPS 容器恢复演练不等同于 arm64 或 Docker daemon 的重新验收，具体证据见 M3 记录。
+
+## M3 候选镜像的安全与故障演练
+
+`CONTAINER_ENGINE=podman FOLIO_TEST_IMAGE=<本地镜像> make container-review` 验证实际生产 CSP、恶意内容与内核 ENOSPC 后的草稿恢复。它只使用本次容器的 512 KiB tmpfs（mode 1777，让非 root 用户无需新增权限即可写入）及临时私有 app-data，不修改日常挂载或填满宿主磁盘。该受限测试挂载不应替换生产的持久工作区。
+
+`make container-test` 继续使用两个实际 bind mount，现已加入在线改密拒绝、停服后仅挂载 app-data 的离线重置、旧 Cookie/密码失效与新密码/文件/工作区身份验证。两种驱动均使用临时证书 SPKI 例外，浏览器不全局忽略 HTTPS 错误；宿主 CA 和主机名另行完整校验。新流程已在原生 amd64、QEMU arm64 候选镜像上通过，Docker daemon 与原生 ARM 硬件未在本机验证。
