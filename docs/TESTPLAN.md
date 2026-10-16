@@ -50,3 +50,7 @@ Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×
 ## M3 offline account maintenance
 
 `cd backend && go test ./internal/auth ./internal/config ./internal/httpapi ./cmd/server` verifies offline instance-lock exclusion, new password/old password/old Cookie behavior, stable browser namespace, rollback when session revocation fails, missing-account refusal, unsafe account files/sidecars and bounded private password-file reading. The CLI integration test builds a real binary and invokes it with intentionally invalid server environment, checking that it neither starts the server nor initializes other data roots and that output contains no test password/session. These isolated tests do not replace the final container gate or a broader security audit.
+
+## M3 security and partial-write slice
+
+`cd backend && go test ./internal/auth ./internal/httpapi ./internal/storage` includes the explicit private-route/HEAD, every-mutation CSRF/origin and concurrent-login matrix. The Linux storage subprocess test applies RLIMIT_FSIZE only to its own child to obtain a partial write/EFBIG, and uses inotify to observe a real temporary save before SIGKILL. It verifies unchanged original content on handled write error and complete old/new content after termination. This does not fill a host filesystem, simulate real ENOSPC or prove every exact crash stage. Review evidence and remaining production-browser/fault gates are listed in `SECURITY.md`.

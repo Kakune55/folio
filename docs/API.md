@@ -80,6 +80,8 @@ Login body: `{username:"admin",password:"..."}`. Login and me return `{username,
 
 Password recovery has no HTTP endpoint. An operator must stop the instance and use the explicit offline command described in `PASSWORD.md`; successful reset revokes all sessions, so existing authenticated requests return 401 until a new login. The same roots retain their browser recovery namespace.
 
+Login permits one in-flight password verification globally. Concurrent attempts return 429 `rate_limited` with `Retry-After: 1`, without joining a hash queue or consuming the source's failed-password quota. The existing source attempt limit returns the same error code with `Retry-After: 600`. Clients preserve input and offer an explicit retry; no automatic password retries are required.
+
 Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.
 
 ### Attachment contract

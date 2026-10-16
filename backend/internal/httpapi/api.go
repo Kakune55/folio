@@ -191,6 +191,11 @@ func (a *api) register(mux *http.ServeMux) {
 			remote = r.RemoteAddr
 		}
 		token, principal, err := a.Auth.Login(body.Username, body.Password, sessionToken(r), remote)
+		if errors.Is(err, auth.ErrLoginBusy) {
+			w.Header().Set("Retry-After", "1")
+			writeError(w, 429, "rate_limited", err.Error(), nil)
+			return
+		}
 		if errors.Is(err, auth.ErrCredentials) {
 			writeError(w, 401, "unauthenticated", err.Error(), nil)
 			return

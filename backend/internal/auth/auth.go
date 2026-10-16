@@ -40,6 +40,7 @@ type Service struct {
 
 var ErrCredentials = errors.New("账号或密码错误")
 var ErrRateLimited = errors.New("尝试次数过多，请稍后重试")
+var ErrLoginBusy = errors.New("正在验证其他登录请求，请稍后重试")
 
 func Open(dir, initialPassword string) (*Service, error) {
 	return open(dir, initialPassword, false)
@@ -187,6 +188,11 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Service) Login(username, password, oldToken, remote string) (string, *Principal, error) {
+	// 不让突发请求排队等待高成本哈希；只允许一个在途校验，其他请求立即重试。
+	if !s.loginMu.TryLock() {
+		return "", nil, ErrLoginBusy
+	}
+	defer s.loginMu.Unlock()
 	s.mu.Lock()
 	now := time.Now()
 	for key, value := range s.attempts {
@@ -208,8 +214,6 @@ func (s *Service) Login(username, password, oldToken, remote string) (string, *P
 	value.until = now.Add(10 * time.Minute)
 	s.attempts[remote] = value
 	s.mu.Unlock()
-	s.loginMu.Lock()
-	defer s.loginMu.Unlock()
 	candidate := argon2.IDKey([]byte(password), s.salt, 3, 64*1024, 1, 32)
 	if subtle.ConstantTimeCompare(candidate, s.hash) != 1 || username != "admin" {
 		return "", nil, ErrCredentials
