@@ -38,6 +38,22 @@ func pagination(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 	return offset, limit, true
 }
 func (a *api) registerEntries(mux *http.ServeMux) {
+	mux.HandleFunc("DELETE /api/v1/trash/{id}", a.protect(func(w http.ResponseWriter, r *http.Request) {
+		if err := a.Workspace.Purge(r.PathValue("id")); err != nil {
+			storageError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
+	}))
+	mux.HandleFunc("GET /api/v1/workspace/usage", a.protect(func(w http.ResponseWriter, r *http.Request) {
+		usage, err := a.Workspace.Usage()
+		if err != nil {
+			storageError(w, err)
+			return
+		}
+		writeJSON(w, 200, usage)
+	}))
+
 	mux.HandleFunc("GET /api/v1/entries/revision", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		revision, err := a.Workspace.EntryRevision(r.URL.Query().Get("path"))
 		if err != nil {

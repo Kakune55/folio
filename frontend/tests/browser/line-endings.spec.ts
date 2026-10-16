@@ -40,7 +40,7 @@ test('CRLF、CR 与混合换行在编辑、撤销/重做、换行和切换文件
     await assertDisk(page, name, edited)
     await page.keyboard.press('Control+z'); await page.keyboard.press('Control+s')
     await assertDisk(page, name, original)
-    await page.keyboard.press('Control+Shift+z'); await page.keyboard.press('Control+s')
+    await page.keyboard.press(process.platform === 'win32' ? 'Control+y' : 'Control+Shift+z'); await page.keyboard.press('Control+s')
     await assertDisk(page, name, edited)
     await page.keyboard.press('Control+End'); await page.keyboard.press('Enter'); await page.keyboard.insertText('新行')
     await page.keyboard.press('Control+s')

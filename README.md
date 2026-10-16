@@ -19,12 +19,14 @@ make run
 
 开发时在两个终端分别运行 make api 和 make dev，访问 <http://127.0.0.1:5173>，/api 代理到 8080。make run/api 使用回环 HTTP 与非 Secure Cookie；直接启动程序默认使用 Secure Cookie，正式部署须 HTTPS。容器与代理操作见 [部署说明](docs/DEPLOY.md)。
 
+首次初始化的 admin 是管理员，可在左下角进入 `/system-setting` 创建和管理用户；每个用户拥有独立工作区，默认配额 5 GB。管理员可改名、启用/禁用、调整配额和重置密码。开发阶段旧单账号数据不迁移，需停服后清理两数据目录重新初始化，详见 [多账号说明](docs/MULTIUSER.md)。
+
 ## 数据与配置
 
 | 环境变量 | 默认值或用途 |
 | --- | --- |
-| FOLIO_WORKSPACE | ./workspace，真实正文与附件 |
-| FOLIO_APP_DATA | ./app-data，账号、会话、索引与回收站 |
+| FOLIO_WORKSPACE | ./workspace，各用户工作区的根目录，正文与附件在 <用户ID>/ 下 |
+| FOLIO_APP_DATA | ./app-data，账号、会话、各用户索引与回收站 |
 | FOLIO_ADDR | 监听地址；本地默认 127.0.0.1:8080 |
 | FOLIO_PASSWORD_FILE | 仅首次初始化用的私有普通密码文件 |
 | FOLIO_SECURE_COOKIE | true；false 仅允许回环 IP |
@@ -54,6 +56,7 @@ make qa
 
 | 文档 | 维护内容 |
 | --- | --- |
+| [多账号](docs/MULTIUSER.md) | 账户隔离、配额、开发数据重置与本轮验证 |
 | [产品规范](docs/SPEC.md) | 产品边界、技术选择与行为要求 |
 | [视觉与交互](docs/DESIGN.md) | 主题、布局、交互与无障碍设计 |
 | [架构说明](docs/ARCHITECTURE.md) | 模块、数据流、文件与恢复机制 |

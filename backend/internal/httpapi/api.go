@@ -19,6 +19,9 @@ import (
 )
 
 type Options struct {
+	OwnerID      int64
+	WorkspaceFor func(int64) (string, error)
+	UserUsage    func(int64) (storage.Usage, error)
 	WorkspaceID  string
 	Search       *search.Index
 	Auth         *auth.Service
@@ -45,8 +48,8 @@ func storageError(w http.ResponseWriter, err error) {
 		writeError(w, 500, "internal_error", "文件操作失败，草稿已保留，请检查服务日志和磁盘状态", nil)
 		return
 	}
-	statuses := map[string]int{"path_invalid": 400, "not_found": 404, "target_exists": 409, "forbidden": 403, "unsupported_file_type": 415, "too_large": 413, "revision_conflict": 412, "precondition_required": 428, "file_changed": 409, "durability_uncertain": 500, "preview_unavailable": 415, "operation_in_progress": 409, "trash_unavailable": 503, "trash_damaged": 422, "trash_failed": 500, "trash_incomplete": 500}
-	messages := map[string]string{"operation_in_progress": "文件正在上传，或目录包含未完成的临时/不支持条目，请稍后检查再操作", "trash_unavailable": "回收站尚未配置", "trash_damaged": "恢复记录或副本损坏，请保留记录并检查应用数据目录", "trash_failed": "操作未完成，原文件或恢复副本仍保留，请检查后重试", "trash_incomplete": "回收站操作未完成，恢复记录与隔离原件已保留，请打开回收站恢复或联系管理员检查", "path_invalid": "路径不安全或不受支持", "not_found": "文件或目录不存在", "target_exists": "同名文件或目录已存在", "forbidden": "没有操作权限", "unsupported_file_type": "仅支持普通 UTF-8 文本，拒绝特殊文件及硬链接", "too_large": "文件超过此类型的大小限制", "revision_conflict": "文件已被其他编辑器修改，请比较两个版本", "preview_unavailable": "此文件不支持安全预览或超过预览限制，请下载查看", "precondition_required": "保存必须携带读取时的版本", "file_changed": "读取或操作期间文件发生变化，请重试", "durability_uncertain": "操作可能已应用，但目录同步未完成；请保留草稿并刷新文件列表/回收站确认"}
+	statuses := map[string]int{"quota_exceeded": 413, "path_invalid": 400, "not_found": 404, "target_exists": 409, "forbidden": 403, "unsupported_file_type": 415, "too_large": 413, "revision_conflict": 412, "precondition_required": 428, "file_changed": 409, "durability_uncertain": 500, "preview_unavailable": 415, "operation_in_progress": 409, "trash_unavailable": 503, "trash_damaged": 422, "trash_failed": 500, "trash_incomplete": 500}
+	messages := map[string]string{"quota_exceeded": "工作区配额不足，请清理回收站或联系管理员调整配额；草稿和待上传原件仍保留", "operation_in_progress": "文件正在上传，或目录包含未完成的临时/不支持条目，请稍后检查再操作", "trash_unavailable": "回收站尚未配置", "trash_damaged": "恢复记录或副本损坏，请保留记录并检查应用数据目录", "trash_failed": "操作未完成，原文件或恢复副本仍保留，请检查后重试", "trash_incomplete": "回收站操作未完成，恢复记录与隔离原件已保留，请打开回收站恢复或联系管理员检查", "path_invalid": "路径不安全或不受支持", "not_found": "文件或目录不存在", "target_exists": "同名文件或目录已存在", "forbidden": "没有操作权限", "unsupported_file_type": "仅支持普通 UTF-8 文本，拒绝特殊文件及硬链接", "too_large": "文件超过此类型的大小限制", "revision_conflict": "文件已被其他编辑器修改，请比较两个版本", "preview_unavailable": "此文件不支持安全预览或超过预览限制，请下载查看", "precondition_required": "保存必须携带读取时的版本", "file_changed": "读取或操作期间文件发生变化，请重试", "durability_uncertain": "操作可能已应用，但目录同步未完成；请保留草稿并刷新文件列表/回收站确认"}
 	status := statuses[problem.Code]
 	if status == 0 {
 		status = 500
@@ -135,6 +138,10 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, 401, "unauthenticated", "登录已过期，请重新登录；未保存草稿会保留在当前页面", nil)
 			return
 		}
+		if a.OwnerID != 0 && principal.ID != a.OwnerID {
+			writeError(w, 409, "workspace_changed", "账户工作区已切换，请重新加载", nil)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if !a.allowedOrigin(r) || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(principal.CSRF)) != 1 {
 				writeError(w, 403, "forbidden", "来源或 CSRF 校验失败", nil)
@@ -163,6 +170,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerUsers(mux)
 	a.registerAttachments(mux)
 	a.registerEntries(mux)
 	a.registerSearch(mux)
@@ -209,11 +217,17 @@ func (a *api) register(mux *http.ServeMux) {
 			writeError(w, 500, "internal_error", "登录失败，请稍后重试", nil)
 			return
 		}
+		workspaceID, err := a.workspaceFor(principal.ID)
+		if err != nil {
+			_ = a.Auth.Logout(token)
+			writeError(w, 500, "workspace_unavailable", "工作区打开失败，请重试或联系管理员", nil)
+			return
+		}
 		a.cookie(w, token, false)
 		writeJSON(w, 200, struct {
 			*auth.Principal
 			WorkspaceID string `json:"workspaceId"`
-		}{principal, a.WorkspaceID})
+		}{principal, workspaceID})
 	})
 	mux.HandleFunc("GET /api/v1/auth/me", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		principal, err := a.Auth.Authenticate(sessionToken(r))
@@ -221,10 +235,15 @@ func (a *api) register(mux *http.ServeMux) {
 			writeError(w, 401, "unauthenticated", "请重新登录", nil)
 			return
 		}
+		workspaceID, err := a.workspaceFor(principal.ID)
+		if err != nil {
+			writeError(w, 500, "workspace_unavailable", "工作区打开失败，请重试或联系管理员", nil)
+			return
+		}
 		writeJSON(w, 200, struct {
 			*auth.Principal
 			WorkspaceID string `json:"workspaceId"`
-		}{principal, a.WorkspaceID})
+		}{principal, workspaceID})
 	}))
 	mux.HandleFunc("POST /api/v1/auth/logout", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		if err := a.Auth.Logout(sessionToken(r)); err != nil {
@@ -351,3 +370,10 @@ func (w *statusRecorder) WriteHeader(status int) {
 }
 
 func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (a *api) workspaceFor(id int64) (string, error) {
+	if a.WorkspaceFor != nil {
+		return a.WorkspaceFor(id)
+	}
+	return a.WorkspaceID, nil
+}

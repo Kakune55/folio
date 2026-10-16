@@ -6,7 +6,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowDownToLine, BookOpen, Braces, Camera, ChevronRight, FilePlus2, FileText, FolderPlus, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
-import type { FileContent } from '../services/api'
+import { AccountControls } from '../features/auth/AccountControls'
+import type { Principal, FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
 import { reloadCleanSession } from '../sessions/reconcile'
 import { useExternalChanges } from '../features/explorer/useExternalChanges'
@@ -38,7 +39,7 @@ class EditorBoundary extends Component<{ children: ReactNode; retry: () => void 
   render() { return this.state.failed ? <div className="editor-error" role="alert"><p>编辑器加载失败。草稿仍保留，可下载或重试源码模式。</p><Button variant="outline" onClick={this.props.retry}>重试源码模式</Button></div> : this.props.children }
 }
 
-export default function Workbench({ onLogout, workspaceId }: { onLogout: () => void; workspaceId: string }) {
+export default function Workbench({ onLogout, workspaceId, principal }: { onLogout: () => void; workspaceId: string; principal: Principal }) {
   useSyncExternalStore(workspace.subscribe, workspace.snapshot)
   const client = useQueryClient()
   const { activePath, sidebar, theme, open, toggleSidebar, setSidebar, setTheme } = useUI()
@@ -176,6 +177,7 @@ export default function Workbench({ onLogout, workspaceId }: { onLogout: () => v
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || uploads.length || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
+      if (location.pathname === '/system-setting') return
       const key = event.key.toLowerCase(), modifier = event.ctrlKey || event.metaKey
       if (document.querySelector('[role="dialog"]')) {
         if (modifier && !event.altKey && ((!event.shiftKey && (key === 'p' || key === 's')) || (event.shiftKey && key === 'f'))) event.preventDefault()
@@ -257,7 +259,7 @@ export default function Workbench({ onLogout, workspaceId }: { onLogout: () => v
       {mobile && notice && <p className="tree-message" role="status">{notice}</p>}
       {mobile && <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />}
       <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} onDropMove={operations.moveToDirectory} onNotice={onBlocked} disabled={uploading} />
-      <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>普通文件，标准 Markdown。<br />编辑后自动保存。</p></div>
+      <div className="explorer-foot"><AccountControls principal={principal} onSettings={() => { if (mobile) setSidebar(false) }} /></div>
     </ExplorerPanel>
     <main className="main-pane"><div className="tabs-row"><Button id="explorer-toggle" size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role={workspace.list().length ? 'tablist' : undefined} aria-label={workspace.list().length ? '打开的文件' : undefined}>
       {workspace.list().map((session, index, files) => <div key={session.path} className={`tab-container ${activePath === session.path ? 'active' : ''}`}><button id={`file-tab-${index}`} role="tab" aria-controls="document-panel" aria-describedby="file-tab-help" aria-selected={activePath === session.path} tabIndex={activePath === session.path ? 0 : -1} className={`tab ${activePath === session.path ? 'active' : ''}`} title={session.path} onClick={(event) => {

@@ -8,6 +8,7 @@ import { api } from '../../services/api'
 
 export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (value: boolean) => void }) {
   const client = useQueryClient()
+  const [purgeID, setPurgeID] = useState('')
   const [working, setWorking] = useState('')
   const [message, setMessage] = useState('')
   const query = useInfiniteQuery({ queryKey: ['trash'], queryFn: ({ pageParam }) => api.trashList(pageParam), initialPageParam: 0, getNextPageParam: (last) => last.offset + last.entries.length < last.total ? last.offset + last.entries.length : undefined, enabled: open, retry: false })
@@ -19,9 +20,15 @@ export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChang
       try { await api.restore(record.id); setMessage(`已恢复 ${record.path}`); await Promise.all([client.invalidateQueries({ queryKey: ['trash'] }), client.invalidateQueries({ queryKey: ['tree'] })]) }
       catch (error) { setMessage(error instanceof Error ? error.message : '恢复失败，记录仍保留') }
       finally { setWorking('') }
-    }}>{working === record.id ? '正在恢复…' : record.state === 'ready' ? '恢复' : '尝试恢复'}</Button></div>)}
+    }}>{working === record.id ? '正在恢复…' : record.state === 'ready' ? '恢复' : '尝试恢复'}</Button><Button disabled={!!working || record.state !== 'ready'} onClick={() => setPurgeID(record.id)}>永久删除</Button></div>)}
     {query.data?.pages[0]?.total === 0 && <p className="trash-empty">回收站为空</p>}
     {query.hasNextPage && <Button disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>加载更多</Button>}
+    <Dialog.Root open={!!purgeID} onOpenChange={(value) => { if (!value && !working) setPurgeID('') }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>永久删除</Dialog.Title><Dialog.Description>文件将从回收站永久删除并释放配额，此操作无法撤销。</Dialog.Description><div className="user-form-actions"><Button disabled={!!working} onClick={() => setPurgeID('')}>取消</Button><Button variant="outline" disabled={!!working} onClick={async () => {
+      setWorking(purgeID)
+      try { await api.purge(purgeID); setPurgeID(''); setMessage('已永久删除。'); await Promise.all([client.invalidateQueries({ queryKey: ['trash'] }), client.invalidateQueries({ queryKey: ['usage'] })]) }
+      catch (error) { setMessage(error instanceof Error ? error.message : '永久删除失败，请刷新回收站后重试'); setPurgeID('') }
+      finally { setWorking('') }
+    }}>确认永久删除</Button></div></DialogContent></Dialog.Portal></Dialog.Root>
     <Dialog.Close asChild><Button size="icon" className="dialog-close" aria-label="关闭回收站" disabled={!!working}><X size={17} /></Button></Dialog.Close>
   </DialogContent></Dialog.Portal></Dialog.Root>
 }

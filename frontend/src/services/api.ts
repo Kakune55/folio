@@ -12,7 +12,7 @@ export type TrashPage = { entries: TrashRecord[]; total: number; offset: number;
 export type SearchStatus = { indexing: boolean; indexedAt: string; files: number; warning?: string }
 export type SearchResult = { path: string; name: string; excerpt: string }
 export type SearchResponse = { entries: SearchResult[]; truncated: boolean; limit: number; status: SearchStatus }
-export type Principal = { username: string; csrfToken: string; workspaceId: string }
+export type Principal = { id: number; admin: boolean; username: string; csrfToken: string; workspaceId: string }
 export type FileContent = { path: string; content: string; revision: string; size: number; encoding: string; mtime: string; kind: string }
 export type Entry = { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export type TreePage = { entries: Entry[]; total: number; offset: number; limit: number }
@@ -30,7 +30,16 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
   }
   return response.json() as Promise<T>
 }
+export type UserAccount = { id: number; username: string; admin: boolean; enabled: boolean; quota: number; used: number | null; usageError?: string }
+export type UserInput = { username: string; enabled: boolean; quota: number; password: string }
 export const api = {
+  usage: () => request<{ used: number; quota: number }>('/workspace/usage'),
+  users: (q = '', offset = 0) => request<{ entries: UserAccount[]; total: number }>(`/admin/users?q=${encodeURIComponent(q)}&offset=${offset}&limit=20`),
+  saveUser: (id: number, data: UserInput) => request<UserAccount>(id ? `/admin/users/${id}` : '/admin/users', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(data) }),
+  resetUserPassword: (id: number, password: string) => request(`/admin/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  changePassword: (oldPassword: string, newPassword: string) => request('/auth/password', { method: 'POST', body: JSON.stringify({ oldPassword, newPassword }) }),
+  purge: (id: string) => request(`/trash/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   search: (query: string, mode: 'names' | 'full', signal?: AbortSignal) => request<SearchResponse>(`/search?q=${encodeURIComponent(query)}&mode=${mode === 'names' ? 'names' : ''}`, { signal }),
   searchStatus: () => request<SearchStatus>('/search/status'),
   rebuildIndex: () => request('/search/rebuild', { method: 'POST' }),

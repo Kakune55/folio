@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,10 @@ func TestChineseEnglishPathsAndLiteralQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("/etc/passwd", filepath.Join(root, "unsafe.md")); err != nil {
-		t.Fatal(err)
+		if runtime.GOOS != "windows" {
+			t.Fatal(err)
+		}
+		t.Logf("当前 Windows 无符号链接权限，跳过链接样本：%v", err)
 	}
 	index.Refresh(true)
 	ready(t, index, "")

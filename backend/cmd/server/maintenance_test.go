@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,9 @@ import (
 func TestPasswordResetCommandDoesNotStartServerOrInitializeWorkspace(t *testing.T) {
 	base := t.TempDir()
 	binary := filepath.Join(base, "folio")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"folio/internal/trash"
@@ -123,11 +124,16 @@ func TestTrashRejectsUnsafeSubtreeAndActiveUpload(t *testing.T) {
 	if err := store.Mkdir("目录"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/etc/passwd", filepath.Join(root, "目录/外链")); err != nil {
-		t.Fatal(err)
-	}
-	_, err := store.EntryRevision("目录")
-	code(t, err, "unsupported_file_type")
+	t.Run("链接子树", func(t *testing.T) {
+		if err := os.Symlink("/etc/passwd", filepath.Join(root, "目录/外链")); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skipf("当前 Windows 无符号链接权限：%v", err)
+			}
+			t.Fatal(err)
+		}
+		_, err := store.EntryRevision("目录")
+		code(t, err, "unsupported_file_type")
+	})
 	revision, err := store.Write("图片.md", "正文", "", true)
 	if err != nil {
 		t.Fatal(err)

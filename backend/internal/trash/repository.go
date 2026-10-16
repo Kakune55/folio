@@ -34,6 +34,13 @@ func Open(directory string) (*Repository, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, err
 	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, errors.New("回收站必须是实际目录，不能使用链接或特殊文件")
+	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return nil, err
@@ -163,3 +170,34 @@ func (r *Repository) Remove(id string) error {
 	return syncRoot(r.root)
 }
 func syncRoot(root *os.Root) error { return fileio.SyncRoot(root) }
+
+// Usage 包括所有遗留载荷，即使清单损坏也不能隐瞒其占用。
+func (r *Repository) Usage() (int64, error) {
+	dir, err := r.root.Open(".")
+	if err != nil {
+		return 0, err
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, entry := range entries {
+		if !ValidID(entry.Name()) {
+			return 0, errors.New("回收站含未知条目，请检查应用数据目录")
+		}
+		name := entry.Name() + "/payload"
+		if _, err := r.root.Lstat(name); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return 0, err
+		}
+		size, err := fileio.TreeBytes(r.root, name, false)
+		if err != nil {
+			return 0, err
+		}
+		total += size
+	}
+	return total, nil
+}

@@ -15,11 +15,7 @@ import (
 	"folio/internal/auth"
 	"folio/internal/config"
 	"folio/internal/httpapi"
-	"folio/internal/search"
-	"folio/internal/storage"
-	"folio/internal/trash"
 	"folio/web"
-	"path/filepath"
 )
 
 func main() {
@@ -52,35 +48,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	store, err := storage.Open(cfg.Workspace)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer store.Close()
-	if err = store.SetLimits(cfg.Limits); err != nil {
-		log.Fatal(err)
-	}
 	accounts, err := auth.Open(cfg.AppData, cfg.InitialPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer accounts.Close()
-	recovery, err := trash.Open(filepath.Join(cfg.AppData, "trash"))
+	handler, err := httpapi.NewAccounts(web.Assets(), cfg, accounts)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer recovery.Close()
-	store.SetTrash(recovery)
-	index, err := search.Open(cfg.AppData, store, cfg.IndexLimit)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer index.Close()
-	identity, err := store.Identity()
-	if err != nil {
-		log.Fatal(err)
-	}
-	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(web.Assets(), httpapi.Options{Auth: accounts, Search: index, Workspace: store, WorkspaceID: accounts.WorkspaceID(identity), SecureCookie: cfg.SecureCookie, Origin: cfg.Origin}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	defer handler.Close()
+	server := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 120 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	shutdownDone := make(chan struct{})

@@ -330,3 +330,40 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 /* 留出末尾操作空间，避免最后一行贴住滚动边界。 */
 .explorer > nav { padding-bottom: 24px; }
+
+.account-controls { font-size: 12px; line-height: 1.8; }
+.account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.account-row a, .settings-back { color: var(--muted-foreground); text-decoration: none; }
+.account-name { border: 0; padding: 0; background: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; color: var(--foreground); }
+.quota-full { color: var(--destructive); }
+.settings-page { min-height: 100dvh; font-size: 13px; }
+.settings-header { height: 52px; border-bottom: 1px solid var(--border); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; color: var(--muted-foreground); }
+.settings-back { display: inline-flex; align-items: center; gap: 8px; }
+.settings-layout { max-width: 1240px; padding: 36px 28px; margin: auto; display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 40px; }
+.settings-nav h1 { margin: 0 0 24px; font-size: 17px; font-weight: 600; }
+.settings-nav > span { display: block; padding: 9px 12px; border-radius: 6px; background: var(--selected); }
+.users-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+.users-heading h2 { font-size: 18px; font-weight: 600; margin: 0; }
+.users-heading h2 span { margin-left: 8px; color: var(--muted-foreground); font-size: 13px; font-weight: 400; }
+.user-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 0 12px; color: var(--muted-foreground); margin-bottom: 20px; }
+.user-search input { background: transparent; color: var(--foreground); border: 0; min-width: 0; width: 100%; padding: 10px 0; font: inherit; }
+.users-table-scroll { overflow-x: auto; }
+.users-table { width: 100%; border-collapse: collapse; text-align: left; }
+.users-table th { font-weight: 500; color: var(--muted-foreground); font-size: 12px; }
+.users-table th, .users-table td { padding: 12px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.users-table td:first-child { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.users-table th:first-child, .users-table td:first-child { padding-left: 0; }
+.user-actions { display: flex; gap: 4px; }
+.users-pagination, .user-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.users-pagination > span { margin-right: auto; color: var(--muted-foreground); }
+.users-empty { height: 120px; text-align: center; color: var(--muted-foreground); }
+.dialog-content select { background: var(--background); color: var(--foreground); font: inherit; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
+.quota-input { display: flex; gap: 8px; }.quota-input select { width: 90px; flex-shrink: 0; }
+.form-submit { margin-top: 20px; }.muted { color: var(--muted-foreground); }
+@media (max-width: 767px) {
+ .settings-header { padding: 0 16px; }
+ .settings-layout { display: block; padding: 24px 16px; }
+ .settings-nav { margin-bottom: 28px; }.settings-nav h1 { margin-bottom: 12px; }
+ .users-table { min-width: 590px; }.user-search input { font-size: 16px; }
+ .dialog-content select { font-size: 16px; }
+}

@@ -92,7 +92,7 @@ export default function App() {
         <nav aria-label="示例文件">{workspace.list().map((file) => <button key={file.path} className={`file-row ${activePath === file.path ? 'selected' : ''}`} onClick={() => openFile(file.path)} aria-current={activePath === file.path ? 'page' : undefined}>
           {file.path.endsWith('.md') ? <FileText size={16} /> : <FileJson2 size={16} />}<span>{file.path}</span>{file.dirty && <span className="dirty-dot" aria-label="未保存" />}
         </button>)}</nav>
-        <div className="explorer-foot"><span className="small-label">文件为本 · 自由书写</span><p>示例修改仅保留在本页。<br />离开前，记得下载草稿。</p></div>
+
       </aside>
       <main className="main-pane">
         <div className="tabs-row"><Button size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button>

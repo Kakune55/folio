@@ -36,8 +36,8 @@ func ResetPassword(directory, passwordFile string) (err error) {
 		return errors.New("账号库含未知结构或触发器，拒绝重置")
 	}
 	var accounts int
-	if err = service.db.QueryRow("SELECT count(*) FROM account").Scan(&accounts); err != nil || accounts != 1 {
-		return errors.New("账号库不是受支持的单账号结构，拒绝重置")
+	if err = service.db.QueryRow("SELECT count(*) FROM account").Scan(&accounts); err != nil || accounts < 1 {
+		return errors.New("账号库没有可恢复的管理员，拒绝重置")
 	}
 	// 初始化盐也用于浏览器草稿命名空间；同一账号改密保持该盐不变。
 	hash := argon2.IDKey([]byte(password), service.salt, 3, 64*1024, 1, 32)

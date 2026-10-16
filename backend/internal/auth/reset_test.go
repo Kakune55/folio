@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -116,13 +117,18 @@ func TestGeneratedPasswordAndPrivateDirectoryBoundary(t *testing.T) {
 	}
 	service.Close()
 	link := filepath.Join(t.TempDir(), "app-data-link")
-	if err = os.Symlink(dir, link); err != nil {
-		t.Fatal(err)
-	}
-	if service, err = Open(link, ""); err == nil {
-		service.Close()
-		t.Fatal("链接形式的私有根未拒绝")
-	}
+	t.Run("链接根", func(t *testing.T) {
+		if err := os.Symlink(dir, link); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skipf("当前 Windows 无符号链接权限：%v", err)
+			}
+			t.Fatal(err)
+		}
+		if service, err := Open(link, ""); err == nil {
+			service.Close()
+			t.Fatal("链接形式的私有根未拒绝")
+		}
+	})
 	if err = os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

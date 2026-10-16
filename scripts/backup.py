@@ -73,7 +73,7 @@ def file_info(info, name):
 
 def ignored(relative):
     parts = relative.split('/')
-    return parts[0] == 'app-data' and len(parts) >= 2 and (parts[1] in CACHE_NAMES or parts[1].startswith('search-recovery-') or parts[1] == 'instance.lock')
+    return parts[0] == 'app-data' and len(parts) >= 2 and (parts[-1] in CACHE_NAMES or parts[-1].startswith('search-recovery-') or parts[1] == 'instance.lock')
 
 
 def inventory(root, prefix, destination=None, exclusions=None):
@@ -174,7 +174,7 @@ def consolidate_database(directory, clear_sessions=False):
             if target.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
                 raise BackupError('账号数据库备份完整性检查失败')
             rows = target.execute('SELECT id,length(salt),length(hash) FROM account').fetchall()
-            if rows != [(1, 16, 32)]:
+            if not rows or not any(row[0] == 1 for row in rows) or any(row[1:] != (16, 32) for row in rows):
                 raise BackupError('账号数据库结构或账号数据不受支持')
             if clear_sessions:
                 account = target.execute('SELECT id,salt,hash FROM account').fetchall()

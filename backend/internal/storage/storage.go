@@ -30,6 +30,7 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
+	quota   func() (int64, error)
 	root    *os.Root
 	mu      sync.Mutex
 	limits  Limits
@@ -290,6 +291,7 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 		return "", err
 	}
 	defer parent.Close()
+	oldSize := int64(0)
 	mode := uint32(0o644)
 	if !create {
 		current, err := s.open(name, os.O_RDONLY, 0)
@@ -304,7 +306,11 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 		if digest(data) != revision {
 			return "", &Error{Code: "revision_conflict", Revision: digest(data)}
 		}
+		oldSize = info.Size()
 		mode = uint32(info.Mode().Perm())
+	}
+	if err := s.checkQuota(int64(len(source)) - oldSize); err != nil {
+		return "", err
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {

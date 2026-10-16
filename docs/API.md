@@ -4,7 +4,7 @@
 
 ## 通用约定
 
-- 除登录、静态资源与无内部信息的健康检查外，接口需要有效会话。登录与 me 返回 {username,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
+- 除登录、静态资源与无内部信息的健康检查外，接口需要有效会话。登录与 me 返回 {id,username,admin,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
 - 修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
 - 路径使用正确编码的工作区相对路径，不接受服务器绝对路径。元数据/文本使用 UTF-8，二进制传原始字节。
 - revision 为不透明强版本；更新、移动、删除必须提供 If-Match: "<revision>"。缺少条件返回 428，陈旧版本返回 412。新建接口始终不覆盖，同名返回 409，无需 If-None-Match。
@@ -39,7 +39,7 @@
 | GET | /settings | 启动时文件限制 |
 | GET | /healthz | 存活检查 |
 
-离线密码恢复没有 HTTP 入口，见 [改密说明](PASSWORD.md)。
+离线密码恢复没有匿名 HTTP 入口，见 [改密说明](PASSWORD.md)。
 
 ## 文本读写与保存顺序
 
@@ -91,7 +91,7 @@ GET /search/status 返回 {indexing,indexedAt,files,warning?}；POST /search/reb
 
 ## 工作区身份
 
-workspaceId 由账号初始化盐与平台根身份派生，Linux 使用设备号/inode，Windows 使用卷/文件身份；它不是凭据或内容版本。页面请求以 X-Folio-Workspace 固定身份，预览/下载 URL 使用 workspace 查询字段。
+workspaceId 由应用初始化盐、用户 ID 与平台根身份派生，Linux 使用设备号/inode，Windows 使用卷/文件身份；它不是凭据或内容版本。页面请求以 X-Folio-Workspace 固定身份，预览/下载 URL 使用 workspace 查询字段。
 
 身份不符时，受保护的非认证接口在存储前返回 409 workspace_changed；客户端停止写入、保留/下载草稿并重新加载，不能自动采用新身份重试。缺少身份字段的旧客户端仍沿用原接口行为。迁移根或 app-data 可改变命名空间，浏览器缓存不属于服务器备份。
 
@@ -113,3 +113,17 @@ workspaceId 由账号初始化盐与平台根身份派生，Linux 使用设备�
 file_changed 表示操作中的文件/父身份发生变化；durability_uncertain 表示替换后目录同步失败，客户端保留草稿并重读协调。外部写入者竞争窗口及平台持久性限制见跨平台说明，不保证全局文件系统条件交换。
 
 登录仅允许一个在途密码校验，忙时 429、Retry-After: 1，不排队且不消耗来源密码错误配额；来源失败次数触限时 Retry-After: 600。客户端保留输入并显式重试，不自动反复发送密码。
+
+## 用户管理与配额
+
+- GET /workspace/usage：当前用户 {used,quota}，单位字节，包含回收载荷。统计失败返回错误，不能解释为零用量。
+- GET /admin/users?q=&offset=0&limit=20：仅管理员，字面用户名搜索；返回 {entries,total,offset,limit}，条目为 {id,username,admin,enabled,quota,used,usageError?}。用量读取失败时 used 为 null，附 usageError。
+- POST /admin/users：仅管理员，JSON {username,password,enabled,quota}，返回 201 用户元数据。初始密码必填；不接受客户端指定角色、ID 或目录。
+- PATCH /admin/users/{id}：仅管理员，JSON {username,enabled,quota,password:""}，返回 200 用户元数据。密码非空时可重置并撤销该用户会话；界面使用下方独立重置接口，避免重置密码覆盖其他设置。
+- POST /admin/users/{id}/password：仅管理员，JSON {password}，只更新密码、撤销指定用户全部会话，返回 {ok:true}。
+- POST /auth/password：当前用户，JSON {oldPassword,newPassword}，原密码验证通过后更新并撤销该用户全部会话、清除当前 Cookie，返回 {ok:true}；页面保留正文并允许重新登录。
+- DELETE /trash/{id}：永久删除当前用户完整 ready 回收记录及载荷，返回 {ok:true}；未完成或损坏记录拒绝删除。
+
+所有修改接口沿用 Origin/CSRF 校验。用户 ID 为正整数，用户名为 1–64 位 ASCII 字母/数字/下划线/点/短横线且首字符为字母或数字，大小写不敏感唯一；密码为 12–1024 字节；quota 为 0–2^50 字节整数（0 表示不允许增长）。首个管理员不可禁用，不提供删除账号、公开注册、授予管理员或跨用户文件操作接口。
+
+新增错误：400 invalid_user、409 username_exists、403 invalid_password、413 quota_exceeded、503 workspace_unavailable。配额不足保留原正文和待上传原件，不盲重试；降低配额到已用以下不会清理文件。禁用和改密撤销后续请求会话，已在执行中的请求可能完成。

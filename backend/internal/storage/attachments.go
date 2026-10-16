@@ -152,6 +152,15 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 		return nil, err
 	}
 	s.mu.Lock()
+	remaining := int64(-1)
+	if s.quota != nil {
+		usage, err := s.usageLocked()
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		remaining = max(int64(0), usage.Quota-usage.Used)
+	}
 	s.uploads[full]++
 	limits := s.limits
 	s.mu.Unlock()
@@ -181,6 +190,10 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	if strings.HasPrefix(string(header), "%PDF-") || ext == ".pdf" {
 		limit = min(limit, limits.PDF)
 	}
+	quotaLimited := remaining >= 0 && remaining < limit
+	if quotaLimited {
+		limit = remaining
+	}
 	var nonce [16]byte
 	if _, err = rand.Read(nonce[:]); err != nil {
 		return nil, err
@@ -196,6 +209,9 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 		return nil, err
 	}
 	if count > limit {
+		if quotaLimited {
+			return nil, fail("quota_exceeded")
+		}
 		return nil, fail("too_large")
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
@@ -219,6 +235,9 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.checkQuota(count); err != nil {
+		return nil, err
+	}
 	verified, _, err := s.parent(full)
 	if err != nil {
 		return nil, err

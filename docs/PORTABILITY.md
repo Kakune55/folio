@@ -73,3 +73,7 @@ npm run dev
 - 日志位于本机 `/tmp/folio-stdlib-{test,qa,windows}.log`，Windows 检查仅创建自己的临时 Wine 前缀，结束后停止其服务并清理；没有访问用户 Wine 配置和真实笔记。
 
 Windows 交叉编译、Wine 执行和真实 Windows/NTFS 是不同层次，不能相互替代；尚无真实 Windows 机器和 NTFS 故障/占用/持久性验收，也没有为本轮重新验收容器镜像。独立 Python 备份/容器驱动仍是 Linux 工具；Windows 原生离线备份暂不提供，停服后需要成对保护 workspace 与 app-data，不能复制运行中的 app.db 主文件冒充完整备份。
+
+## 多账号本轮 Windows 验证
+
+2026-10-16 后续增加简单多账号；当前真实 Windows x64 的构建、Go 回归、浏览器与生产页面 QA 结果、符号链接权限跳过及未验证环境统一见 [MULTIUSER.md](MULTIUSER.md)。本文此前“尚无真实 Windows”仅描述文件层改造当时的记录；本轮 Windows 日常流程实测不能替代 NTFS 故障/占用/断电保证。

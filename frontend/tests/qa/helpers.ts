@@ -14,7 +14,7 @@ export async function login(page: Page) {
 export async function fixtureRoot() {
   const root = await realpath((await readFile(resolve('../artifacts/browser-workspace-path'), 'utf8')).trim())
   const temp = await realpath(tmpdir())
-  if (basename(root) !== 'workspace' || dirname(dirname(root)) !== temp || !basename(dirname(root)).startsWith('folio-e2e-')) throw new Error('QA 只能操作本次隔离测试工作区')
+  if (basename(root) !== '1' || basename(dirname(root)) !== 'workspace' || dirname(dirname(dirname(root))) !== temp || !basename(dirname(dirname(root))).startsWith('folio-e2e-')) throw new Error('QA 只能操作本次隔离测试工作区')
   return root
 }
 

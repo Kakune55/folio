@@ -21,6 +21,8 @@ import (
 const SessionLifetime = 7 * 24 * time.Hour
 
 type Principal struct {
+	ID       int64  `json:"id"`
+	Admin    bool   `json:"admin"`
 	Username string `json:"username"`
 	CSRF     string `json:"csrfToken"`
 }
@@ -107,10 +109,16 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 	keepRoot = true
 	closeOnError := func(err error) (*Service, error) { service.Close(); return nil, err }
 	if !existingOnly {
-		if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL, hash BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires INTEGER NOT NULL);`); err != nil {
+		if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL COLLATE NOCASE UNIQUE DEFAULT 'admin', enabled INTEGER NOT NULL DEFAULT 1, admin INTEGER NOT NULL DEFAULT 0, quota INTEGER NOT NULL DEFAULT 5368709120 CHECK(quota>=0), salt BLOB NOT NULL, hash BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires INTEGER NOT NULL, user_id INTEGER NOT NULL DEFAULT 1);`); err != nil {
 			return closeOnError(err)
 		}
+	}
+	if _, err = db.Exec("SELECT username,enabled,admin,quota FROM account LIMIT 0"); err != nil {
+		return closeOnError(errors.New("账号库为旧版或结构损坏；开发版本不提供迁移，请停服后清理 workspace 与 app-data 再初始化"))
+	}
+	if _, err = db.Exec("SELECT user_id FROM sessions LIMIT 0"); err != nil {
+		return closeOnError(errors.New("会话结构不受支持，请停服后清理开发数据重新初始化"))
 	}
 	err = db.QueryRow("SELECT salt,hash FROM account WHERE id=1").Scan(&service.salt, &service.hash)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -151,7 +159,7 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 			return closeOnError(err)
 		}
 		service.hash = argon2.IDKey([]byte(initialPassword), service.salt, 3, 64*1024, 1, 32)
-		if _, err = db.Exec("INSERT INTO account(id,salt,hash) VALUES(1,?,?)", service.salt, service.hash); err != nil {
+		if _, err = db.Exec("INSERT INTO account(id,salt,hash,admin) VALUES(1,?,?,1)", service.salt, service.hash); err != nil {
 			return closeOnError(err)
 		}
 	} else if err != nil {
@@ -213,8 +221,18 @@ func (s *Service) Login(username, password, oldToken, remote string) (string, *P
 	value.until = now.Add(10 * time.Minute)
 	s.attempts[remote] = value
 	s.mu.Unlock()
-	candidate := argon2.IDKey([]byte(password), s.salt, 3, 64*1024, 1, 32)
-	if subtle.ConstantTimeCompare(candidate, s.hash) != 1 || username != "admin" {
+	var user Principal
+	var salt, hash []byte
+	var enabled bool
+	err := s.db.QueryRow("SELECT id,username,admin,enabled,salt,hash FROM account WHERE username=?", username).Scan(&user.ID, &user.Username, &user.Admin, &enabled, &salt, &hash)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", nil, err
+	}
+	if err != nil {
+		salt, hash = s.salt, s.hash
+	}
+	candidate := argon2.IDKey([]byte(password), salt, 3, 64*1024, 1, 32)
+	if subtle.ConstantTimeCompare(candidate, hash) != 1 || err != nil || !enabled {
 		return "", nil, ErrCredentials
 	}
 	token, err := randomToken()
@@ -233,7 +251,7 @@ func (s *Service) Login(username, password, oldToken, remote string) (string, *P
 	if _, err = tx.Exec("DELETE FROM sessions WHERE token_hash=? OR expires<=?", tokenHash(oldToken), now.Unix()); err != nil {
 		return "", nil, err
 	}
-	if _, err = tx.Exec("INSERT INTO sessions(token_hash,csrf,expires) VALUES(?,?,?)", tokenHash(token), csrf, now.Add(SessionLifetime).Unix()); err != nil {
+	if _, err = tx.Exec("INSERT INTO sessions(token_hash,csrf,expires,user_id) SELECT ?,?,?,id FROM account WHERE id=? AND enabled=1 AND hash=?", tokenHash(token), csrf, now.Add(SessionLifetime).Unix(), user.ID, hash); err != nil {
 		return "", nil, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -242,20 +260,21 @@ func (s *Service) Login(username, password, oldToken, remote string) (string, *P
 	s.mu.Lock()
 	delete(s.attempts, remote)
 	s.mu.Unlock()
-	return token, &Principal{Username: "admin", CSRF: csrf}, nil
+	user.CSRF = csrf
+	return token, &user, nil
 }
 func (s *Service) Authenticate(token string) (*Principal, error) {
 	if len(token) != 64 {
 		return nil, ErrCredentials
 	}
-	var csrf string
-	if err := s.db.QueryRow("SELECT csrf FROM sessions WHERE token_hash=? AND expires>?", tokenHash(token), time.Now().Unix()).Scan(&csrf); err != nil {
+	var user Principal
+	if err := s.db.QueryRow("SELECT a.id,a.username,a.admin,s.csrf FROM sessions s JOIN account a ON a.id=s.user_id WHERE s.token_hash=? AND s.expires>? AND a.enabled=1", tokenHash(token), time.Now().Unix()).Scan(&user.ID, &user.Username, &user.Admin, &user.CSRF); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrCredentials
 		}
 		return nil, err
 	}
-	return &Principal{Username: "admin", CSRF: csrf}, nil
+	return &user, nil
 }
 func (s *Service) Logout(token string) error {
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash(token))

@@ -1,2 +1,5 @@
 *.pdf binary
 *.png binary
+
+# 序列化文本快照跨平台共享，固定 LF，正文样本内的转义不变。
+frontend/tests/browser/*-snapshots/*.json text eol=lf

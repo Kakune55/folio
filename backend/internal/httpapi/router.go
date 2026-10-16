@@ -39,6 +39,14 @@ func New(assets fs.FS, options Options) http.Handler {
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
+		if r.URL.Path == "/system-setting" {
+			clone := r.Clone(r.Context())
+			url := *r.URL
+			url.Path = "/"
+			clone.URL = &url
+			static.ServeHTTP(w, clone)
+			return
+		}
 		static.ServeHTTP(w, r)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

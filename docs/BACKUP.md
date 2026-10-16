@@ -103,3 +103,7 @@ python3 scripts/backup-test.py --engine podman --container-image localhost/folio
 ```
 
 脚本自行编译测试 Go 服务（主机模式）或使用指定镜像；只使用临时数据、固定测试账号和自签名测试证书。它验证运行锁、SIGKILL 后已提交 WAL、CRLF/frontmatter/HTML 注释原文、附件字节、损坏/越界/链接/管道拒绝、目标不覆盖、新位置登录、旧会话失效、回收站、搜索与条件保存。测试容器和数据在结束后清理。证据在 `artifacts/backup/`；不访问本地日常工作区或密码文件。
+
+## 多账号版本
+
+仍需停服并成对备份 workspace 与 app-data：必须包含 workspace/<用户ID>/、app-data/app.db 及 app-data/<用户ID>/trash/。用户 search.db 可重建，工具按文件名排除各用户搜索缓存；账号校验接受多个账号，恢复撤销全部会话。旧版本单账号备份不能用于当前开发版自动迁移。该工具仍为 Linux 专用，本轮未执行多账号 Linux 双卷/容器恢复演练，不沿用 M3 结果宣称完成。

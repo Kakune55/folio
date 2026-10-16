@@ -158,7 +158,7 @@ def main():
             trashed = server.call('DELETE', '/entries?path=' + urllib.parse.quote('待恢复.md'), revision=revision)
             # 附件作为原始文件放入隔离挂载，随后通过认证下载比对字节。
             attachment = (ROOT / 'frontend/tests/fixtures/preview.png').read_bytes()
-            (workspace / '中文目录/图片.png').write_bytes(attachment)
+            (workspace / '1/中文目录/图片.png').write_bytes(attachment)
             snapshot = base / 'snapshot'
             assert '仍在运行' in cli('backup', '--workspace', workspace, '--app-data', data, '--output', snapshot, ok=False)
             assert not snapshot.exists()
@@ -167,14 +167,14 @@ def main():
             server.stop(kill=True)
         assert (data / 'app.db-wal').stat().st_size > 0
         # 重建缓存不应成为正文恢复前提，即使旧缓存已损坏。
-        (data / 'search.db').write_bytes(b'broken cache')
+        (data / '1/search.db').write_bytes(b'broken cache')
         original_database_bytes = {name: hashlib.sha256((data / name).read_bytes()).hexdigest() for name in ('app.db', 'app.db-wal')}
         cli('backup', '--workspace', workspace, '--app-data', data, '--output', snapshot)
         assert {name: hashlib.sha256((data / name).read_bytes()).hexdigest() for name in original_database_bytes} == original_database_bytes
         cli('verify', '--backup', snapshot)
         assert not (snapshot / 'app-data/app.db-wal').exists()
-        assert not (snapshot / 'app-data/search.db').exists()
-        assert (snapshot / 'workspace' / note).read_bytes() == content.encode()
+        assert not (snapshot / 'app-data/1/search.db').exists()
+        assert (snapshot / 'workspace/1' / note).read_bytes() == content.encode()
         with closing(sqlite3.connect(f'file:{snapshot}/app-data/app.db?immutable=1', uri=True)) as database:
             assert database.execute('PRAGMA integrity_check').fetchone() == ('ok',)
             assert database.execute('SELECT count(*) FROM sessions').fetchone()[0] > 0
@@ -185,7 +185,7 @@ def main():
         cli('backup', '--workspace', workspace, '--app-data', data, '--output', snapshot, ok=False)
         report['checks'].append('已存在的备份/恢复目标拒绝覆盖')
         damaged = base / 'damaged'; shutil.copytree(snapshot, damaged)
-        (damaged / 'workspace' / note).write_text('损坏')
+        (damaged / 'workspace/1' / note).write_text('损坏')
         cli('verify', '--backup', damaged, ok=False)
         cli('restore', '--backup', damaged, '--output', base / 'rejected', ok=False)
         assert not (base / 'rejected').exists()
@@ -212,8 +212,8 @@ def main():
         report['checks'].append('越界清单、符号链接、硬链接、管道清单和源内输出拒绝，无外部文件覆盖')
         restored = base / 'restored'
         cli('restore', '--backup', snapshot, '--output', restored)
-        assert (restored / 'workspace' / note).read_bytes() == content.encode()
-        assert (restored / 'workspace/中文目录/图片.png').read_bytes() == attachment
+        assert (restored / 'workspace/1' / note).read_bytes() == content.encode()
+        assert (restored / 'workspace/1/中文目录/图片.png').read_bytes() == attachment
         with closing(sqlite3.connect(f'file:{restored}/app-data/app.db?immutable=1', uri=True)) as database:
             assert database.execute('SELECT count(*) FROM sessions').fetchone() == (0,)
         server = factory(binary, restored / 'workspace', restored / 'app-data')
@@ -226,7 +226,7 @@ def main():
             records = server.call('GET', '/trash')['entries']
             assert any(record['id'] == trashed['id'] for record in records)
             server.call('POST', f'/trash/{trashed["id"]}/restore')
-            assert (restored / 'workspace/待恢复.md').read_text() == '回收站完整原文'
+            assert (restored / 'workspace/1/待恢复.md').read_text() == '回收站完整原文'
             for _ in range(100):
                 if server.call('GET', '/search?q=' + urllib.parse.quote('备份'))['entries']:
                     break
@@ -234,7 +234,7 @@ def main():
             else:
                 raise AssertionError('恢复后搜索索引未重建')
             server.call('PUT', '/files/content?path=' + urllib.parse.quote(note), {'content': content + '\n恢复后继续编辑\n'}, revision=result['revision'])
-            assert '恢复后继续编辑' in (restored / 'workspace' / note).read_text()
+            assert '恢复后继续编辑' in (restored / 'workspace/1' / note).read_text()
         finally:
             server.stop()
         report['checks'].append('新位置启动、原密码登录、旧会话失效、正文/附件/回收站恢复、搜索重建与后续条件保存')
