@@ -1,0 +1,11 @@
+services:
+  folio:
+    image: kakune55/folio:latest
+    ports:
+      - "16111:8080"
+    volumes:
+      - ./workspace:/workspace
+      - ./app-data:/app-data
+    environment:
+      FOLIO_ORIGIN: https://folio.example.com
+    restart: unless-stopped
