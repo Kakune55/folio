@@ -61,6 +61,8 @@ Standard relative links and image paths (e.g. `![Image](./screenshot.png)`), pre
 
 Milkdown may normalize or discard unsupported Markdown constructs. Establish a round-trip fixture suite (frontmatter, HTML, tables, fenced languages, nested lists, math, escapes, reference links, comments). Compare input -> parse -> serialize; reject unsafe conversion without a warning and a path back to raw source. **Never silently save lossy content.** Rich/source mode transitions must respect dirty state and undo-history limitations.
 
+检测到转换差异时，先展示转换前原文、转换后 Markdown 和可展开的 Diff。取消、Escape 或关闭预览均保留原文并进入源码模式；只有明确确认才替换会话正文，随后遵循原有自动保存和 ETag 冲突规则。预览提供转换前原文下载，确认本身不创建持久备份；需要原文时应在确认前下载。Diff 使用线性复杂度的单个替换区间，不保证最小编辑集，并标注换行类型。预览只展示文本，不执行 HTML；预览期间正文变化或文件锁定时拒绝应用旧转换结果。
+
 ## 4. Functional scope
 ### M0: editor spike
 React + Milkdown Crepe mounting/lifecycle; raw Markdown extraction, realistic round-trip fixtures; CodeMirror; editing different files without cross-file state corruption. Decide safe behavior for unsupported syntax and switching modes.
@@ -81,7 +83,7 @@ Block database, graph, mandatory tags, bidirectional links, custom plugin market
 Filesystem paths relative to a configured `/workspace` root. Preserve Unicode names. Store no authoritative file contents in SQLite. `/app-data` holds `app.db` (auth/settings metadata), a separate rebuildable `search.db` cache, trash and recovery data. External filesystem editors are allowed, so watch + reconcile changes; do not rely exclusively on inotify (network mounts may differ). Ignore app data, dangerous device files and unsafe symlinks.
 
 ### Safe files API
-Reject absolute paths, traversal, NUL, unsupported special files and symlink escape. Normalize paths carefully; path-prefix string checks alone are insufficient. Use descriptor-relative safe open primitives where available (e.g. Go platform-specific openat2 beneath/no-symlinks) or a conservative no-symlink file policy with race-safe traversal. Deny out-of-root operations and test races.
+Reject absolute paths, traversal, NUL, unsupported special files and symlink escape. Normalize paths carefully; path-prefix string checks alone are insufficient. Use Go standard-library `os.Root` for traversal-resistant workspace access, with static symlink/special-file rejection. Runtime user and directory permissions/ACLs are deployment responsibilities; trusted local programs must not concurrently replace directory namespaces or special files. Root containment still applies to browser requests. Hardlinks and nested mounts are operator-managed ordinary workspace content, not an application isolation boundary. Preserve conditional writes and test containment. See `PORTABILITY.md` for the revised trust boundary and minimal platform helpers.
 
 ### Consistency
 - `GET` returns content plus opaque revision/ETag.

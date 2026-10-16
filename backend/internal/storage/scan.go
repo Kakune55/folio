@@ -1,17 +1,16 @@
-//go:build linux
-
 package storage
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path"
 	"strings"
 	"unicode/utf8"
 
-	"golang.org/x/sys/unix"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 )
 
 type IndexEntry struct {
@@ -19,12 +18,23 @@ type IndexEntry struct {
 	Size        int64
 }
 
+// 小文本使用正文摘要，避免依赖平台 inode/ctime；大附件只比较元数据，防止周期扫描读完整大文件。
 func fileStamp(file *os.File) (string, int64, error) {
-	var stat unix.Stat_t
-	if err := unix.Fstat(int(file.Fd()), &stat); err != nil {
+	info, err := file.Stat()
+	if err != nil {
 		return "", 0, err
 	}
-	return fmt.Sprintf("%d:%d:%d:%d:%d:%d:%d", stat.Dev, stat.Ino, stat.Size, stat.Mtim.Sec, stat.Mtim.Nsec, stat.Ctim.Sec, stat.Ctim.Nsec), stat.Size, nil
+	if info.Size() > TextLimit {
+		return fmt.Sprintf("%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode()), info.Size(), nil
+	}
+	sum := sha256.New()
+	if _, err = io.Copy(sum, io.NewSectionReader(file, 0, info.Size()+1)); err != nil {
+		return "", 0, err
+	}
+	if err = unchanged(file, info); err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(sum.Sum(nil)), info.Size(), nil
 }
 
 // Scan 不持有写锁，索引不能阻塞编辑；每次读取仍从根描述符安全解析。
@@ -38,7 +48,7 @@ func (s *Store) Scan(ctx context.Context, visit func(IndexEntry) error) error {
 		if name == "" {
 			name = "."
 		}
-		dir, err := s.open(name, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+		dir, err := s.open(name, os.O_RDONLY, 0)
 		if err != nil {
 			return err
 		}
@@ -55,7 +65,7 @@ func (s *Store) Scan(ctx context.Context, visit func(IndexEntry) error) error {
 			if ValidPath(relative, false) != nil || entry.Type()&os.ModeSymlink != 0 {
 				continue
 			}
-			file, err := s.open(relative, unix.O_RDONLY, 0)
+			file, err := s.open(relative, os.O_RDONLY, 0)
 			if err != nil {
 				// 不安全/不可读条目不进入索引；下一轮仍会重新检查。
 				continue
@@ -89,7 +99,7 @@ func (s *Store) ReadIndexText(name, expectedStamp string, limit int64) (string, 
 	if err := ValidPath(name, false); err != nil {
 		return "", err
 	}
-	file, err := s.open(name, unix.O_RDONLY, 0)
+	file, err := s.open(name, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err
 	}

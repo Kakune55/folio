@@ -85,9 +85,6 @@ func Load() (Config, error) {
 	if contains(c.Workspace, c.AppData) || contains(c.AppData, c.Workspace) {
 		return c, errors.New("工作区和应用数据目录必须分离，不能相互包含")
 	}
-	if err = os.Chmod(c.AppData, 0o700); err != nil {
-		return c, err
-	}
 	if file := os.Getenv("FOLIO_PASSWORD_FILE"); file != "" {
 		password, err := auth.ReadPasswordFile(file)
 		if err != nil {

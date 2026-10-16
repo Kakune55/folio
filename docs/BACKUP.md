@@ -1,5 +1,8 @@
 # 双卷备份与恢复
 
+> 后续变更：文件运行时已采用标准库优先实现及新的部署权限边界，见 [PORTABILITY.md](PORTABILITY.md)。本页此前的 Linux openat2/UID/硬链接拒绝和镜像验收结果属于对应历史构建，不能直接当作新实现的验证；独立 Python 备份工具仍是 Linux 专用。
+
+
 备份对象是一起使用的 **workspace 与 app-data**。前者是正文与附件的唯一权威；后者包含账号、会话、回收站与可能的证书/引导密码。浏览器 IndexedDB 草稿和待上传原件不在这两卷内，备份前先在浏览器保存、上传或下载保留。
 
 提供宿主机工具 `scripts/backup.py`，依赖 **Python 3.11+、Linux amd64/arm64、openat2/renameat2、/proc**。不需要在 scratch 容器中安装 Python，也没有新增服务。使用能读取两卷的账号运行；根路径及祖先不能是符号链接，必要时先明确选用 `realpath` 指向的实际目录。

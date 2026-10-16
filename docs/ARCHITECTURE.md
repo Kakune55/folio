@@ -25,7 +25,8 @@ Use TanStack Query for fetched tree, metadata, search and mutation invalidations
 - `internal/httpapi`: authentication, decoding, validation, standardized errors, responses.
 - `internal/auth`: password/session lifecycle; secure cookies and CSRF checks.
 - `internal/workspace`: canonical workspace operations and metadata.
-- `internal/storage`: safe descriptor-oriented file operations, atomic saves and revision check.
+- `internal/storage`: standard-library os.Root file operations, temporary-file saves and revision checks.
+- `internal/fileio`: shared standard-library validation/sync/SQLite URI helpers; minimal Linux/Windows helpers for no-replace moves, instance locks and stable root identity.
 - `internal/search`: indexer, FTS5 and reconciliation.
 - `internal/trash`: deletions, listing and restoring with provenance.
 - `internal/config`: mount paths, limits, server settings.
@@ -79,7 +80,7 @@ Storage adapters, S3, collaboration, PWA/offline sync and a full workspace plugi
 
 `internal/search` uses a private `search.db` separate from authentication `app.db`, so a corrupt search cache does not prevent login or editing. FTS5 trigram indexes safe workspace-relative file paths and eligible UTF-8 text bodies. One- and two-character queries use a bounded-result substring scan; longer queries are quoted literal FTS phrases. SQLite remains secondary; no document is restored from this cache.
 
-Successful file mutations enqueue a coalesced asynchronous scan. External changes are reconciled every 10 seconds using device/inode/size/mtime/ctime; a full content scan every 5 minutes covers coarse timestamp behavior. Scans do not hold the storage write mutex. A transaction retains the previous cache if a scan fails, with an explicit warning. Manual rebuild quarantines a damaged search cache and its WAL/SHM before reconstructing it from workspace files; it never touches auth data. Open editor buffers are reconciled independently by the session controller as described below.
+Successful file mutations enqueue a coalesced asynchronous scan. External changes are reconciled every 10 seconds using content fingerprints for bounded text and size/mtime metadata for large files; a full content scan every 5 minutes covers coarse timestamp behavior. Scans do not hold the storage write mutex. A transaction retains the previous cache if a scan fails, with an explicit warning. Manual rebuild quarantines a damaged search cache and its WAL/SHM before reconstructing it from workspace files; it never touches auth data. Open editor buffers are reconciled independently by the session controller as described below.
 
 ## 10. Open session reconciliation
 
@@ -111,8 +112,12 @@ Restore checks the entire snapshot, copies/rechecks into a fresh private directo
 
 The same Go binary provides an explicit offline password reset mode, requiring an existing app-data root and a private bounded password file. It bypasses server configuration/workspace initialization, takes the normal instance lock, checks account integrity/schema, and updates the Argon2id hash plus session revocation in one FULL-synchronous transaction. The account salt remains stable because it also namespaces browser drafts; no content or recovery records are rewritten. There is no remote reset endpoint.
 
-Authentication pins a private current-user-owned root descriptor, rejects linked/special/shared account files and SQLite sidecars before opening them, and holds the descriptor through database closure. SQLite still depends on a trusted private directory namespace; malicious same-UID writers are outside this boundary. See `PASSWORD.md` for operations and ambiguous-commit handling.
+Authentication uses os.Root to inspect ordinary account files and opens SQLite by its configured absolute path in a trusted app-data directory. Static symlinks and special files are rejected. It no longer enforces Unix UID/mode/link-count ownership rules; deployment configures the runtime user and directory permissions/ACLs. Malicious same-user writers and concurrent local directory replacement are outside this boundary. Instance locks remain OS-backed and are released on process exit. See `PASSWORD.md` for operations and ambiguous-commit handling.
 
 ## 16. Source line-ending fidelity
 
 CodeMirror's internal LF text is distinct from the canonical raw UTF-8 session string. Each mounted source editor chooses the first original line separator (LF when absent) for newly inserted lines, and tracks exceptional original separators in an immutable RangeSet. Ranges move/drop with document transactions; inverted history effects restore deleted separator metadata during undo/redo. Uniform files need no per-line exceptions. Serialization reconstructs the original separators before updating the independent session buffer, autosave or browser recovery cache. No metadata is written into Markdown and no editor is recreated on keystrokes. Async detached image appends also use the source's original separator.
+
+## 17. 标准库优先的跨平台文件层
+
+2026-10-16：工作区、上传、回收站、账号文件和搜索指纹不再依赖 openat2 或 /proc/self/fd。普通文件操作统一使用 os.Root/os.File；仅“不覆盖移动”、进程锁和根身份保留 internal/fileio 的平台文件。Linux 保留旧根身份格式与 flock，兼容已有恢复稿命名空间及离线备份锁。Windows 保存使用 os.Root.Rename，不先删除原件；目录同步无法提供 Unix 的同等保证，不宣称任意文件系统断电安全。权限信任边界、Windows 命令及验证范围见 PORTABILITY.md；早期验收记录为历史证据。

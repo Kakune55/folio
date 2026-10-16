@@ -67,3 +67,38 @@ test('陈旧版本冲突可比较并另存本地副本，原磁盘版本不覆�
   const latest = await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(name)}`)).json()
   expect(latest.content).toBe('# 其他编辑器的新内容\n')
 })
+
+for (const conflict of [false, true]) {
+  test(`有损转换预览不写入磁盘，确认后${conflict ? '遵循陈旧 ETag 冲突保护' : '自动保存预览结果'}`, async ({ page }) => {
+    await login(page)
+    const name = `转换-${conflict}-${Date.now()}.md`
+    const original = '---\ntitle: 保留原文\n---\n\n正文\n'
+    const principal = await (await page.request.get('/api/v1/auth/me')).json()
+    const headers = { 'X-CSRF-Token': principal.csrfToken }
+    expect((await page.request.post('/api/v1/files', { headers, data: { path: name, content: original } })).status()).toBe(201)
+    const url = `/api/v1/files/content?path=${encodeURIComponent(name)}`
+    const initial = await (await page.request.get(url)).json()
+    await page.getByRole('button', { name: '刷新文件列表' }).click()
+    let writes = 0
+    page.on('request', (request) => { if (request.method() === 'PUT') writes++ })
+    await page.getByRole('button', { name, exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '富文本转换预览' })
+    await expect(dialog).toBeVisible()
+    const converted = await dialog.getByLabel('转换后 Markdown').inputValue()
+    expect(converted).not.toBe(original)
+    // 覆盖自动保存防抖窗口，确认预览本身不触发写入。
+    await page.waitForTimeout(1100)
+    expect(writes).toBe(0)
+    expect((await (await page.request.get(url)).json()).content).toBe(original)
+    const remote = '# 外部新版本\n'
+    if (conflict) expect((await page.request.put(url, { headers: { ...headers, 'If-Match': `"${initial.revision}"` }, data: { content: remote } })).status()).toBe(200)
+    const pendingWrite = page.waitForRequest((request) => request.method() === 'PUT' && request.url().includes('/files/content?'))
+    await dialog.getByRole('button', { name: '确认转换并编辑' }).click()
+    const write = await pendingWrite
+    expect(write.headers()['if-match']).toBe(`"${initial.revision}"`)
+    expect(write.postDataJSON().content).toBe(converted)
+    await expect(page.locator('.save-status')).toContainText(conflict ? '版本冲突' : '已保存')
+    expect((await (await page.request.get(url)).json()).content).toBe(conflict ? remote : converted)
+    await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
+  })
+}

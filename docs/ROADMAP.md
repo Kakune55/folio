@@ -39,3 +39,7 @@ M3 exit gate passed on 2026-10-16 in the documented environment: browser recover
 
 ## Change control
 When introducing a feature, update SPEC/API/DESIGN (as applicable), list failure modes, implement test coverage, and record any deliberately unsupported behavior. Do not silently expand scope or switch frameworks.
+
+## V1 文件层简化
+
+按用户决定将权限隔离交给运行用户/部署，通用文件操作采用 Go 标准库，保留必要平台小函数；不增加业务功能。Windows 构建、测试与尚未验证的真机范围见 [PORTABILITY.md](PORTABILITY.md)。历史里程碑验收按对应构建解读。

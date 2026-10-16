@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"folio/internal/fileio"
 	"log"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -84,7 +84,7 @@ func openDB(filename string) (*sql.DB, error) {
 	if err = os.Chmod(filename, 0o600); err != nil {
 		return nil, err
 	}
-	uri := (&url.URL{Scheme: "file", Path: filename}).String() + "?_pragma=busy_timeout(1000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	uri := fileio.FileURL(filename) + "?_pragma=busy_timeout(1000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, err

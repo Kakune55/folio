@@ -8,13 +8,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
+	"folio/internal/fileio"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
 )
 
@@ -31,7 +31,7 @@ type attempt struct {
 type Service struct {
 	db         *sql.DB
 	lock       *os.File
-	root       *os.File
+	root       *os.Root
 	salt, hash []byte
 	mu         sync.Mutex
 	attempts   map[string]attempt
@@ -69,7 +69,7 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err = fileio.Lock(lock); err != nil {
 		lock.Close()
 		return nil, errors.New("此应用数据目录已有运行中的实例")
 	}
@@ -95,9 +95,8 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 		}
 		file.Close()
 	}
-	// SQLite 的多文件协议依赖目录命名空间；持有私有根描述符直至关闭。
-	path := fmt.Sprintf("/proc/self/fd/%d/app.db", root.Fd())
-	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?_pragma=busy_timeout(5000)&_pragma=trusted_schema(OFF)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)"
+	// SQLite 在受信任的应用数据目录中按普通路径打开，访问权限由运行用户/ACL 管理。
+	uri := fileio.FileURL(filepath.Join(root.Name(), "app.db")) + "?_pragma=busy_timeout(5000)&_pragma=trusted_schema(OFF)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)"
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		lock.Close()
@@ -140,7 +139,7 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 			if closeErr != nil {
 				return closeOnError(closeErr)
 			}
-			if err = root.Sync(); err != nil {
+			if err = fileio.SyncRoot(root); err != nil {
 				return closeOnError(err)
 			}
 		}

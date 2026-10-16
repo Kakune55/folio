@@ -77,7 +77,7 @@ export default function App() {
           <Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content">
             <Dialog.Title>一处安静的文件工作区</Dialog.Title>
             <Dialog.Description>当前为 M0 可行性验证版本。两份示例文件仅驻留在页面内存中，尚未连接真实工作区。</Dialog.Description>
-            <p>可以验证 Markdown、源码编辑与文件切换。检测到富文本转换差异时，会保留原文并切回源码。</p>
+            <p>可以验证 Markdown、源码编辑与文件切换。检测到富文本转换差异时，先显示转换预览和 Diff；取消会保留原文并切回源码，明确确认才应用转换。</p>
             <p>切换文件或编辑模式会重置撤销历史，正文与未保存状态会保留。刷新或关闭页面会丢失内存草稿，请先下载。</p>
             <p>文件持久化、登录、上传和冲突处理属于 M1，搜索属于 M2。</p>
             <Dialog.Close asChild><Button className="dialog-close" size="icon" aria-label="关闭说明"><X size={17} /></Button></Dialog.Close>

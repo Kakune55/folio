@@ -1,5 +1,3 @@
-//go:build linux
-
 package storage
 
 import (
@@ -18,8 +16,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"folio/internal/fileio"
 	_ "golang.org/x/image/webp"
-	"golang.org/x/sys/unix"
 )
 
 type Limits struct{ Text, Image, PDF, Attachment, ImagePixels int64 }
@@ -105,7 +103,7 @@ func (s *Store) Metadata(name string) (*Metadata, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	file, err := s.open(name, unix.O_RDONLY, 0)
+	file, err := s.open(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +118,7 @@ func (s *Store) OpenDownload(name string, preview bool) (*os.File, *Metadata, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	file, err := s.open(name, unix.O_RDONLY, 0)
+	file, err := s.open(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -188,12 +186,11 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 		return nil, err
 	}
 	temp := ".folio-tmp-" + hex.EncodeToString(nonce[:])
-	fd, err := unix.Openat(int(parent.Fd()), temp, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	file, err := parent.OpenFile(temp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	file := os.NewFile(uintptr(fd), temp)
-	defer func() { file.Close(); _ = unix.Unlinkat(int(parent.Fd()), temp, 0) }()
+	defer func() { file.Close(); _ = parent.Remove(temp) }()
 	count, err := io.Copy(file, io.LimitReader(buffered, limit+1))
 	if err != nil {
 		return nil, err
@@ -214,7 +211,10 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	if err = file.Chmod(0o644); err != nil {
 		return nil, err
 	}
-	if err = file.Sync(); err != nil {
+	if err = fileio.Sync(file); err != nil {
+		return nil, err
+	}
+	if err = file.Close(); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -223,16 +223,16 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	if err != nil {
 		return nil, err
 	}
-	a, errA := parent.Stat()
-	b, errB := verified.Stat()
+	a, errA := fileio.Stat(parent)
+	b, errB := fileio.Stat(verified)
 	verified.Close()
 	if errA != nil || errB != nil || !os.SameFile(a, b) {
 		return nil, fail("file_changed")
 	}
-	if err = unix.Renameat2(int(parent.Fd()), temp, int(parent.Fd()), base, unix.RENAME_NOREPLACE); err != nil {
+	if err = fileio.Rename(parent, temp, parent, base); err != nil {
 		return nil, mapError(err)
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return nil, fail("durability_uncertain")
 	}
 	return metadata, nil

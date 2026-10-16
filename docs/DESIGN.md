@@ -68,6 +68,8 @@ The tablist contains only tabs. Pointer close marks remain inside each tab; Dele
 ### Editor
 Milkdown Crepe default for Markdown. Preserve existing Crepe ergonomics; theme with scoped tokens rather than blanket CSS hacks. Floating toolbar, tables and code blocks must fit both dark/light themes. `Source` switch visible in file menu or toolbar. Always show subtle save state near document/tab; do not display toast on every save.
 
+有损转换打开确认预览，复用版本比较窗口的双栏源码布局与移动端单栏布局，提供可展开的文本 Diff 和原文下载。初始焦点落在保留原文按钮，Escape/取消回到源码；确认按钮明确标识转换，不将预览视为同意保存。提示转换可能丢失语法或内容、确认后的自动保存及撤销历史限制。
+
 ### Modals, menus and search
 shadcn/ui + Radix interaction semantics, consistent padding, keyboard focus rings, `Esc` to close. Quick-open command dialog has path secondary label and keyboard navigation. Search results show matching context without dense highlight noise. Confirmation only for destructive operations; routine saves are silent.
 

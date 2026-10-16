@@ -86,7 +86,7 @@ Additional errors: `file_changed` (409) when a read/parent identity changes duri
 
 ### Attachment contract
 
-`GET /files/metadata?path=` returns `{path,size,mtime,mediaType,viewer}`. `viewer` is `markdown`, `text`, `image`, `pdf` or `binary`. Classification inspects actual bytes; special files, symlinks and hardlinks remain forbidden. SVG/HTML are never active previews.
+`GET /files/metadata?path=` returns `{path,size,mtime,mediaType,viewer}`. `viewer` is `markdown`, `text`, `image`, `pdf` or `binary`. Classification inspects actual bytes; special files and symlinks remain forbidden; hardlinks are operator-managed ordinary files under the trusted-local-directory policy (see PORTABILITY.md). SVG/HTML are never active previews.
 
 `POST /uploads?directory=&image=false` requires one multipart part named `file`. The raw filename must be a basename; traversal is rejected, not silently stripped. `image=true` requires a supported, bounded raster image (clipboard/drop bridge). Success 201 returns the same metadata shape. Same-name files are rejected with 409, limits with 413, image-only/preview incompatibility with `preview_unavailable` (415). More than one part or an incomplete body never commits a target file. Multiple files use separate requests and are not transactional as a batch.
 
@@ -112,7 +112,7 @@ Authenticated `GET /search?q=&mode=&limit=` returns `{entries:[{path,name,excerp
 
 ### Open-editor reconciliation (M2 slice)
 
-`GET /files/revision?path=` is authenticated and returns `{path,revision}` plus the strong ETag used by content GET/PUT. It validates regular UTF-8 text under the configured text size limit, including symlink/hardlink policy; it never recursively hashes a directory. Missing files return 404, non-text/directory 415, oversized text 413. This is distinct from `/entries/revision`, which supports subtree operations. Clients retain buffers on probe errors and must not adopt a new base revision without loading/reconciling the content.
+`GET /files/revision?path=` is authenticated and returns `{path,revision}` plus the strong ETag used by content GET/PUT. It validates regular UTF-8 text under the configured text size limit, including symlink/special-file policy; it never recursively hashes a directory. Missing files return 404, non-text/directory 415, oversized text 413. This is distinct from `/entries/revision`, which supports subtree operations. Clients retain buffers on probe errors and must not adopt a new base revision without loading/reconciling the content.
 
 ### Workspace identity (M3 recovery slice)
 

@@ -11,6 +11,8 @@ Folio 将 Vite 构建结果嵌入 Go 静态二进制，运行镜像基于 scratc
 
 构建上下文使用白名单，默认 workspace/app-data、本地 `.env`、浏览器配置与构建产物不会进入镜像。不要把私密工作区或密钥放入应用源码目录。
 
+原生 Windows 启动、标准库文件层和新权限边界见 [跨平台说明](PORTABILITY.md)。下述历史镜像验收不代表改造后镜像已重新验收。
+
 ## 本地 HTTPS 试用
 
 需要 Linux、Docker + Compose、OpenSSL 以及 Python 3（证书脚本清理临时目录使用）。此方式仅发布回环端口，不是公网部署。
@@ -23,7 +25,7 @@ docker compose up --build -d
 
 打开 **https://localhost:8443**。脚本生成 30 天有效的本地自签名证书，浏览器需要信任它。已有 TLS 目录不覆盖；存在不完整证书对时明确失败。可将受信任的证书链和私钥放入 `app-data/tls/server.crt`、`app-data/tls/server.key`，密钥应只允许运行用户读取。
 
-账号 `admin`，首次启动生成的密码在 `app-data/initial-password`。不要把密码文件或 app-data 加入版本库。账号初始化之后，此引导文件可删除；数据库中的密码哈希保持有效。忘记密码时使用 [离线密码重置](PASSWORD.md)，不能删除整个 app-data 或仅改引导文件。`FOLIO_PASSWORD_FILE` 与离线密码文件均要求当前运行用户私有的普通文件（0600），拒绝链接与特殊文件；密码读取有界。
+账号 `admin`，首次启动生成的密码在 `app-data/initial-password`。不要把密码文件或 app-data 加入版本库。账号初始化之后，此引导文件可删除；数据库中的密码哈希保持有效。忘记密码时使用 [离线密码重置](PASSWORD.md)，不能删除整个 app-data 或仅改引导文件。`FOLIO_PASSWORD_FILE` 与离线密码文件均要求普通文件，拒绝静态符号链接与特殊文件，密码读取有界。文件权限由部署者管理，建议 Unix 0600 / Windows 私有 ACL，不再在应用层强制校验 UID/mode。
 
 ```sh
 docker compose logs --tail 30
@@ -62,7 +64,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t your-registry/folio:version --output type=oci,dest=artifacts/container/folio.oci.tar .
 ```
 
-上例只生成本地 OCI 归档，没有推送镜像；发布需要由操作者显式选择。本次 Podman 默认 OCI 转换会移除 Docker 专有 HEALTHCHECK 元数据，交付归档已改用 v2s2 清单保留。其他工具导出后应核对配置；`/folio -healthcheck` 功能始终保留在程序中。Node/Go 基础镜像锁定多架构 index digest；前端在构建机架构运行，Go 以 CGO_ENABLED=0 交叉编译，运行层不执行外架构构建命令。二进制最低依赖 Linux 5.6+ 的 openat2 与可用的 `/proc/self/fd`，不做有竞态的降级。
+上例只生成本地 OCI 归档，没有推送镜像；发布需要由操作者显式选择。本次 Podman 默认 OCI 转换会移除 Docker 专有 HEALTHCHECK 元数据，交付归档已改用 v2s2 清单保留。其他工具导出后应核对配置；`/folio -healthcheck` 功能始终保留在程序中。Node/Go 基础镜像锁定多架构 index digest；前端在构建机架构运行，Go 以 CGO_ENABLED=0 交叉编译，运行层不执行外架构构建命令。当前运行时普通文件访问使用标准库 os.Root，不再要求 openat2 或 /proc/self/fd；不覆盖移动、实例锁和目录身份保留小型平台适配。独立 Python 备份工具仍要求 Linux openat2，详见 PORTABILITY.md。
 
 Compose 配置只读根文件系统、临时 `/tmp`、drop-all capabilities、no-new-privileges、非 root 用户和两个可写数据挂载。`/folio -healthcheck` 检查进程 liveness，不初始化目录、不拿实例锁；直接 TLS 模式信任配置的公开证书并校验主机名，不跳过证书验证。
 

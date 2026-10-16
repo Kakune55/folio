@@ -1,5 +1,3 @@
-//go:build linux
-
 package storage
 
 import (
@@ -12,11 +10,12 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
 
+	"folio/internal/fileio"
 	"folio/internal/trash"
-	"golang.org/x/sys/unix"
 )
 
 type EntryRevision struct {
@@ -31,7 +30,7 @@ func (s *Store) SetTrash(repository *trash.Repository) {
 	defer s.mu.Unlock()
 	s.trash = repository
 }
-func (s *Store) fileOpener(name string) (*os.File, error) { return s.open(name, unix.O_RDONLY, 0) }
+func (s *Store) fileOpener(name string) (*os.File, error) { return s.open(name, os.O_RDONLY, 0) }
 func revisionOf(open opener, name string) (string, string, error) {
 	file, err := open(name)
 	if err != nil {
@@ -113,14 +112,14 @@ func (s *Store) checkUploads(name string) error {
 	}
 	return nil
 }
-func (s *Store) verifyParent(name string, parent *os.File) error {
+func (s *Store) verifyParent(name string, parent *os.Root) error {
 	current, _, err := s.parent(name)
 	if err != nil {
 		return err
 	}
 	defer current.Close()
-	a, errA := parent.Stat()
-	b, errB := current.Stat()
+	a, errA := fileio.Stat(parent)
+	b, errB := fileio.Stat(current)
 	if errA != nil || errB != nil || !os.SameFile(a, b) {
 		return fail("file_changed")
 	}
@@ -170,13 +169,13 @@ func (s *Store) Move(from, to, revision string) error {
 	if err = s.verifyParent(to, destination); err != nil {
 		return err
 	}
-	if err = unix.Renameat2(int(parent.Fd()), base, int(destination.Fd()), target, unix.RENAME_NOREPLACE); err != nil {
+	if err = fileio.Rename(parent, base, destination, target); err != nil {
 		return mapError(err)
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return fail("durability_uncertain")
 	}
-	if err = destination.Sync(); err != nil {
+	if err = fileio.SyncRoot(destination); err != nil {
 		return fail("durability_uncertain")
 	}
 	return nil
@@ -254,26 +253,20 @@ func copyEntry(open opener, source string, destination *os.Root, target string) 
 	if err = dir.Chmod(info.Mode().Perm()); err != nil {
 		return "", "", err
 	}
-	if err = dir.Sync(); err != nil {
+	if err = fileio.Sync(dir); err != nil {
 		return "", "", err
 	}
 	return "sha256:" + hex.EncodeToString(sum.Sum(nil)), "directory", nil
 }
 func rootOpener(root *os.Root) opener {
 	return func(name string) (*os.File, error) {
-		info, err := root.Lstat(name)
-		if err != nil {
-			return nil, err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fail("unsupported_file_type")
-		}
-		return root.Open(name)
+		file, err := fileio.Open(root, name, os.O_RDONLY, 0)
+		return file, mapError(err)
 	}
 }
 
-func syncEntry(open opener, name string) error {
-	file, err := open(name)
+func (s *Store) syncEntry(name string) error {
+	file, err := s.fileOpener(name)
 	if err != nil {
 		return err
 	}
@@ -291,14 +284,30 @@ func syncEntry(open opener, name string) error {
 			if entry.Type()&os.ModeSymlink != 0 || ValidPath(entry.Name(), false) != nil {
 				return fail("unsupported_file_type")
 			}
-			if err = syncEntry(open, path.Join(name, entry.Name())); err != nil {
+			if err = s.syncEntry(path.Join(name, entry.Name())); err != nil {
 				return err
 			}
 		}
 	} else if _, err = regular(file); err != nil {
 		return err
 	}
-	return file.Sync()
+	// Windows 的 FlushFileBuffers 要求可写文件句柄；目录不套用此要求。
+	if runtime.GOOS == "windows" && info.Mode().IsRegular() {
+		writable, err := s.open(name, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		defer writable.Close()
+		current, err := writable.Stat()
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(info, current) {
+			return fail("file_changed")
+		}
+		return writable.Sync()
+	}
+	return fileio.Sync(file)
 }
 
 func (s *Store) Trash(name, revision string) (*trash.Record, error) {
@@ -328,7 +337,7 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		return nil, err
 	}
 	defer parent.Close()
-	if err = syncEntry(s.fileOpener, name); err != nil {
+	if err = s.syncEntry(name); err != nil {
 		return nil, err
 	}
 	record, err := s.trash.Create(name, kind, revision)
@@ -356,12 +365,12 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		}
 		return nil, &Error{Code: "revision_conflict", Revision: latest}
 	}
-	err = unix.Renameat2(int(parent.Fd()), base, int(dir.Fd()), "payload", unix.RENAME_NOREPLACE)
+	err = fileio.Rename(parent, base, data, "payload")
 	if err == nil {
-		if err = parent.Sync(); err != nil {
+		if err = fileio.SyncRoot(parent); err != nil {
 			return &record, fail("durability_uncertain")
 		}
-		if err = dir.Sync(); err != nil {
+		if err = fileio.Sync(dir); err != nil {
 			return &record, fail("durability_uncertain")
 		}
 		record.Stage = ""
@@ -371,17 +380,17 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		}
 		return &record, nil
 	}
-	if !errors.Is(err, unix.EXDEV) {
+	if !fileio.CrossDevice(err) {
 		_ = s.trash.Remove(record.ID)
 		return nil, mapError(err)
 	}
 	// 两个持久卷可以位于不同文件系统：先原地隔离，再复制落盘，最后才清理隔离原件。
 	stage := path.Base(record.Stage)
-	if err = unix.Renameat2(int(parent.Fd()), base, int(parent.Fd()), stage, unix.RENAME_NOREPLACE); err != nil {
+	if err = fileio.Rename(parent, base, parent, stage); err != nil {
 		_ = s.trash.Remove(record.ID)
 		return nil, mapError(err)
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return &record, fail("durability_uncertain")
 	}
 	copied, _, copyErr := copyEntry(s.fileOpener, record.Stage, data, "payload")
@@ -389,9 +398,9 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		if copyErr == nil {
 			copyErr = fail("file_changed")
 		}
-		rollback := unix.Renameat2(int(parent.Fd()), stage, int(parent.Fd()), base, unix.RENAME_NOREPLACE)
+		rollback := fileio.Rename(parent, stage, parent, base)
 		if rollback == nil {
-			_ = parent.Sync()
+			_ = fileio.SyncRoot(parent)
 			_ = s.trash.Remove(record.ID)
 			return nil, fmt.Errorf("%w: %v", fail("trash_failed"), copyErr)
 		}
@@ -399,7 +408,7 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		_ = s.trash.Write(record)
 		return &record, fmt.Errorf("%w: copy=%v rollback=%v", fail("trash_incomplete"), copyErr, rollback)
 	}
-	if err = dir.Sync(); err != nil {
+	if err = fileio.Sync(dir); err != nil {
 		return &record, fail("durability_uncertain")
 	}
 	record.State = "ready"
@@ -413,15 +422,10 @@ func (s *Store) Trash(name, revision string) (*trash.Record, error) {
 		return &record, fail("trash_incomplete")
 	}
 	// 私密隔离名称只能由服务创建；删除不跟随符号链接，仍限定在工作区根目录。
-	rooted, err := os.OpenRoot(fmt.Sprintf("/proc/self/fd/%d", s.root.Fd()))
-	if err != nil {
-		return &record, err
-	}
-	defer rooted.Close()
-	if err = rooted.RemoveAll(record.Stage); err != nil {
+	if err = s.root.RemoveAll(record.Stage); err != nil {
 		return &record, fail("trash_incomplete")
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return &record, fail("durability_uncertain")
 	}
 	record.Stage = ""
@@ -467,10 +471,9 @@ func (s *Store) Restore(id string) (string, error) {
 	}
 	defer parent.Close()
 	// 恢复碰撞必须失败，绝不覆盖后来创建的同名文件。
-	var stat unix.Stat_t
-	if err = unix.Fstatat(int(parent.Fd()), base, &stat, unix.AT_SYMLINK_NOFOLLOW); err == nil {
+	if _, err = parent.Lstat(base); err == nil {
 		return "", fail("target_exists")
-	} else if !errors.Is(err, unix.ENOENT) {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", mapError(err)
 	}
 	data, err := s.trash.Directory(id)
@@ -488,10 +491,10 @@ func (s *Store) Restore(id string) (string, error) {
 			if err = s.verifyParent(record.Path, parent); err != nil {
 				return "", err
 			}
-			if err = unix.Renameat2(int(parent.Fd()), path.Base(record.Stage), int(parent.Fd()), base, unix.RENAME_NOREPLACE); err != nil {
+			if err = fileio.Rename(parent, path.Base(record.Stage), parent, base); err != nil {
 				return "", mapError(err)
 			}
-			if err = parent.Sync(); err != nil {
+			if err = fileio.SyncRoot(parent); err != nil {
 				return "", fail("durability_uncertain")
 			}
 			record.State = "restored"
@@ -522,38 +525,32 @@ func (s *Store) Restore(id string) (string, error) {
 	if err = s.verifyParent(record.Path, parent); err != nil {
 		return "", err
 	}
-	err = unix.Renameat2(int(dir.Fd()), "payload", int(parent.Fd()), base, unix.RENAME_NOREPLACE)
-	if errors.Is(err, unix.EXDEV) {
+	err = fileio.Rename(data, "payload", parent, base)
+	if fileio.CrossDevice(err) {
 		// 新建独占容器，只清理本次创建的临时副本，不能删除其他故障遗留版本。
 		var nonce [16]byte
 		if _, err = rand.Read(nonce[:]); err != nil {
 			return "", err
 		}
 		temporary := ".folio-tmp-restore-" + hex.EncodeToString(nonce[:])
-		if err = unix.Mkdirat(int(parent.Fd()), temporary, 0o700); err != nil {
+		if err = parent.Mkdir(temporary, 0o700); err != nil {
 			return "", mapError(err)
 		}
-		temporaryFD, openErr := unix.Openat(int(parent.Fd()), temporary, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-		if openErr != nil {
-			return "", openErr
-		}
-		temporaryDir := os.NewFile(uintptr(temporaryFD), temporary)
-		defer temporaryDir.Close()
-		temporaryRoot, openErr := os.OpenRoot(fmt.Sprintf("/proc/self/fd/%d", temporaryFD))
+		temporaryRoot, openErr := parent.OpenRoot(temporary)
 		if openErr != nil {
 			return "", openErr
 		}
 		defer temporaryRoot.Close()
 		cleanup := func() {
 			_ = temporaryRoot.RemoveAll("payload")
-			_ = unix.Unlinkat(int(parent.Fd()), temporary, unix.AT_REMOVEDIR)
+			_ = parent.Remove(temporary)
 		}
 		copied, _, copyErr := copyEntry(rootOpener(data), "payload", temporaryRoot, "payload")
 		if copyErr != nil || copied != record.Revision {
 			cleanup()
 			return "", fail("trash_failed")
 		}
-		if err = temporaryDir.Sync(); err != nil {
+		if err = fileio.SyncRoot(temporaryRoot); err != nil {
 			cleanup()
 			return "", fail("durability_uncertain")
 		}
@@ -561,7 +558,7 @@ func (s *Store) Restore(id string) (string, error) {
 			cleanup()
 			return "", err
 		}
-		err = unix.Renameat2(temporaryFD, "payload", int(parent.Fd()), base, unix.RENAME_NOREPLACE)
+		err = fileio.Rename(temporaryRoot, "payload", parent, base)
 		if err != nil {
 			cleanup()
 			return "", mapError(err)
@@ -571,10 +568,10 @@ func (s *Store) Restore(id string) (string, error) {
 	if err != nil {
 		return "", mapError(err)
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return "", fail("durability_uncertain")
 	}
-	if err = dir.Sync(); err != nil {
+	if err = fileio.Sync(dir); err != nil {
 		return "", fail("durability_uncertain")
 	}
 	record.State = "restored"

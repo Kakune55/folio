@@ -10,6 +10,8 @@
 ## Markdown round-trip corpus
 Include headings, emphasis, escaped markup, code fences, language annotations, nested task lists, tables, footnotes if claimed supported, math if enabled, frontmatter, inline HTML, HTML comments, relative image/link paths, reference-style links, unusual whitespace and Unicode. Snapshot source before/after Crepe parse/serialize; mark known normalizations. No silent data loss.
 
+`conversion-diff.test.ts` 验证替换区间、空文档、增删、空白和换行差异及大文档。`workbench.spec.ts` 验证有损转换的双栏预览、Diff、原文下载、Escape 保留原文、明确确认、移动端布局、转换后文件/模式切换，以及预览期间草稿更新后拒绝旧结果。`files.spec.ts` 验证预览不写入磁盘，确认后条件自动保存，以及转换不能绕过陈旧 ETag 冲突保护。
+
 ## Visual QA matrix
 - Themes: light, dark, system switch.
 - Viewports: 1440×900, 1024×768, 390×844.
@@ -68,3 +70,7 @@ Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×
 ## Raw source line endings
 
 `line-endings.test.ts` uses real EditorState/history transactions to verify LF/CRLF/CR, BOM, mixed separator mapping, deletion/replacement and grouped undo/redo. `line-endings.spec.ts` checks actual on-disk bytes after editing/saving/undo/redo/newlines/file switching, plus byte-exact draft downloads, page reload and explicit recovery after a mocked network save failure. HTML textarea display normalization is not used as a byte-preservation assertion. The HTTPS container write/verify/reset phases independently check a BOM/mixed-ending file through edit/undo/redo, container/browser restarts, trash restore and account reset. These are part of the final current-image gate.
+
+## 标准库文件层与 Windows
+
+Go 标准库 os.Root 承担工作区隔离，平台测试覆盖不覆盖移动、锁冲突/关闭释放与根身份稳定。普通硬链接读取允许，保存必须仅替换工作区名称并保留其他链接原文。账号/密码目录的 UID/mode 不再作为拒绝条件，由部署者保护；静态链接/特殊文件仍拒绝。跨设备回收、FIFO/权限/进程故障保留 Linux 专用测试，普通条件保存/移动/恢复/HTTP 测试须可交叉编译 Windows。Windows 交叉编译、Wine 执行和真实 Windows/NTFS 验收是不同证据，实际结果见 PORTABILITY.md。

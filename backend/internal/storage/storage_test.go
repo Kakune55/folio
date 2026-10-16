@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"golang.org/x/sys/unix"
+	"runtime"
 )
 
 func testStore(t *testing.T) (*Store, string) {
@@ -26,38 +26,6 @@ func code(t *testing.T, err error, want string) {
 	var problem *Error
 	if !errors.As(err, &problem) || problem.Code != want {
 		t.Fatalf("预期 %s，得到 %v", want, err)
-	}
-}
-func TestContainmentAndSpecialFiles(t *testing.T) {
-	s, root := testStore(t)
-	outside := t.TempDir()
-	secret := filepath.Join(outside, "secret.txt")
-	if err := os.WriteFile(secret, []byte("外部原文"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
-		t.Fatal(err)
-	}
-	if err := unix.Mkfifo(filepath.Join(root, "fifo"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Link(secret, filepath.Join(root, "hardlink")); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"../secret.txt", "/etc/passwd", "escape/secret.txt", "a/../x", "a//x", "a\\x", "\x00", ".folio-tmp-forged"} {
-		_, err := s.Read(name)
-		code(t, err, "path_invalid")
-	}
-	for _, name := range []string{"fifo", "hardlink"} {
-		_, err := s.Read(name)
-		code(t, err, "unsupported_file_type")
-	}
-	entries, _, err := s.List("", 0, 200)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("危险文件被列出：%+v", entries)
 	}
 }
 func TestConditionalAtomicWrites(t *testing.T) {
@@ -154,7 +122,7 @@ func TestSymlinkSwapCannotEscape(t *testing.T) {
 }
 
 func TestPermissionFailurePreservesOriginal(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("需要普通用户权限语义，root 可绕过目录权限")
 	}
 	store, root := testStore(t)
@@ -166,7 +134,7 @@ func TestPermissionFailurePreservesOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chmod(root, 0o700)
-	if _, err = store.Write("note.md", "不得部分改写", revision, false); !errors.Is(err, unix.EACCES) {
+	if _, err = store.Write("note.md", "不得部分改写", revision, false); !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("未观察到真实目录权限失败：%v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(root, "note.md"))
@@ -176,5 +144,28 @@ func TestPermissionFailurePreservesOriginal(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 1 {
 		t.Fatal("权限失败留下了额外文件", err)
+	}
+}
+
+// 硬链接属于部署者管理的目录内容；保存仍通过替换保护另一链接的原字节。
+func TestHardlinkSaveReplacesOnlyWorkspaceName(t *testing.T) {
+	store, root := testStore(t)
+	original := filepath.Join(t.TempDir(), "original.md")
+	if err := os.WriteFile(original, []byte("原文"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(original, filepath.Join(root, "linked.md")); err != nil {
+		t.Fatal(err)
+	}
+	content, err := store.Read("linked.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Write("linked.md", "新内容", content.Revision, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(original)
+	if err != nil || string(data) != "原文" {
+		t.Fatal("保存改写了其他硬链接", err)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"golang.org/x/sys/unix"
+	"folio/internal/fileio"
 	"io"
 	"os"
 	"path"
@@ -101,7 +101,7 @@ func (r *Repository) Read(id string) (Record, error) {
 		return Record{}, err
 	}
 	defer dir.Close()
-	file, err := dir.OpenFile("record.json", os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	file, err := fileio.Open(dir, "record.json", os.O_RDONLY, 0)
 	if err != nil {
 		return Record{}, err
 	}
@@ -162,11 +162,4 @@ func (r *Repository) Remove(id string) error {
 	}
 	return syncRoot(r.root)
 }
-func syncRoot(root *os.Root) error {
-	dir, err := root.Open(".")
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
-}
+func syncRoot(root *os.Root) error { return fileio.SyncRoot(root) }

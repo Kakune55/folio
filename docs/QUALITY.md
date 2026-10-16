@@ -1,5 +1,8 @@
 # M3 无障碍与性能检查
 
+> 后续变更：文件运行时已采用标准库优先实现及新的部署权限边界，见 [PORTABILITY.md](PORTABILITY.md)。本页此前的 Linux openat2/UID/硬链接拒绝和镜像验收结果属于对应历史构建，不能直接当作新实现的验证；独立 Python 备份工具仍是 Linux 专用。
+
+
 `make qa`（或 `cd frontend && npm run test:qa`）先构建 Vite SPA、复制嵌入资源，再启动隔离的 Go 服务。页面来自实际嵌入构建，不使用 Vite 开发服务。数据、账号和浏览器上下文均为临时测试资源；性能夹具只允许写入测试脚本创建的 `folio-e2e-*/workspace`，结束后清理自己的目录。
 
 QA 独立于普通 `make test`，最终回归应运行 **`make test && make qa`**。axe 是固定版本的开发依赖，不进入前端运行时，没有新增产品运行服务。

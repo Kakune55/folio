@@ -4,7 +4,7 @@
 
 技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；嵌入式 SQLite 保存账号/会话与可重建搜索索引。UI、必要的代码注释及实现说明默认使用中文。
 
-**V1 的 M0–M3 已按当前环境完成验收。** 支持真实文件、单用户登录、Markdown/源码编辑、原始换行、条件自动保存、冲突另存、附件预览/下载、目录整理与回收恢复、中英文搜索、快开、桌面拖拽与键盘操作。逐项证据、最终镜像/归档与限制见 [最终验收](docs/ACCEPTANCE.md)。
+**V1 的 M0–M3 历史验收已记录；后续标准库文件层改造见 [跨平台说明](docs/PORTABILITY.md)。** 支持真实文件、单用户登录、Markdown/源码编辑、原始换行、条件自动保存、冲突另存、附件预览/下载、目录整理与回收恢复、中英文搜索、快开、桌面拖拽与键盘操作。逐项证据、最终镜像/归档与限制见 [最终验收](docs/ACCEPTANCE.md)。
 
 底栏“恢复稿”提供本机缓存的显式恢复；移动端抽屉、文件选择/拍照入口及失败原件保留已接入。双卷备份/新目录恢复见 [备份说明](docs/BACKUP.md)，账号恢复见 [离线改密](docs/PASSWORD.md)。当前 amd64 原生与 arm64 QEMU 的 HTTPS 部署/重启/改密、安全及真实 ENOSPC 恢复通过；真实手机相机/软键盘、读屏器、原生 ARM 和 Docker daemon 的未验证边界均有明确记录。
 
@@ -34,12 +34,12 @@ make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 
 - `FOLIO_WORKSPACE`：真实文件目录，默认 `./workspace`。
 - `FOLIO_APP_DATA`：账号、会话和可重建搜索索引，默认 `./app-data`。
-- `FOLIO_PASSWORD_FILE`：当前用户私有的普通文件（0600），只用于首次初始化账号，后续启动不会重置既有密码。忘记密码见[离线重置说明](docs/PASSWORD.md)。
+- `FOLIO_PASSWORD_FILE`：部署者保护的普通密码文件（建议 Unix 0600 / Windows 私有 ACL），只用于首次初始化账号，后续启动不会重置既有密码。忘记密码见[离线重置说明](docs/PASSWORD.md)。
 - `FOLIO_SECURE_COOKIE`：默认 `true`；`false` 仅允许绑定回环 IP。
 - `FOLIO_TLS_CERT` / `FOLIO_TLS_KEY`：可选的直接 HTTPS 证书链和私钥，必须同时设置。
 - `FOLIO_ORIGIN`：反向代理后的精确外部 origin，例如 `https://notes.example.com`。
 
-两个目录必须独立，不能相互包含。当前需要 Linux 5.6+、`openat2` 和 `/proc/self/fd`。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。
+两个目录必须独立，不能相互包含。运行时文件层已改用 Go 标准库 `os.Root`，不再要求 `openat2` 或 `/proc/self/fd`；Linux/Windows 仅保留少量进程锁、不覆盖移动与目录身份的平台适配。目录权限由运行用户及部署配置管理。Windows 启动和验证范围见 [跨平台说明](docs/PORTABILITY.md)。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。
 
 上传默认上限为文本编辑 5 MiB、图片 20 MiB、PDF 50 MiB、其他附件 100 MiB，图片预览上限 3200 万像素。可分别用 `FOLIO_MAX_TEXT_BYTES`、`FOLIO_MAX_IMAGE_BYTES`、`FOLIO_MAX_PDF_BYTES`、`FOLIO_MAX_ATTACHMENT_BYTES`、`FOLIO_MAX_IMAGE_PIXELS` 配置，上传总上限最大 1 GiB。设置仅在启动时读取；`GET /api/v1/settings` 返回当前限制。
 

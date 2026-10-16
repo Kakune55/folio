@@ -1,5 +1,3 @@
-//go:build linux
-
 package storage
 
 import (
@@ -7,17 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"folio/internal/trash"
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
-	"golang.org/x/sys/unix"
+	"folio/internal/fileio"
 )
 
 const TextLimit int64 = 5 << 20
@@ -32,7 +30,7 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
-	root    *os.File
+	root    *os.Root
 	mu      sync.Mutex
 	limits  Limits
 	trash   *trash.Repository
@@ -58,11 +56,11 @@ func ValidPath(name string, allowRoot bool) error {
 	if allowRoot && name == "" {
 		return nil
 	}
-	if name == "" || !utf8.ValidString(name) || strings.ContainsAny(name, "\x00\\") || strings.HasPrefix(name, "/") || len(name) > 4096 {
+	if name == "" || !utf8.ValidString(name) || strings.ContainsAny(name, "\x00\\:\"<>|?*") || strings.HasPrefix(name, "/") || len(name) > 4096 {
 		return fail("path_invalid")
 	}
 	for _, part := range strings.Split(name, "/") {
-		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, ".folio-tmp-") {
+		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || reservedName(part) || part == "" || part == "." || part == ".." || strings.HasPrefix(strings.ToLower(part), ".folio-tmp-") {
 			return fail("path_invalid")
 		}
 		for _, r := range part {
@@ -74,73 +72,45 @@ func ValidPath(name string, allowRoot bool) error {
 	return nil
 }
 
-func Open(root string) (*Store, error) {
-	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, err
+// 统一拒绝 Windows 设备名与尾部别名，避免同一路径存在多种 API 身份。
+func reservedName(part string) bool {
+	base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || base == "CONIN$" || base == "CONOUT$" {
+		return true
 	}
-	store := &Store{root: os.NewFile(uintptr(fd), "workspace"), limits: DefaultLimits, uploads: make(map[string]int)}
-	// 不降级为有竞态的路径检查；旧内核不支持 openat2 时明确拒绝启动。
-	probe, err := store.open(".", unix.O_RDONLY|unix.O_DIRECTORY, 0)
-	if err != nil {
-		store.Close()
-		return nil, fmt.Errorf("工作区需要 Linux openat2 支持：%w", err)
-	}
-	probe.Close()
-	return store, nil
+	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9'
 }
 
-// Identity 仅用于绑定浏览器恢复命名空间，不作为文件内容版本。
-func (s *Store) Identity() (string, error) {
-	var stat unix.Stat_t
-	if err := unix.Fstat(int(s.root.Fd()), &stat); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino), nil
-}
-func (s *Store) Close() error { return s.root.Close() }
-func (s *Store) open(name string, flags int, mode uint32) (*os.File, error) {
-	how := &unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC | unix.O_NONBLOCK), Mode: uint64(mode), Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_XDEV}
-	if flags&unix.O_DIRECTORY != 0 {
-		fd, err := unix.Openat2(int(s.root.Fd()), name, how)
-		if err != nil {
-			return nil, mapError(err)
-		}
-		return os.NewFile(uintptr(fd), name), nil
-	}
-	// 先用 O_PATH 识别 inode 类型，避免在确认类型前真正打开设备或 FIFO。
-	how.Flags = unix.O_PATH | unix.O_CLOEXEC
-	fd, err := unix.Openat2(int(s.root.Fd()), name, how)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	reference := os.NewFile(uintptr(fd), name)
-	defer reference.Close()
-	info, err := reference.Stat()
+func Open(directory string) (*Store, error) {
+	absolute, err := filepath.Abs(directory)
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() {
-		if _, err = regular(reference); err != nil {
-			return nil, err
-		}
-	}
-	// /proc/self/fd 指向已验证的 inode，不再按可被替换的用户路径重新打开。
-	readable, err := unix.Open(fmt.Sprintf("/proc/self/fd/%d", fd), flags|unix.O_CLOEXEC|unix.O_NONBLOCK, mode)
+	root, err := os.OpenRoot(absolute)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
-	return os.NewFile(uintptr(readable), name), nil
+	return &Store{root: root, limits: DefaultLimits, uploads: make(map[string]int)}, nil
+}
+
+// Identity 仅用于浏览器恢复命名空间，保留已有 Linux 工作区身份。
+func (s *Store) Identity() (string, error) { return fileio.Identity(s.root) }
+func (s *Store) Close() error              { return s.root.Close() }
+func (s *Store) open(name string, flags int, mode uint32) (*os.File, error) {
+	file, err := fileio.Open(s.root, name, flags, os.FileMode(mode))
+	return file, mapError(err)
 }
 func mapError(err error) error {
 	switch {
-	case errors.Is(err, unix.ENOENT):
+	case errors.Is(err, os.ErrNotExist):
 		return fail("not_found")
-	case errors.Is(err, unix.EEXIST):
+	case errors.Is(err, os.ErrExist):
 		return fail("target_exists")
-	case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV), errors.Is(err, unix.ENOTDIR), errors.Is(err, unix.ENAMETOOLONG):
+	case errors.Is(err, fileio.ErrLink):
 		return fail("path_invalid")
-	case errors.Is(err, unix.EACCES), errors.Is(err, unix.EPERM):
+	case errors.Is(err, fileio.ErrUnsafe):
+		return fail("unsupported_file_type")
+	case errors.Is(err, os.ErrPermission):
 		return fail("forbidden")
 	default:
 		return err
@@ -152,13 +122,6 @@ func regular(file *os.File) (os.FileInfo, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fail("unsupported_file_type")
-	}
-	var stat unix.Stat_t
-	if err = unix.Fstat(int(file.Fd()), &stat); err != nil {
-		return nil, err
-	}
-	if stat.Nlink != 1 {
 		return nil, fail("unsupported_file_type")
 	}
 	return info, nil
@@ -200,7 +163,7 @@ func (s *Store) Read(name string) (*Content, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	file, err := s.open(name, unix.O_RDONLY, 0)
+	file, err := s.open(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +184,7 @@ func (s *Store) List(name string, offset, limit int) ([]Entry, int, error) {
 	if dirName == "" {
 		dirName = "."
 	}
-	dir, err := s.open(dirName, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	dir, err := s.open(dirName, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -236,7 +199,7 @@ func (s *Store) List(name string, offset, limit int) ([]Entry, int, error) {
 		if ValidPath(child, false) != nil || entry.Type()&os.ModeSymlink != 0 {
 			continue
 		}
-		file, openErr := s.open(child, unix.O_RDONLY, 0)
+		file, openErr := s.open(child, os.O_RDONLY, 0)
 		if openErr != nil {
 			continue
 		}
@@ -268,14 +231,28 @@ func (s *Store) List(name string, offset, limit int) ([]Entry, int, error) {
 	end := min(offset+limit, total)
 	return output[offset:end], total, nil
 }
-func (s *Store) parent(name string) (*os.File, string, error) {
+func (s *Store) parent(name string) (*os.Root, string, error) {
 	dir, base := path.Split(name)
 	dir = strings.TrimSuffix(dir, "/")
 	if dir == "" {
 		dir = "."
 	}
-	file, err := s.open(dir, unix.O_RDONLY|unix.O_DIRECTORY, 0)
-	return file, base, err
+	checked, err := s.open(dir, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, "", err
+	}
+	defer checked.Close()
+	root, err := s.root.OpenRoot(dir)
+	if err != nil {
+		return nil, "", mapError(err)
+	}
+	a, errA := checked.Stat()
+	b, errB := root.Stat(".")
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		root.Close()
+		return nil, "", fail("file_changed")
+	}
+	return root, base, nil
 }
 func (s *Store) Mkdir(name string) error {
 	if err := ValidPath(name, false); err != nil {
@@ -288,10 +265,10 @@ func (s *Store) Mkdir(name string) error {
 		return err
 	}
 	defer parent.Close()
-	if err = unix.Mkdirat(int(parent.Fd()), base, 0o755); err != nil {
+	if err = parent.Mkdir(base, 0o755); err != nil {
 		return mapError(err)
 	}
-	return parent.Sync()
+	return fileio.SyncRoot(parent)
 }
 func (s *Store) Write(name string, source string, revision string, create bool) (string, error) {
 	if err := ValidPath(name, false); err != nil {
@@ -315,7 +292,7 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 	defer parent.Close()
 	mode := uint32(0o644)
 	if !create {
-		current, err := s.open(name, unix.O_RDONLY, 0)
+		current, err := s.open(name, os.O_RDONLY, 0)
 		if err != nil {
 			return "", err
 		}
@@ -334,19 +311,18 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 		return "", err
 	}
 	temp := ".folio-tmp-" + hex.EncodeToString(random[:])
-	fd, err := unix.Openat(int(parent.Fd()), temp, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	file, err := parent.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
-	file := os.NewFile(uintptr(fd), temp)
-	defer func() { file.Close(); _ = unix.Unlinkat(int(parent.Fd()), temp, 0) }()
+	defer func() { file.Close(); _ = parent.Remove(temp) }()
 	if _, err = io.WriteString(file, source); err != nil {
 		return "", err
 	}
 	if err = file.Chmod(os.FileMode(mode)); err != nil {
 		return "", err
 	}
-	if err = file.Sync(); err != nil {
+	if err = fileio.Sync(file); err != nil {
 		return "", err
 	}
 	if err = file.Close(); err != nil {
@@ -354,7 +330,7 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 	}
 	// 落盘临时文件后，紧邻替换前重新检查当前内容；拒绝外部改动。
 	if !create {
-		current, err := s.open(name, unix.O_RDONLY, 0)
+		current, err := s.open(name, os.O_RDONLY, 0)
 		if err != nil {
 			return "", err
 		}
@@ -372,20 +348,21 @@ func (s *Store) Write(name string, source string, revision string, create bool) 
 	if err != nil {
 		return "", err
 	}
-	a, errA := parent.Stat()
-	b, errB := verified.Stat()
+	a, errA := fileio.Stat(parent)
+	b, errB := fileio.Stat(verified)
 	verified.Close()
 	if errA != nil || errB != nil || !os.SameFile(a, b) {
 		return "", fail("file_changed")
 	}
-	flags := uint(0)
 	if create {
-		flags = unix.RENAME_NOREPLACE
+		err = fileio.Rename(parent, temp, parent, base)
+	} else {
+		err = parent.Rename(temp, base)
 	}
-	if err = unix.Renameat2(int(parent.Fd()), temp, int(parent.Fd()), base, flags); err != nil {
+	if err != nil {
 		return "", mapError(err)
 	}
-	if err = parent.Sync(); err != nil {
+	if err = fileio.SyncRoot(parent); err != nil {
 		return "", fail("durability_uncertain")
 	}
 	return digest([]byte(source)), nil
