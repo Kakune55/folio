@@ -54,3 +54,7 @@ Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×
 ## M3 security and partial-write slice
 
 `cd backend && go test ./internal/auth ./internal/httpapi ./internal/storage` includes the explicit private-route/HEAD, every-mutation CSRF/origin and concurrent-login matrix. The Linux storage subprocess test applies RLIMIT_FSIZE only to its own child to obtain a partial write/EFBIG, and uses inotify to observe a real temporary save before SIGKILL. It verifies unchanged original content on handled write error and complete old/new content after termination. This does not fill a host filesystem, simulate real ENOSPC or prove every exact crash stage. Review evidence and remaining production-browser/fault gates are listed in `SECURITY.md`.
+
+## M3 production-build accessibility and performance gate
+
+`make qa` builds/embeds the real SPA and runs 4 theme/viewport accessibility flows plus a 1202-file performance flow against an isolated Go server. It covers axe WCAG A/AA scans without exclusions, real Chromium AX editor text/labels, keyboard escape/trap/return, drawer/modal handoff and tab closing without disk deletion. Performance verifies all pagination pages, Chinese/English search, a 162508-byte Markdown note, a 1060800-byte text file and exact saved contents. Measured budgets and browser/assistive-technology limitations are in `QUALITY.md`; raw reports/screenshots go to `artifacts/qa/`. Final local regression is `make test && make qa`, followed by the documented container gates.

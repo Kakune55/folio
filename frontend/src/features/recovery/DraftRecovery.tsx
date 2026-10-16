@@ -1,3 +1,4 @@
+import { DialogContent } from '../../components/ui/dialog-content'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Button } from '../../components/ui/button'
@@ -70,7 +71,7 @@ export function DraftRecovery({ manager, open, onOpenChange, onOpen, onNotice }:
     } catch (error) { setError(error instanceof Error ? error.message : '副本保存失败，恢复记录仍保留') }
     finally { setBusy(false) }
   }
-  return <Dialog.Root open={open} onOpenChange={close}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content recovery-dialog"><Dialog.Title>浏览器恢复稿</Dialog.Title><Dialog.Description>仅保存在本机浏览器，不是磁盘文件或备份。可能来自另一个仍打开的页面；这里不会自动覆盖任何文件。</Dialog.Description>
+  return <Dialog.Root open={open} onOpenChange={close}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content recovery-dialog"><Dialog.Title>浏览器恢复稿</Dialog.Title><Dialog.Description>仅保存在本机浏览器，不是磁盘文件或备份。可能来自另一个仍打开的页面；这里不会自动覆盖任何文件。</Dialog.Description>
     {state.warning && <p className="form-error" role="alert">{state.warning}</p>}{error && <p className="form-error" role="alert">{error}</p>}
     <div className="recovery-layout"><div className="recovery-list" aria-label="可恢复的草稿">{state.entries.map((entry) => <button key={entry.id} disabled={busy} aria-pressed={!!raw && (raw as { id?: string }).id === entry.id} onClick={() => void select(entry.id)}><strong>{entry.path}</strong><span>{entry.updatedAt ? new Date(entry.updatedAt).toLocaleString('zh-CN') : '时间未知'}{entry.invalid ? ' · 仅可导出原始记录' : ''}</span></button>)}{!state.entries.length && <p>{state.phase === 'opening' ? '正在读取本机恢复记录…' : '没有待处理恢复稿。当前页面中的草稿仍由各自标签页管理。'}</p>}</div>
       <div className="recovery-preview">{raw ? <>
@@ -81,5 +82,5 @@ export function DraftRecovery({ manager, open, onOpenChange, onOpen, onNotice }:
         {confirmDelete && <div className="recovery-delete" role="alert"><p>删除后将无法从这条浏览器记录恢复。磁盘文件与其他页面的草稿不会删除。</p><Button disabled={busy} onClick={() => setConfirmDelete(false)}>取消删除</Button><Button disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await manager.remove(raw); setRaw(undefined); setConfirmDelete(false) } catch (error) { setError(error instanceof Error ? error.message : '删除失败，记录仍保留') } finally { setBusy(false) } }}>确认删除浏览器记录</Button></div>}
       </> : <p>{reading ? '正在读取恢复稿…' : '选择一条记录核对正文，然后下载、打开或另存。未知格式不会自动丢弃。'}</p>}</div></div>
     <div className="dialog-actions"><Button disabled={busy} onClick={() => void manager.refresh().catch((error) => setError(error instanceof Error ? error.message : '刷新失败'))}>刷新记录</Button><Button variant="outline" disabled={busy} onClick={() => close(false)}>关闭</Button></div>
-  </Dialog.Content></Dialog.Portal></Dialog.Root>
+  </DialogContent></Dialog.Portal></Dialog.Root>
 }

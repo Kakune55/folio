@@ -63,6 +63,8 @@ Use disclosure arrows, small type-specific Lucide icons, ellipsis menu shown on 
 ### Tabs
 One line, horizontal scroll; close button accessible. Closing dirty file should not destroy unsaved edits: flush save or preserve draft and disclose failure. Middle click optional. Limit unnecessary file-opening tabs via preview-tab behavior only if easy to understand.
 
+The tablist contains only tabs. Pointer close marks remain inside each tab; Delete on the focused tab saves/closes it. A separate current-tab close button outside the tablist is available to assistive technology and becomes visible on focus, avoiding a duplicate permanent icon. Focus returns to the remaining active tab or Explorer toggle. Failed saves retain the tab. Rich/source mode controls form a named group.
+
 ### Editor
 Milkdown Crepe default for Markdown. Preserve existing Crepe ergonomics; theme with scoped tokens rather than blanket CSS hacks. Floating toolbar, tables and code blocks must fit both dark/light themes. `Source` switch visible in file menu or toolbar. Always show subtle save state near document/tab; do not display toast on every save.
 
@@ -83,6 +85,8 @@ Desktop >=1024px: Explorer + editor; 768–1023px: optionally collapsed Explorer
 
 ## 8. Accessibility
 Semantic landmarks; visible focus, useful accessible names, full keyboard path for create/open/rename/move/delete; dialog focus trapping and return, contrast testing in both themes, reduced-motion support. Indicate save status with polite ARIA live region at transitions but avoid announcement spam. Editor screen reader behavior validated separately; do not assume library defaults suffice.
+
+Both editors describe Escape followed by Tab/Shift+Tab to leave editing keymaps. Dialog content captures opening focus before React input autoFocus, including windows without a Radix Trigger. The phone drawer does not steal focus when yielding to another dialog. Quick-open keeps keyboard focus on its combobox, with arrow-key option selection and no extra Tab stop per result. Current checks and assistive-technology limits are recorded in `QUALITY.md`.
 
 ## 9. UI build constraints for AI agents
 - Implement design tokens first; use them everywhere.

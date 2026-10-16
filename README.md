@@ -51,9 +51,12 @@ PDF 采用浏览器 canvas 预览；加密文档和部分复杂字体/大图应�
 
 ```sh
 make test
+make qa    # 实际嵌入页面的无障碍与 1202 文件性能检查
 ```
 
 浏览器测试默认使用 `/usr/bin/google-chrome`；其他路径用 `CHROME_BIN=/path/to/chromium make test`。验证范围与限制见 [M1 实施记录](docs/M1.md)，Markdown 兼容性见 [M0 实现记录](docs/M0.md)。
+
+最终本地回归运行 `make test && make qa`。无障碍/性能的实测、预算和真实读屏器等未验证范围见 [QA 记录](docs/QUALITY.md)；整体 M3 仍待安全与最终双架构容器门槛。
 
 ## 项目文档
 

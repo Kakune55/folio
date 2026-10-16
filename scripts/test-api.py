@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='folio-e2e-') as directory:
     password = base / 'password'
     password.write_text('folio-browser-test-password-2026\n')
     password.chmod(0o600)
-    env = dict(os.environ, FOLIO_WORKSPACE=str(workspace), FOLIO_APP_DATA=str(base / 'app-data'), FOLIO_PASSWORD_FILE=str(password), FOLIO_ADDR='127.0.0.1:18081', FOLIO_SECURE_COOKIE='false', FOLIO_ORIGIN='http://127.0.0.1:5173')
+    env = dict(os.environ, FOLIO_WORKSPACE=str(workspace), FOLIO_APP_DATA=str(base / 'app-data'), FOLIO_PASSWORD_FILE=str(password), FOLIO_ADDR='127.0.0.1:18081', FOLIO_SECURE_COOKIE='false', FOLIO_ORIGIN=os.environ.get('FOLIO_TEST_ORIGIN', 'http://127.0.0.1:5173'))
     marker = root / 'artifacts' / 'browser-workspace-path'
     marker.parent.mkdir(exist_ok=True)
     marker.write_text(str(workspace))

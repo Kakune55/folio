@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:qa": "npm run build && python3 ../scripts/copy-dist.py && playwright test -c playwright.qa.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -38,6 +39,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "^1.64.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
@@ -47,5 +49,10 @@
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.4"
+  },
+  "overrides": {
+    "micromark-extension-math": {
+      "katex": "0.19.0"
+    }
   }
 }

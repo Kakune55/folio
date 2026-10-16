@@ -26,6 +26,7 @@ export function equivalentSource(source: string, serialized: string) {
 }
 
 export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: (message?: string) => void, bridge?: CrepeBridge) {
+  let tabReleaseUntil = 0
   const crepe = new Crepe({
     root, defaultValue: source,
     features: { [Crepe.Feature.AI]: false, [Crepe.Feature.TopBar]: false, [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.Latex]: false },
@@ -100,8 +101,18 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     // 不使用库的临时 blob 上传；真实上传由带会话保护的桥接处理。
     ctx.update(uploadConfig.key, (prev) => ({ ...prev, uploader: async () => { onUnsupported?.(); return [] } }))
     ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev,
-      attributes: { 'aria-label': 'Markdown 富文本编辑器', role: 'textbox', 'aria-multiline': 'true' },
+      attributes: { 'aria-label': 'Markdown 富文本编辑器', role: 'textbox', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' },
       handleDOMEvents: {
+        keydown: (_view, event) => {
+          if (event.key === 'Escape') { tabReleaseUntil = Date.now() + 2000; return false }
+          if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && Date.now() < tabReleaseUntil) {
+            tabReleaseUntil = 0
+            // 接管 ProseMirror 的 Tab 快捷键，但不 preventDefault，让浏览器正常移动焦点。
+            return true
+          }
+          if (!['Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) tabReleaseUntil = 0
+          return false
+        },
         paste: (view, event) => handleFiles(view, event, event.clipboardData?.files),
         drop: (view, event) => handleFiles(view, event, event.dataTransfer?.files),
         click: (_view, event) => {

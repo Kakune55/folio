@@ -1,3 +1,4 @@
+import { DialogContent } from '../../components/ui/dialog-content'
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useQueryClient } from '@tanstack/react-query'
@@ -73,7 +74,7 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
     },
     showMove: (entry: Entry) => { setError(''); setTarget(entry.path); setOperation({ type: 'move', entry }) },
     showDelete: (entry: Entry) => { setError(''); setOperation({ type: 'delete', entry }) },
-    dialogs: <Dialog.Root open={!!operation} onOpenChange={(value) => { if (!value && !busy) setOperation(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog-content"><Dialog.Title>{operation?.type === 'delete' ? '移到回收站？' : '移动文件或文件夹'}</Dialog.Title><Dialog.Description>{operation?.type === 'delete' ? `「${operation.entry.path}」将移到回收站，保留可恢复副本。` : `当前位置：${operation?.entry.path ?? ''}。请输入完整的工作区相对目标路径；相关 Markdown 链接不会自动改写。`}</Dialog.Description>
+    dialogs: <Dialog.Root open={!!operation} onOpenChange={(value) => { if (!value && !busy) setOperation(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>{operation?.type === 'delete' ? '移到回收站？' : '移动文件或文件夹'}</Dialog.Title><Dialog.Description>{operation?.type === 'delete' ? `「${operation.entry.path}」将移到回收站，保留可恢复副本。` : `当前位置：${operation?.entry.path ?? ''}。请输入完整的工作区相对目标路径；相关 Markdown 链接不会自动改写。`}</Dialog.Description>
       <form onSubmit={async (event) => {
         event.preventDefault(); if (!operation) return
         setBusy(true); setError('')
@@ -82,6 +83,6 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
         finally { setBusy(false) }
       }}>{operation?.type === 'move' && <><label htmlFor="move-target">目标路径</label><input id="move-target" value={target} onChange={(event) => setTarget(event.target.value)} required autoFocus disabled={busy} /></>}
       {error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><Button type="button" onClick={() => setOperation(undefined)} disabled={busy}>取消</Button><Button type="submit" variant="outline" disabled={busy}>{busy ? '正在处理…' : operation?.type === 'delete' ? '移到回收站' : '移动'}</Button></div></form>
-    </Dialog.Content></Dialog.Portal></Dialog.Root>,
+    </DialogContent></Dialog.Portal></Dialog.Root>,
   }
 }

@@ -133,6 +133,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .rich-host .milkdown .ProseMirror .milkdown-list-item-block .children p { margin: 2px 0; }
 .rich-host .milkdown button:focus-visible, .rich-host .milkdown input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.rich-host .milkdown .ProseMirror:focus-visible { outline: 2px solid var(--focus); outline-offset: 6px; }
+.source-host .cm-editor:has(.cm-content:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+@media (max-width: 767px) { .tabs-row { height: 44px; } .tab-close-target { flex-basis: 40px; height: 40px; } }
 
 /* 认证与真实文件工作区复用同一组视觉语义。 */
 .login-page { min-height: 100dvh; display: grid; place-items: center; padding: 32px 24px; }
@@ -156,9 +159,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .folder-row { gap: 4px; }
 .tab-container { display: flex; align-items: center; border-right: 1px solid var(--border); }
 .tab-container .tab { min-width: auto; max-width: 200px; height: 100%; border-right: none; padding-right: 8px; }
-.tab-container .tab > span:not(.dirty-dot) { overflow: hidden; text-overflow: ellipsis; }
+.tab-container .tab > span:not(.dirty-dot):not(.tab-close-target) { overflow: hidden; text-overflow: ellipsis; }
 .tab-container.active { background: var(--background); }
-.tab-container .tab-close { width: 24px; height: 24px; margin-right: 5px; }
+.tab-close-target { display: inline-flex; flex: 0 0 24px; align-items: center; justify-content: center; height: 24px; border-radius: 4px; margin-left: 2px; }
+.tab-close-target:hover { background: var(--surface-hover); }
+.close-current-tab { margin: 0 4px; }
+.close-current-tab:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0; border: 0; }
 .empty-workspace { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 32px; color: var(--muted-foreground); text-align: center; }
 .empty-workspace h1 { color: var(--foreground); font-size: 20px; font-weight: 550; margin: 20px 0 10px; }
 .empty-workspace p { font-size: 13px; margin-bottom: 20px; line-height: 1.8; }
@@ -169,7 +175,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .compare-columns > div { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .compare-columns label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
 .compare-columns textarea { resize: vertical; min-height: 260px; background: var(--sidebar); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font: 12px/1.8 var(--font-code); }
-@media (max-width: 767px) { .compare-columns { grid-template-columns: 1fr; } .compare-columns textarea { min-height: 150px; } .explorer-tools .button-icon { width: 36px; height: 36px; } .tab-container .tab-close { width: 32px; height: 32px; } }
+@media (max-width: 767px) { .compare-columns { grid-template-columns: 1fr; } .compare-columns textarea { min-height: 150px; } .explorer-tools .button-icon { width: 36px; height: 36px; } }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .image-viewer { padding: 32px; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; background: var(--sidebar); }

@@ -35,7 +35,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge }: {
       doc: session.source,
       extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(), highlightActiveLine(),
         codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
-        EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true' }),
+        EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
         EditorView.domEventHandlers({ paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => handleFiles(event, view, event.dataTransfer?.files) }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
