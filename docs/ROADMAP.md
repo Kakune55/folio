@@ -1,45 +1,20 @@
-# Delivery Roadmap & Definition of Done
+# 路线图与完成标准
 
-Implementation order is dependency-driven, not a fixed schedule. Each milestone must leave the repository in a runnable, tested state. Avoid broad one-shot agent code generation.
+按依赖顺序交付，每个阶段都应可运行、可验证。以下为交付范围，历史阶段记录已合并到 [历史与兼容性](HISTORY.md)，逐项历史验收见 [验收记录](ACCEPTANCE.md)。
 
-## M0 — Feasibility gate
-- Bootstrap Vite React TS and Go API skeleton.
-- Mount Crepe, load Markdown, serialize and inspect round-trip fixtures.
-- Mount CodeMirror; switch across tabs without editor lifecycle leaks.
-- Establish theme tokens, shell skeleton, light/dark snapshots.
-- Define unsafe/lossy Markdown fallback to source mode.
-**Exit gate:** M0 fixture suite passes or all incompatibilities are documented with safe fallback; an editor can be torn down/remounted without losing prior session data.
-
-M0 implementation and verification notes: [`M0.md`](M0.md). This remains an in-memory editor spike; it does not claim M1 persistence or auth.
-
-## M1 — Daily-usable single-user build
-- Session auth; Explorer; file CRUD; Editor Registry.
-- Upload/download, Markdown images, previews; tabs.
-- Conditional save and conflict dialog; file safety guard; basic trash.
-- Single Docker image and two mounts.
-**Exit gate:** end-to-end demo from SPEC acceptance; path security and stale-write tests pass.
-
-M1 exit gate passed on 2026-10-15: native amd64 and QEMU-user arm64 HTTPS container acceptance. Evidence and explicit runtime limits are recorded in [`M1.md`](M1.md), deployment instructions in [`DEPLOY.md`](DEPLOY.md). M3 security/recovery/performance QA remains outstanding.
-
-## M2 — Workflow polish
-- Search (Chinese and English fixtures), quick-open.
-- Keyboard shortcuts; rename/move; external-change reconciliation.
-- Better empty/loading/error states; refine dark/light and file tree.
-**Exit gate:** search and external-edit tests pass; UI reviewed against DESIGN.md.
-
-M2 exit gate passed: Chinese/English search, quick-open, external-change reconciliation, drag/drop moves and keyboard workflow are implemented and verified. The real workbench was reviewed in both themes at all three design viewports. Evidence and remaining M3 limits are recorded in [`M2.md`](M2.md).
-
-## M3 — Recovery & mobile
-- Mobile drawer/responsive editors; upload from phone.
-- Draft recovery, restore tests, backup documentation.
-- Security and accessibility reviews; measured performance regression suite.
-**Exit gate:** mobile flows, recoverability and deploy/recovery drill verified.
-
-M3 exit gate passed on 2026-10-16 in the documented environment: browser recovery/mobile flows, exact source line endings, dual-volume restore, offline account reset, security/accessibility/performance review, and current-image HTTPS/ENOSPC/deploy drills on native amd64 and QEMU arm64. See the requirement-by-requirement [`acceptance record`](ACCEPTANCE.md), [`quality limits`](QUALITY.md) and [`M3 history`](M3.md). Real assistive devices/phone hardware, native ARM and Docker daemon execution are not claimed.
-
-## Change control
-When introducing a feature, update SPEC/API/DESIGN (as applicable), list failure modes, implement test coverage, and record any deliberately unsupported behavior. Do not silently expand scope or switch frameworks.
+| 阶段 | 交付内容 | 退出标准 | 记录状态 |
+| --- | --- | --- | --- |
+| M0：可行性 | React/Go 骨架、主题与外壳、Crepe 往返、CodeMirror、切换生命周期 | 兼容样本通过或有安全源码回退，卸载/重挂不丢会话正文 | 2026-10-15 历史验收通过 |
+| M1：日常使用 | 登录、目录与标签、真实读写、条件保存/冲突、上传/下载/预览、回收站、单容器两卷 | 完成日常流程，路径安全和陈旧写入测试通过 | 2026-10-15 历史验收通过 |
+| M2：工作流 | 中英文搜索、快开、键盘/拖拽、移动重命名、外部变更协调、明暗主题 | 搜索与外部编辑测试通过，三视口视觉复核 | 历史验收通过 |
+| M3：恢复与移动 | 本机草稿、移动抽屉/上传、备份恢复、离线改密、安全/无障碍/性能 | 在列明环境完成恢复与部署演练，明确未验证范围 | 2026-10-16 历史验收通过 |
 
 ## V1 文件层简化
 
-按用户决定将权限隔离交给运行用户/部署，通用文件操作采用 Go 标准库，保留必要平台小函数；不增加业务功能。Windows 构建、测试与尚未验证的真机范围见 [PORTABILITY.md](PORTABILITY.md)。历史里程碑验收按对应构建解读。
+用户已决定将权限隔离交给运行用户和部署，通用文件操作使用 Go 标准库，仅保留必要平台函数。不新增业务功能，不替换技术栈。当前实现、Linux 回归、Windows 交叉编译及 Wine 证据见 [跨平台说明](PORTABILITY.md)。旧容器结果不能替代改造后验收。
+
+## 尚需环境验证
+
+真实 Windows/NTFS 的占用与持久性、原生 ARM、Docker daemon、实际外部 HTTPS 代理、手机相机/软键盘/中文输入法、真实读屏器及其他浏览器仍需专项验证；当前文件层改造未重新验收容器镜像。这些均属于既有 V1 验证范围，不据此扩展 V2 功能。
+
+新增或修改功能时同步相关产品/接口/设计规范，列出失败模式、测试与明确不支持的行为。不能静默扩展范围或替换框架。

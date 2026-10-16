@@ -1,24 +1,26 @@
-# Agent Instructions — Web Markdown Workspace
+# 代理工作约定
 
-Read `docs/SPEC.md`, `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/ROADMAP.md` and `docs/TESTPLAN.md` before significant implementation.
+重要实现前阅读 [产品规范](docs/SPEC.md)、[设计规范](docs/DESIGN.md)、[架构说明](docs/ARCHITECTURE.md)、[接口协议](docs/API.md)、[路线图](docs/ROADMAP.md) 和 [测试计划](docs/TESTPLAN.md)。文档导航见 [README](README.md)。
 
-## Non-negotiable
-1. React + TS + Vite; Milkdown Crepe; CodeMirror 6; Go; embedded SQLite. Do not replace stack without explicit decision.
-2. Real files are canonical; SQLite must never become the authority for note content. No block IDs or proprietary Markdown syntax.
-3. Never silently lose or overwrite content: ETag conditional writes, dirty state, recovery and unsafe Markdown serialization detection.
-4. Security-first file operations: workspace root containment, symlink/TOCTOU safety, upload limits, safe previews, authenticated endpoints.
-5. Follow DESIGN.md: minimal not bare, strong typography, subdued chrome, coherent light/dark modes. No elaborate dashboards or gratuitous cards.
-6. Build one vertical slice per milestone; supply tests and document limitations. Do not claim a feature complete until tested.
-7. Separate editor document buffers from global React/Zustand state. Do not reconstruct Crepe on keystrokes.
-8. No Serverless rewrite, multi-service infrastructure, Next.js, or speculative S3 integration.
-9. When implementing, consult current installed package types/docs; do not assume APIs from old tutorials.
-10. Prefer explicit failures and recovery UI over silent fallback. Fix root cause rather than hiding errors.
+## 必须遵守
 
-## Expected agent output per task
-- Change summary with files affected.
-- Verification commands and observed results.
-- Data-loss/security concerns and unsupported cases.
-- Follow-up strictly within roadmap scope.
+1. 固定使用 React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go 与嵌入式 SQLite；未经明确决定不得替换。
+2. 真实文件是正文唯一权威，SQLite 只保存应用元数据和可重建索引；不引入块 ID 或专有 Markdown 语法。
+3. 不静默丢失或覆盖正文：保留 ETag 条件写、未保存状态、恢复机制和不安全序列化检测。
+4. 文件操作必须验证根目录边界、链接和特殊文件，考虑检查与使用之间的竞争；执行上传限制、预览隔离和接口鉴权。当前本地信任边界见 [跨平台说明](docs/PORTABILITY.md)。
+5. 遵循设计规范：简洁但不空洞，重视排版、克制界面元素、统一明暗主题，不做复杂仪表盘或装饰卡片。
+6. 按路线图逐阶段完成可运行的纵向闭环，提供测试并记录限制；未经验证不得宣称完成。
+7. 编辑器正文缓冲独立于 React/Zustand 全局状态，不因逐键输入重建 Crepe。
+8. 不改写为 Serverless、多服务或 Next.js，不提前引入 S3。
+9. 实现前查阅已安装依赖的类型与文档，不套用过时教程中的接口。
+10. 明确报告失败并提供恢复入口，修复根因，不以静默降级隐藏错误。
+11. 文档、界面、必要注释及交付说明统一使用简体中文；保留代码标识符、协议字段、命令、文件路径和技术名称。
 
-## Suggested first task
-Implement M0 only: create React/Go skeleton, theme tokens and minimal workbench shell, mount Milkdown Crepe with source serialization fixture tests, mount CodeMirror, demonstrate switching among two files without stale content or listener leaks. No database/search yet.
+## 每项任务的交付说明
+
+- 变更摘要与涉及文件。
+- 验证命令及实际结果，区分历史记录与本次执行。
+- 内容丢失、安全风险和不支持的情况。
+- 如需后续工作，仅限既有路线图范围。
+
+M0–M3 已有历史验收，勿将项目重新当作初始骨架；当前范围和待验证环境以路线图及跨平台说明为准。

@@ -1,108 +1,50 @@
-# Web Markdown Workspace — Visual & Interaction Design
+# 视觉与交互规范
 
-Status: V1.0 · 2026-10-15
+## 视觉原则
 
-## 1. Art direction
-**Minimal, not bare.** Calm, precise and dense enough for technical work; the editor is the hero. Reference points: Linear's polish, Obsidian's layout, Milkdown Crepe's typography. Do not clone those products. A modern desktop workspace, not a card-based dashboard, landing page or Notion-style block interface.
+简洁但不空洞，安静、清晰、克制，正文始终是视觉重点。借鉴 Linear 的精度、Obsidian 的布局和 Crepe 的排版，不照搬产品。不使用复杂仪表盘、强制右侧面板、巨大圆角卡片、玻璃效果、堆叠渐变、装饰插画、跳动动画或彩虹文件图标。
 
-Guiding attributes: **quiet, crisp, coherent, restrained, productive**.
+默认使用简体中文，包括辅助名称、加载和错误提示、编辑器菜单。技术名称与代码标识符保留原样。字体使用系统已有 Inter 或 system-ui、Segoe UI、Noto Sans CJK SC 等，不嵌入或再分发字体文件。
 
-### Avoid
-Overlapping gradients, glassmorphism, giant rounded cards, bouncing animations, saturated status chips, ornamental illustrations, excessive icon buttons, large empty gutters, rainbow file icons, UI chrome competing with note body. Do not use random Tailwind colors from component to component.
+## 主题与排版
 
-## 2. Design tokens
-Use CSS custom properties and shadcn-compatible semantic tokens; values below are *starting references*, adjust contrast in QA. Both themes are first-class. System theme by default, manual override persisted.
+语义 CSS 变量统一管理颜色，默认跟随系统，可持久保存手动选择。以下为初始参考，实际对比度须经验证调整：
 
-| Token | Light | Dark |
-|---|---|---|
-| `--background` | `#FFFFFF` | `#202124` |
-| `--sidebar` | `#F7F7F8` | `#191A1C` |
-| `--surface-hover` | `#EEEEEF` | `#303135` |
-| `--border` | `#E7E7E9` | `#35363A` |
-| `--foreground` | `#202124` | `#EEEEEE` |
-| `--muted-foreground` | `#777B83` | `#A1A1A8` |
-| `--accent` | `#5365B8` | `#94A8FF` |
+| 变量 | 浅色 | 深色 |
+| --- | --- | --- |
+| --background | #FFFFFF | #202124 |
+| --sidebar | #F7F7F8 | #191A1C |
+| --surface-hover | #EEEEEF | #303135 |
+| --border | #E7E7E9 | #35363A |
+| --foreground | #202124 | #EEEEEE |
+| --muted-foreground | #777B83 | #A1A1A8 |
+| --accent | #5365B8 | #94A8FF |
 
-Tokenize focus ring, destructive, selected, selection highlight, tooltip, scrollbar and code surfaces separately. Contrast must meet WCAG AA where feasible; adjust muted text when needed. Accent reserved for selected state, focus and links; not as background decoration.
+焦点、危险操作、选择、提示、滚动条和代码区域各自定义语义变量；强调色仅用于选中、焦点和链接。明暗主题保持同等层次，对比度以 WCAG AA 为目标。
 
-### Product language
-The default UI language is Simplified Chinese, including accessible labels, loading/error messages and editor menus. Code identifiers and API fields retain conventional technical naming. Necessary implementation comments and user-facing implementation notes are written in Chinese.
+正文 15–16px、行高约 1.7，居中宽度 760–820px；界面主要文字 13–14px，次要文字 12–13px；代码使用系统等宽字体 13–14px，状态数字等宽。标题清晰但不过大，代码块可内部横向滚动。
 
-## 3. Typography
-System UI: `Inter` when already installed, otherwise `system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif`; do **not** embed or redistribute font files. Chinese readability matters. Editor body: 15–16px, line-height ~1.7; comfortable Markdown text distinct from UI chrome. Interface: 12–13px secondary, 13–14px main; headers deliberate, not oversized. Code: system monospace, 13–14px. Numeric status uses tabular nums.
+间距以 4px 为基准。侧栏默认 240px，调整参考范围 200–360px；顶栏 40–44px，标签栏 34–38px，目录行约 28–32px。边框 1px，常规圆角 6px，浮层 8–10px，仅浮层使用轻阴影。Lucide 图标 15–18px、统一描边。动画 120–180ms、位移 2–4px，遵循减少动态效果设置。
 
-Editor prose measure: max width **760–820px** centered within the main pane, customizable eventually. Headings visually distinct; avoid huge vertical gaps. Markdown fenced code can expand inside document pane while retaining horizontal scroll.
+## 工作区布局
 
-## 4. Geometry and spacing
-Spacing scale: 4px base (`4,8,12,16,20,24,32`). Sidebar default **240px**, resizable approximate range 200–360px. Top bar 40–44px, tabs 34–38px, Explorer row ~28–32px. Borders 1px low contrast. Typical radius 6px; popovers/dialogs 8–10px; avoid blanket 16–24px. Subtle shadows only on floating surfaces. Animations 120–180ms (opacity / translate 2–4px), honor reduced motion. Icons Lucide 15–18px, consistent stroke.
+桌面为紧凑顶栏、左侧可折叠目录、横向标签栏、正文与克制的底部状态栏。顶栏保留工作区、搜索、主题与必要设置，不建立竞争导航。当前文件用浅底色或细指示线，脏标签用小圆点；保存状态不依靠颜色独自表达。
 
-## 5. Desktop layout
-```
-┌────────────────────────────────────────────────────────────┐
-│ Workspace                  Search             Theme  Settings│
-├──────────────────┬─────────────────────────────────────────┤
-│ EXPLORER         │ [PVE.md ×] [compose.yml ×]                │
-│ ▾ Linux          ├─────────────────────────────────────────┤
-│   ▾ PVE          │                                         │
-│     PVE.md       │        # PVE GPU passthrough            │
-│     compose.yml  │                                         │
-│     screenshot   │        Observations ...                  │
-│ ▸ Embedded       │                                         │
-│ Inbox.md         │                                         │
-├──────────────────┴─────────────────────────────────────────┤
-│ main / Linux/PVE                              Saved · MD    │
-└────────────────────────────────────────────────────────────┘
-```
+1024px 以上保留侧栏，768–1023px 可折叠；小于 768px 默认关闭目录，以模态抽屉打开。正文编辑器不随断点切换重建。抽屉支持遮罩、Escape、焦点约束与返回；打开文档后关闭，其他弹窗出现时交接焦点。依据可见视口与安全区安排高度，不禁止用户缩放。触控目标至少 40px，不依赖悬停，软键盘不得遮挡保存或错误入口。
 
-Top bar: one-line title, search affordance and compact controls. Avoid two competing navigation systems. Explorer: selected item uses muted tinted background and/or accent indicator, not filled primary-color pills. Tab strip quiet; modified tab has understated dot. Editor: generous internal margin, text dominates. Status line optional and discreet.
+## 组件行为
 
-## 6. Components and behaviors
-### File tree
-Use disclosure arrows, small type-specific Lucide icons, ellipsis menu shown on hover **and keyboard focus**, clearly highlighted active file, hover affordance. Root and nested indentation consistent. Rename inline with validation and Escape cancel. Drag-and-drop with visible target and keyboard-accessible move action. Desktop drag moves one entry into a highlighted folder/root target, with hover expansion and no-overwrite errors. Touch and keyboard use the existing move menu. Arrow keys navigate visible rows; F2 renames and Delete opens confirmation. A large tree should use virtualization only after measured need.
+- 文件树：统一缩进、展开箭头和小型分类图标。操作菜单在悬停或焦点时出现，触屏保持可用。方向键、Home/End 导航，F2 重命名，Delete 确认删除，Shift+F10 操作菜单；重命名支持 Escape。桌面单条目拖到目录或根入口，显示目标、悬停展开，保留键盘/触屏移动菜单。先测量，再决定虚拟化。
+- 标签栏：单行横向滚动，关闭失败保留标签与正文。tablist 只包含标签；鼠标关闭标记在标签内部，辅助技术另有标签栏外的当前标签关闭按钮，聚焦时可见。Delete 保存并关闭，焦点回到剩余标签或目录按钮。
+- 编辑器：保留 Crepe 原有交互，以局部语义变量适配表格、代码、浮动工具栏、选择和两种主题。源码切换可见，模式控制为具名分组，保存状态低干扰，不为每次保存弹通知。
+- 弹窗：复用现有 shadcn/ui 与 Radix，统一内边距和焦点样式，Escape 关闭并返回触发位置；包括没有 Radix Trigger 的程序打开窗口。快开聚焦组合框，方向键选结果，不让每个结果增加 Tab 停靠点。
+- 转换与冲突：双栏显示本地/磁盘或转换前后源码，手机改为单栏。转换差异可展开并下载原文；初始焦点在保留原文，取消不覆盖，确认清楚说明转换、后续自动保存和撤销限制。
+- 恢复稿：底栏提供入口，认证后显示本工作区缓存；比较后显式暂停恢复、下载或另存新文件。缓存成功不能标记为磁盘已保存，缓存失败须持续提示并提供操作；删除缓存需要确认。
+- 上传：工具栏、菜单与拖放提供入口，图片成功后插入相对链接。大文件显示进度和失败重试。文件选择/拍照失败保留内存原件，可重试、下载或确认移除；不把它描述为持久备份。
+- 空状态与错误：空工作区提供新建和上传入口，加载局部占位；保存错误固定显示并保留正文。外部变更时干净文件显式加载，脏文件停止自动保存并比较/另存；原目录缺失允许选择副本路径，失败后保留弹窗和草稿。
 
-### Tabs
-One line, horizontal scroll; close button accessible. Closing dirty file should not destroy unsaved edits: flush save or preserve draft and disclose failure. Middle click optional. Limit unnecessary file-opening tabs via preview-tab behavior only if easy to understand.
+## 无障碍与验收
 
-The tablist contains only tabs. Pointer close marks remain inside each tab; Delete on the focused tab saves/closes it. A separate current-tab close button outside the tablist is available to assistive technology and becomes visible on focus, avoiding a duplicate permanent icon. Focus returns to the remaining active tab or Explorer toggle. Failed saves retain the tab. Rich/source mode controls form a named group.
+使用语义区域、可见焦点、明确辅助名称、完整键盘路径与温和的保存状态播报，避免逐键播报。编辑器支持 Escape 后 Tab/Shift+Tab 离开编辑键位；抽屉向弹窗交接时不得抢焦点。
 
-### Editor
-Milkdown Crepe default for Markdown. Preserve existing Crepe ergonomics; theme with scoped tokens rather than blanket CSS hacks. Floating toolbar, tables and code blocks must fit both dark/light themes. `Source` switch visible in file menu or toolbar. Always show subtle save state near document/tab; do not display toast on every save.
-
-有损转换打开确认预览，复用版本比较窗口的双栏源码布局与移动端单栏布局，提供可展开的文本 Diff 和原文下载。初始焦点落在保留原文按钮，Escape/取消回到源码；确认按钮明确标识转换，不将预览视为同意保存。提示转换可能丢失语法或内容、确认后的自动保存及撤销历史限制。
-
-### Modals, menus and search
-shadcn/ui + Radix interaction semantics, consistent padding, keyboard focus rings, `Esc` to close. Quick-open command dialog has path secondary label and keyboard navigation. Search results show matching context without dense highlight noise. Confirmation only for destructive operations; routine saves are silent.
-
-### Browser recovery
-A quiet footer entry lists recoverable local records after authentication. Display source and disk text separately, with explicit paused restore, download and create-only copy actions. Never auto-apply a recovery record or replace an open dirty tab. Cache failure is a persistent, actionable notice; successful local caching is a subtle secondary status and never labeled as a completed disk save. Deleting a cache record requires confirmation.
-
-### Upload
-Paste/drop image into Markdown inserts relative link after upload succeeds. Show progress for larger uploads; retries and failures remain visible. File upload can use toolbar, context menu, and drop-zone cues rather than a giant permanent upload panel.
-
-### Empty, loading and error states
-Empty workspace: explain `Create note` and `Upload files` in one compact column. Empty directory: lightweight helper. Loading: unobtrusive skeleton in tree/editor, no blocking full-screen spinner. Offline/save error: sticky, actionable status, preserve edit buffer. 409/412 conflict: clearly distinguish local and remote versions; never overwrite on dismissal. External file changes keep the displayed buffer intact: clean files offer explicit reload (with undo reset disclosed), dirty files stop autosave and offer comparison/create-only copy. Missing original directories allow choosing a new copy path; failed copy attempts keep the dialog and draft.
-
-## 7. Responsive behavior
-Desktop >=1024px: Explorer + editor; 768–1023px: optionally collapsed Explorer; below ~768px: main editor full width and Explorer drawer. Mobile touch targets >=40px; contextual controls via visible overflow, not hover-only. No tiny fixed-width editor layout. On-screen keyboard must not cover save/error indicators. Below 768px the Explorer starts closed and opens as a modal drawer with focus trapping, backdrop/Escape close and focus return. Opening a document closes the drawer; other dialogs temporarily replace it. The visible viewport bounds the workbench/dialog height without disabling user zoom. Failed file-picker/camera uploads retain their original files in memory with explicit retry/download/discard actions. Mobile first use should not request installing an app.
-
-## 8. Accessibility
-Semantic landmarks; visible focus, useful accessible names, full keyboard path for create/open/rename/move/delete; dialog focus trapping and return, contrast testing in both themes, reduced-motion support. Indicate save status with polite ARIA live region at transitions but avoid announcement spam. Editor screen reader behavior validated separately; do not assume library defaults suffice.
-
-Both editors describe Escape followed by Tab/Shift+Tab to leave editing keymaps. Dialog content captures opening focus before React input autoFocus, including windows without a Radix Trigger. The phone drawer does not steal focus when yielding to another dialog. Quick-open keeps keyboard focus on its combobox, with arrow-key option selection and no extra Tab stop per result. Current checks and assistive-technology limits are recorded in `QUALITY.md`.
-
-## 9. UI build constraints for AI agents
-- Implement design tokens first; use them everywhere.
-- Reuse existing shadcn components; do not create competing button/dialog primitives.
-- Each screen should look intentional at 1440×900, 1024×768 and 390×844.
-- Avoid lorem ipsum in finished product; use representative filenames and documentation.
-- New UI requires hover, focus, disabled, empty, loading, error and dark mode checks.
-- Never substitute an elaborate dashboard for the core file tree/editor layout.
-- Prefer removing visual elements before adding decoration.
-
-## 10. Visual acceptance checklist
-- At desktop width the document is visually dominant; left sidebar is useful but unobtrusive.
-- Light/dark themes have matching hierarchy and readable contrast.
-- Milkdown Crepe headings, blockquotes, tables, fenced code, selection and toolbars are consistently themed.
-- Selected file, open tab and unsaved state are unambiguous without loud color.
-- Mobile navigation, edit, upload and recoverable error handling work without hover.
-- No unexpected horizontal scrolling of the entire application shell.
+每次界面变更检查悬停、焦点、禁用、空、加载、错误及明暗主题；在 1440×900、1024×768、390×844 检查正文主导、长文件名、宽代码块、目录滚动、上传和冲突。应用外壳不得意外横向溢出，完成界面使用真实样本文档。测试方法见 [测试计划](TESTPLAN.md)，实测与真实读屏器限制见 [质量记录](QUALITY.md)。

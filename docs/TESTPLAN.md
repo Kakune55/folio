@@ -1,76 +1,54 @@
-# Verification & Test Plan
+# 测试与验证计划
 
-## Unit and integration
-- Path sanitizer: absolute paths, `..`, URL decoding, NUL, Unicode normalization, symlink roots/children, special files and race conditions.
-- Atomic saves: simulated short writes, disk full, rename failure, permission failures, process termination and revision mismatch.
-- API: 401/403/409/412/413/415/428, upload name collisions, streaming limits, conditional writes, CSRF, login throttling.
-- Search: Chinese sentences, English technical identifiers, punctuation/path searches, file rename/delete, rebuild and external edits.
-- Editor: file switches, undo, dirty states, pending autosave, outgoing requests returning out of order, save conflict and error recovery.
+## 优先级与基本原则
 
-## Markdown round-trip corpus
-Include headings, emphasis, escaped markup, code fences, language annotations, nested task lists, tables, footnotes if claimed supported, math if enabled, frontmatter, inline HTML, HTML comments, relative image/link paths, reference-style links, unusual whitespace and Unicode. Snapshot source before/after Crepe parse/serialize; mark known normalizations. No silent data loss.
+P0 为正文保留、鉴权、路径隔离和并发；P1 为编辑、上传、搜索和恢复；P2 为视觉与性能。公开暴露前，P0 场景必须有自动覆盖。只使用测试创建的临时目录、账号、浏览器配置和容器，不操作日常笔记。历史结果见 [验收记录](ACCEPTANCE.md)，当前文件层结果及平台限制见 [跨平台说明](PORTABILITY.md)。
 
-`conversion-diff.test.ts` 验证替换区间、空文档、增删、空白和换行差异及大文档。`workbench.spec.ts` 验证有损转换的双栏预览、Diff、原文下载、Escape 保留原文、明确确认、移动端布局、转换后文件/模式切换，以及预览期间草稿更新后拒绝旧结果。`files.spec.ts` 验证预览不写入磁盘，确认后条件自动保存，以及转换不能绕过陈旧 ETag 冲突保护。
+## 验证命令
 
-## Visual QA matrix
-- Themes: light, dark, system switch.
-- Viewports: 1440×900, 1024×768, 390×844.
-- States: empty workspace/folder, multiple tabs, 1000+ items, long filenames, wide code block, upload progress, save error, conflict, unauthenticated.
-- Interactions: mouse, keyboard, touch; focus/hover and reduced motion.
+| 命令 | 范围 |
+| --- | --- |
+| make build | 前端生产构建、嵌入资源、Go 程序 |
+| make test | 前端静态检查、单元/浏览器、Go 测试、主机双卷备份演练 |
+| make qa | 实际嵌入页面的 4 条无障碍流程与 1202 文件性能流程 |
+| cd backend && go test ./... && go vet ./... | 后端回归与静态检查 |
+| make backup-test | 独立主机备份恢复演练 |
+| make image && make container-test | 两卷 HTTPS、重启/会话/冲突/回收及离线改密 |
+| make container-review | 生产 CSP、恶意内容、真实 ENOSPC 与草稿恢复 |
 
-## Operational QA
-- Linux amd64 and arm64 container starts and preserves both mounts across restart.
-- Backup both volumes with consistent database snapshot, restore elsewhere and verify all files/index rebuild.
-- Network interruption during save leaves a recoverable local draft; old or new file remains complete.
-- External modification from VS Code is detected and not overwritten by a stale browser editor.
+以上为类 Unix/Make 命令；Windows 构建和平台检查见跨平台说明。浏览器可用 CHROME_BIN 指定。容器用 CONTAINER_ENGINE 选择引擎、FOLIO_TEST_IMAGE 固定镜像；FOLIO_TEST_QEMU 显式标记仿真，不能当作原生硬件。完整本地回归为 make test 后 make qa，镜像另做容器门槛。
 
-## Test priority
-P0: content preservation, auth, path isolation, concurrency. P1: edit/upload/search/restore. P2: visual polish, speed and convenience. Every P0 scenario must have automated coverage before public exposure.
+## 自动化覆盖矩阵
 
-## Reproducible container gate
+| 领域 | 必查场景与入口 |
+| --- | --- |
+| 路径/类型 | 绝对路径、穿越、URL 编码、NUL、Unicode、Windows 设备名/非法字符、根/子链接、特殊文件、竞争；storage/fileio 测试 |
+| 写入一致性 | 陈旧/并发 ETag、短写、权限、重命名、同步失败、外部改写、原文件完整性；storage 与 faults_linux_test.go |
+| 接口安全 | 私有入口及 HEAD 鉴权，修改来源与 CSRF，Cookie/撤销/限速，401/403/409/412/413/415/428；auth/httpapi 测试 |
+| 编辑会话 | 切文件/模式、卸载异步创建、迟到响应、保存中输入、撤销、脏状态、冲突与关闭拒绝；会话单元及 workbench/files 浏览器测试 |
+| Markdown | 标题、强调、转义、围栏语言、嵌套任务、表格、frontmatter、HTML/注释、相对链接/图片、引用链接、空白、Unicode、数学/脚注限制；固定原文语料和序列化快照 |
+| 转换预览 | 原文/结果/差异、原文下载、Escape 保留、明确确认、移动布局、变化后旧结果拒绝；conversion-diff.test.ts、workbench.spec.ts、files.spec.ts；确认不得绕过 ETag |
+| 源码字节 | LF/CRLF/CR、BOM、混合换行、跨行编辑、分组撤销/重做、切换、保存、下载、刷新恢复；line-endings.test.ts/spec.ts；直接核对磁盘字节，不以 textarea 值代替 |
+| 附件 | 原始名称、流式限额、碰撞、不完整/多个 multipart 不提交；图片实际类型/像素、PDF 画布、未知二进制字节、HTML/SVG 隔离；attachments/browser 测试 |
+| 搜索/外变 | 中英文长短词、技术标识符、标点/路径、重建、损坏隔离、重命名/删除；search.spec.ts；external.spec.ts 修改真实临时文件，含同大小同 mtime，不操作开发工作区 |
+| 操作工作流 | 文件/目录/根真实鼠标拖拽、碰撞、键盘导航/移动/重命名、标签快捷键和冲突拒绝关闭；workflow.spec.ts；无效目标/伪造载荷以 DOM 探针断言无移动请求，勿混称原生手势覆盖 |
+| 浏览器恢复 | 真实 IndexedDB 连续脏输入、刷新、独立浏览器重启、同路径多页面、命名空间、拒绝存储、未知记录导出/确认删除、暂停恢复与不覆盖副本；recovery.spec.ts |
+| 手机 | 390×844 触屏仿真、抽屉焦点/遮罩/Escape、嵌套创建、旋转保留编辑器、短视口保存栏、普通/拍照选择器、原件保留/下载/重试；mobile.spec.ts；不代表硬件相机或 IME |
+| 回收/备份 | 同盘/跨盘、原件隔离后失败、残缺记录保留、不覆盖恢复；backup-test.py 验证活实例拒绝、SIGKILL 留 WAL、复制件合并、损坏/链接/FIFO/越界拒绝、新位置原密码/旧会话拒绝、正文/附件/回收/搜索/后续保存 |
+| 离线改密 | 实际 CLI、在线锁拒绝、无效服务环境仍离线运行、不初始化其他根、不泄露秘密、新旧密码/Cookie、身份稳定、撤销失败回滚、账号结构与密码读取边界；auth/config/httpapi/cmd/server 测试 |
 
-`make image && make container-test` uses isolated mounts and a persistent Chromium profile, then closes the browser, restarts the container and reopens the browser before validating a real external-file stale-write conflict and trash restore. Set `CONTAINER_ENGINE=podman` for a rootless runtime; optional `FOLIO_TEST_QEMU` explicitly marks an emulated run. It writes per-architecture evidence under `artifacts/container/`; see `M1.md` for observed results and `DEPLOY.md` for prerequisites. This gate does not replace the M3 fault/backup/security/accessibility matrix.
+## 视觉、无障碍与性能
 
-## M2 workflow gate
+三视口 1440×900、1024×768、390×844，浅色/深色/系统主题；检查空目录、多标签、长文件名、宽代码、1000+ 文件、上传、保存错误、冲突和未登录状态。覆盖鼠标/键盘/触屏、焦点、减少动态效果，不得整页横向溢出。
 
-`cd frontend && npm run test:e2e -- workflow.spec.ts` exercises real Chromium mouse drags for file/folder/root moves and name collisions, keyboard browsing/rename/menu move, workspace tab shortcuts and close refusal on conflict. Invalid self/descendant/original-parent targets and forged external payloads use DOM drag-event probes with an assertion that no move request is issued; this is distinct from native pointer gesture coverage. `external.spec.ts` uses a test-only marker pointing at the isolated temporary workspace to edit/rename real files, not the development preview's workspace.
+make qa 使用实际 Go 嵌入构建而非 Vite 开发服务。axe 扫描不排除编辑器，保留未完成项；另读 Chromium AX 正文/名称，验证键盘退出、焦点循环/返回、抽屉交接及关闭标签不删文件。性能实际遍历 1202 文件、搜索、162508 字节 Markdown 与 1060800 字节文本，核对完整保存内容。预算、原始测量和读屏器限制统一见 [质量记录](QUALITY.md)，输出 artifacts/qa/。
 
-Workflow screenshots cover the real authenticated workbench at 1440×900, 1024×768 and 390×844 in both themes. The visual Markdown sample is generated in the installed serializer's format; the independent fixed-original Markdown corpus remains the authority for compatibility/fallback checks. Mobile touch, other browsers, assistive technologies, 1,000+ item measurements and backup/crash drills remain M3 work.
+## 故障与容器证据
 
-## M3 browser recovery slice
+Linux 子进程用 RLIMIT_FSIZE 产生 EFBIG 部分写入，inotify 观察临时保存后 SIGKILL；只允许完整旧版或新版，不等价真实磁盘满或所有崩溃阶段。
 
-`cd frontend && npm run test:e2e -- recovery.spec.ts` uses real IndexedDB and an isolated server workspace. It covers latest dirty buffers across reload, explicit paused restore/manual save, missing-parent create-only recovery, same-path separate page drafts, namespace isolation, unavailable storage with working disk save/download, unknown-record export/confirmed deletion, and a separate temporary Chromium profile closed and reopened for an actual browser restart. Temporary profiles are created by the test and removed afterwards; no normal user browser profile is accessed. These tests do not stand in for the remaining mobile-touch, backup/power-loss, security/accessibility or performance gates.
+container-review 使用自身 512 KiB tmpfs 获取真实 ENOSPC，日志确认错误，验证旧原文、草稿下载、刷新后显式恢复、释放空间后条件保存；不填满宿主盘。实际 HTTPS 浏览器探针检查 CSP 阻断、恶意链接/内容、远程图片不请求与匿名拒绝。临时测试域名使用保留 .invalid 并拦截，证书只固定临时 SPKI，宿主另验 CA/主机名。
 
-## M3 mobile slice
+container-test 使用两 bind mount 和独立持久浏览器配置，真正关闭浏览器、重启容器、重新打开后验证正文、会话、外部冲突和回收恢复；第三阶段停服，仅挂 app-data 离线改密，核对旧凭据失效与工作区身份不变。备份 HTTPS 容器演练可用 python3 scripts/backup-test.py --engine podman --container-image <镜像>。
 
-`cd frontend && npm run test:e2e -- mobile.spec.ts` runs Chromium with a 390×844 mobile viewport and touch enabled. It verifies modal Explorer focus/backdrop/Escape, nested creation, editor-node identity after rotation, a shorter viewport's save-bar bounds, ordinary/capture file-chooser delivery, exact downloaded attachment bytes, failed upload original retention/retry and persisted source recovery. Camera files are supplied by the browser automation fixture; this does not verify a hardware camera or a real phone keyboard/IME. Existing desktop workflows remain part of `make test`.
-
-## M3 backup slice
-
-`make backup-test` is also included in `make test`. The isolated Go-process drill rejects active-instance backup, kills its own process after committed writes to leave WAL, checks a verified snapshot, rejects corruption/traversal/links/FIFO/existing targets, and starts the restored pair in a new directory. It verifies original password login, old-session invalidation, exact Markdown/attachment bytes, trash recovery, rebuilt search and conditional writes. `python3 scripts/backup-test.py --engine podman --container-image <image>` repeats the same contract against actual HTTPS containers with certificate validation and two bind mounts. Reports include tool hash, time and container image/architecture under `artifacts/backup/`. This does not replace the remaining crash, accessibility, security and measured performance reviews.
-
-## M3 offline account maintenance
-
-`cd backend && go test ./internal/auth ./internal/config ./internal/httpapi ./cmd/server` verifies offline instance-lock exclusion, new password/old password/old Cookie behavior, stable browser namespace, rollback when session revocation fails, missing-account refusal, unsafe account files/sidecars and bounded private password-file reading. The CLI integration test builds a real binary and invokes it with intentionally invalid server environment, checking that it neither starts the server nor initializes other data roots and that output contains no test password/session. These isolated tests do not replace the final container gate or a broader security audit.
-
-## M3 security and partial-write slice
-
-`cd backend && go test ./internal/auth ./internal/httpapi ./internal/storage` includes the explicit private-route/HEAD, every-mutation CSRF/origin and concurrent-login matrix. The Linux storage subprocess test applies RLIMIT_FSIZE only to its own child to obtain a partial write/EFBIG, and uses inotify to observe a real temporary save before SIGKILL. It verifies unchanged original content on handled write error and complete old/new content after termination. This does not fill a host filesystem, simulate real ENOSPC or prove every exact crash stage. Review evidence and remaining production-browser/fault gates are listed in `SECURITY.md`.
-
-## M3 production-build accessibility and performance gate
-
-`make qa` builds/embeds the real SPA and runs 4 theme/viewport accessibility flows plus a 1202-file performance flow against an isolated Go server. It covers axe WCAG A/AA scans without exclusions, real Chromium AX editor text/labels, keyboard escape/trap/return, drawer/modal handoff and tab closing without disk deletion. Performance verifies all pagination pages, Chinese/English search, a 162508-byte Markdown note, a 1060800-byte text file and exact saved contents. Measured budgets and browser/assistive-technology limitations are in `QUALITY.md`; raw reports/screenshots go to `artifacts/qa/`. Final local regression is `make test && make qa`, followed by the documented container gates.
-
-## HTTPS security, ENOSPC and offline password container gate
-
-`make container-review` uses only its own ephemeral HTTPS container, a 512 KiB workspace tmpfs and private app-data. Real browser probes assert actual CSP blocking, safe untrusted content/downloads, link isolation and anonymous denial. A real ENOSPC must appear in server logs; the browser retains/downloads/restores the exact draft after reload and saves after reclaiming space through trash. Outbound probe destinations are reserved `.invalid` domains intercepted/aborted by the driver. This is distinct from a mocked save failure and from persistent-volume power-loss testing.
-
-`make container-test` now includes a third offline-password phase: the live lock rejects maintenance, then the stopped service is reset using an app-data-only container and a private secret file. After restart the old Cookie/password fail, the new password works, and workspace identity/files persist. Both container drivers pin only their temporary certificate SPKI with `ignoreHTTPSErrors: false`; the host also validates the CA/hostname. `FOLIO_TEST_QEMU` explicitly marks an emulated arm64 run. Evidence remains per image/architecture under `artifacts/security/` and `artifacts/container/`.
-
-## Raw source line endings
-
-`line-endings.test.ts` uses real EditorState/history transactions to verify LF/CRLF/CR, BOM, mixed separator mapping, deletion/replacement and grouped undo/redo. `line-endings.spec.ts` checks actual on-disk bytes after editing/saving/undo/redo/newlines/file switching, plus byte-exact draft downloads, page reload and explicit recovery after a mocked network save failure. HTML textarea display normalization is not used as a byte-preservation assertion. The HTTPS container write/verify/reset phases independently check a BOM/mixed-ending file through edit/undo/redo, container/browser restarts, trash restore and account reset. These are part of the final current-image gate.
-
-## 标准库文件层与 Windows
-
-Go 标准库 os.Root 承担工作区隔离，平台测试覆盖不覆盖移动、锁冲突/关闭释放与根身份稳定。普通硬链接读取允许，保存必须仅替换工作区名称并保留其他链接原文。账号/密码目录的 UID/mode 不再作为拒绝条件，由部署者保护；静态链接/特殊文件仍拒绝。跨设备回收、FIFO/权限/进程故障保留 Linux 专用测试，普通条件保存/移动/恢复/HTTP 测试须可交叉编译 Windows。Windows 交叉编译、Wine 执行和真实 Windows/NTFS 验收是不同证据，实际结果见 PORTABILITY.md。
+原始容器、安全与备份报告分别在 artifacts/container/、artifacts/security/、artifacts/backup/，必须绑定时间、架构和镜像摘要。旧构建、Wine、交叉编译、仿真和真机结果分别描述；不能冒称断电保证、完整 WCAG 认证、真实手机或 Docker daemon 验证。

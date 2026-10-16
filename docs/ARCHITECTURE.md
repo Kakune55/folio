@@ -1,123 +1,64 @@
-# Architecture — Web Markdown Workspace
+# 架构说明
 
-## 1. Deployment model
-A Vite-built React SPA is embedded into a Go binary using `embed`. Go serves both the frontend and `/api/v1`. One container, two mounts:
-- `/workspace`: user content; the sole authority for file bytes.
-- `/app-data`: SQLite index/settings/auth, trash and optional draft recovery metadata.
+## 部署与数据权威
 
-An existing Caddy/Traefik can terminate HTTPS with Go listening internally; alternatively Go serves TLS directly from a configured certificate/key pair. No additional proxy service is bundled. No cloud dependencies, no background job platform, no Serverless runtime.
+Vite 构建的 React 单页应用由 Go embed 嵌入，Go 同时提供静态资源与 /api/v1。单进程、单容器；可直接 TLS 或使用已有反向代理，不增加云依赖、后台任务平台或 Serverless 服务。
 
-## 2. Frontend modules
-- `app/`: routing, global providers, shell and error boundaries.
-- `features/explorer`: folders, tree, context actions, uploads and DnD.
-- `features/tabs`: open-file selection and dirty-state displays.
-- `features/search`: quick-open and FTS results.
-- `features/auth`: session boundary.
-- `editors/milkdown`: Crepe lifecycle, markdown/source conversion, upload bridge.
-- `editors/codemirror`: generic text/config editor, language registry.
-- `viewers`: image/PDF/binary.
-- `services/api`: typed HTTP client with abort, revisions and error handling.
-- `stores`: Zustand transient workspace UI state only.
+- workspace：笔记、源码与附件，唯一权威正文。
+- app-data：账号/会话 app.db、独立可重建 search.db、普通文件形式的回收站和运维数据。
 
-Use TanStack Query for fetched tree, metadata, search and mutation invalidations. Live editor buffers must remain inside the editor/session controller to prevent React render churn. No re-creation of Crepe on every keystroke. Bind editing sessions by stable canonical path plus revision; on rename, update both file identity and active session routing.
+两目录独立且不能相互包含，部署必须保证一个工作区仅有一个写实例。app-data 锁无法阻止不同 app-data 指向同一工作区的错误部署。
 
-## 3. Backend modules
-- `internal/httpapi`: authentication, decoding, validation, standardized errors, responses.
-- `internal/auth`: password/session lifecycle; secure cookies and CSRF checks.
-- `internal/workspace`: canonical workspace operations and metadata.
-- `internal/storage`: standard-library os.Root file operations, temporary-file saves and revision checks.
-- `internal/fileio`: shared standard-library validation/sync/SQLite URI helpers; minimal Linux/Windows helpers for no-replace moves, instance locks and stable root identity.
-- `internal/search`: indexer, FTS5 and reconciliation.
-- `internal/trash`: deletions, listing and restoring with provenance.
-- `internal/config`: mount paths, limits, server settings.
+## 模块边界
 
-Prefer `net/http` and Go standard library; add libraries only where they clearly simplify security or maintenance. SQLite is a cache/index and application metadata store; never authority for file bytes.
+| 模块 | 职责 |
+| --- | --- |
+| frontend/src/app、components、styles | 应用外壳、公共组件、主题与错误边界 |
+| features/explorer、tabs、search、auth | 目录、标签、搜索与认证交互 |
+| editors/milkdown、codemirror、viewers | 编辑器生命周期、上传/导航桥接及安全预览 |
+| sessions | 独立正文、版本、脏状态、保存队列与恢复协调 |
+| services、stores | 类型化 API 与错误处理；仅界面/导航全局状态 |
+| backend/internal/httpapi、auth | 请求验证、鉴权、会话、来源与 CSRF、统一错误 |
+| internal/storage | 根内文件访问、条件保存、上传、移动与子树版本 |
+| internal/fileio | 标准库文件校验/同步/SQLite URI；最小平台适配 |
+| internal/trash、search、config | 回收清单与恢复、索引核对、路径与启动配置 |
 
-## 4. File identity and write invariants
-The core external identifier is a normalized workspace-relative path. Internal operation locks should key by canonical safely resolved location. Rename/move atomicity differs by filesystem; handle cross-device move explicitly rather than falsely claiming atomic move. Detect stale revisions on every write and fail closed; serialize in-process writes. Multi-instance writers against the same workspace are not supported in V1; document this in deployment.
+TanStack Query 管理远端元数据与失效刷新，Zustand 管理临时界面状态。正文不随 React 渲染重建，Crepe 不逐键重建；使用稳定会话身份、路径、版本与代数过滤迟到回调。
 
-Filesystem watcher is an optimization: periodically reconcile to detect external changes; edits from VS Code or Syncthing can occur. Never auto-overwrite a dirty browser buffer when external changes are found.
+## 文件层与一致性
 
-## 5. Markdown serialization boundary
-Source file -> parse by Crepe -> edit -> serialize -> save. Unsupported constructs or lossy round trips must be handled by source mode or explicit user consent. Never treat the rendered DOM as authoritative Markdown. Images use standard relative links, not application-only asset IDs.
+外部标识为规范化的工作区相对路径。os.Root/os.File 承担根内操作，静态链接和特殊文件明确拒绝。仅不覆盖移动、进程锁和根身份保留 Linux/Windows 平台函数；权限、可信本地目录及系统差异统一见 [跨平台说明](PORTABILITY.md)，运行时不依赖 openat2 或 /proc/self/fd。
 
-## 6. Repository layout
-```
-frontend/
-  src/app/
-  src/components/ui/
-  src/features/{explorer,tabs,search,auth}/
-  src/editors/{milkdown,codemirror}/
-  src/viewers/
-  src/services/
-  src/stores/
-  src/styles/
-backend/
-  cmd/server/
-  internal/{httpapi,auth,workspace,storage,search,trash,config}/
-  web/dist/               # copied by Docker build for go:embed
-  go.mod
- docs/
-  SPEC.md
-  DESIGN.md
-  ARCHITECTURE.md
-  API.md
-  ROADMAP.md
-  TESTPLAN.md
-AGENTS.md
-Dockerfile
-compose.yaml
-```
+更新在同目录创建独占临时文件，完整写入并同步，紧邻替换前复核当前摘要及父目录身份，随后重命名并按平台同步目录。创建、上传、移动与恢复不覆盖目标。单实例存储操作串行；外部工具不遵守锁，最后检查与替换间仍有竞争窗口，不保证全局文件系统条件交换。
 
-## 7. Non-goals and future migrations
-Storage adapters, S3, collaboration, PWA/offline sync and a full workspace plugin system are deferred. Do not introduce speculative interfaces or microservices. Keep editor/viewer dispatch extensible without exposing arbitrary third-party executable plugins.
+移动前保存和锁定受影响会话及旧/新路径前缀，成功后统一重映射路径、导航与附件地址。桌面拖拽只接收页面随机手势令牌标记的内部条目，复用菜单移动流程；客户端令牌不能替代服务端权限和路径验证。
 
-## 8. Trash operations implemented in M1
+回收站以普通 JSON 清单和文件载荷保存来源与状态。同盘重命名；跨盘删除先在原父目录隔离原件，再复制、核对、同步到 app-data 后清理。跨盘恢复先在目标父目录构建完整临时副本，再不覆盖发布。异常清单、残缺原件或不同恢复副本须保留供检查，不自动丢弃。
 
-`internal/storage` owns descriptor-safe move, subtree revisions and staged cross-device copying. `internal/trash` owns private recovery directories and atomic JSON manifests under app-data. Payloads remain ordinary files, outside SQLite. Same-device moves use rename; cross-device deletion stages the original in its parent, durably copies to app-data, and only then removes the staged copy. Cross-device restoration publishes a verified, synced temporary payload with no-replace rename. Failed cleanup or divergent recovery copies are preserved for explicit recovery rather than silently discarded.
+## 编辑与序列化
 
-## 9. Search cache implemented in M2
+文件原文经 Crepe 解析、编辑、序列化后才可条件保存，渲染 DOM 不是正文权威。差异必须经用户预览确认或回到源码，图片仅保存标准相对路径。兼容性见 [历史与兼容性](HISTORY.md)。
 
-`internal/search` uses a private `search.db` separate from authentication `app.db`, so a corrupt search cache does not prevent login or editing. FTS5 trigram indexes safe workspace-relative file paths and eligible UTF-8 text bodies. One- and two-character queries use a bounded-result substring scan; longer queries are quoted literal FTS phrases. SQLite remains secondary; no document is restored from this cache.
+CodeMirror 内部 LF 文本与原始 UTF-8 会话字符串分离：新行采用原文首个分隔符，异常分隔符保存在不可变 RangeSet，随事务移动/删除，反向历史效果在撤销时恢复。序列化重建原分隔符后再更新会话、磁盘与恢复缓存；统一换行文件无需逐行标记。BOM 保留，异步图片追加沿用原格式，元数据不写入 Markdown。
 
-Successful file mutations enqueue a coalesced asynchronous scan. External changes are reconciled every 10 seconds using content fingerprints for bounded text and size/mtime metadata for large files; a full content scan every 5 minutes covers coarse timestamp behavior. Scans do not hold the storage write mutex. A transaction retains the previous cache if a scan fails, with an explicit warning. Manual rebuild quarantines a damaged search cache and its WAL/SHM before reconstructing it from workspace files; it never touches auth data. Open editor buffers are reconciled independently by the session controller as described below.
+## 搜索与外部变化
 
-## 10. Open session reconciliation
+search.db 与账号库隔离。FTS5 trigram 索引安全相对路径及限额内 UTF-8 正文；一至两个字符采用有界结果子串扫描，较长查询为字面短语。修改触发合并后的异步扫描，外部每 10 秒核对、每 5 分钟完整正文扫描；有限文本使用摘要，大文件采用大小/mtime。失败保留旧事务结果并警告，重建隔离损坏缓存及 WAL/SHM，不触碰账号库。
 
-A frontend session probe checks bounded text revisions every 10 seconds while visible and on focus/visibility restoration, separately from search indexing. Probes capture session identity, path, revision and generation; late responses after an in-app save, move, close or remount are ignored. They never replace source or advance the base revision. Clean buffers offer explicit reload; dirty buffers enter conflict and stop autosave. Reload checks again after reading so typing during the request wins. Missing paths preserve drafts and allow a user-chosen create-only copy path. External rename is not inferred from filenames or hashes. Attachment probes compare metadata rather than hashing unbounded binary files.
+打开会话在页面可见时每 10 秒及焦点恢复时独立探测文本版本，核对会话、路径、基准版本和代数，不直接替换正文或推进版本。干净文件显式重载，脏文件冲突暂停保存；读取期间新输入优先。外部重命名不按名称或哈希猜测；附件仅检查元数据，同大小同 mtime 的二进制改写可能无法提示。
 
-## 11. Explorer workflow
+## 本机恢复与移动端
 
-The frontend uses native desktop drag events with a page-local random gesture token; it never parses arbitrary external drop data into workspace paths. Folder/root targets route into the same conditional move controller as the keyboard-accessible move dialog. The controller flushes affected buffers, checks revisions, locks old/new path prefixes and remaps sessions only after success. Browser-owned tab shortcuts remain untouched; the workspace provides alternate close/switch chords and visible help. These controls never replace server authentication, root containment or no-overwrite checks.
+独立缓冲监听器驱动串行 IndexedDB 写入，150ms 停顿后提交。每会话随机记录 ID，保存普通正文、基准正文与版本；确认磁盘保存仅删除自身记录。恢复显式复制到新建暂停源码会话或不覆盖新文件，确认新副本保留成功后才条件删除旧记录。失败保留队列并提示，未知格式不自动清理。
 
-## 12. Browser recovery cache
+workspaceId 绑定账号初始化盐与平台根身份；页面固定首次认证的身份，通过请求头或文件 URL 查询字段传递。变更时服务器拒绝旧页面访问，客户端停止写入并保留草稿。它只是恢复命名空间，不是认证凭据或内容版本，迁移可使其变化。
 
-A dedicated session buffer listener feeds a serial IndexedDB writer, independent of the React UI subscription. Each live editing session has a random record ID so different pages cannot replace each other's same-path draft. Transactions store ordinary text plus the original base revision; acknowledged saves delete only their own record. Recovery is an explicit copy into a fresh, paused source session or a create-only file, followed by conditional deletion of the old record. Cache failures preserve the queue and warn; unknown records are never automatically purged.
+移动断点仅切换侧栏与模态抽屉，编辑器位于该分支之外。VisualViewport 订阅维护可见高度并正确清理，保留缩放。独立内存上传队列持有原始 File 直到确认成功，跨认证组件卸载保留，支持重试/下载/确认移除及离开保护；页面销毁后不能恢复原件。
 
-The authenticated bootstrap adds an opaque root/account-bound `workspaceId`. The page pins it for requests, including a query equivalent on file URLs. A changed service root is rejected rather than allowing an old page to write to a new mount. The identity is a recovery namespace, not an authorization token or filesystem CAS. App-data/volume migration can change it; browser cache is device/origin-local and separate from server backup.
+## 离线运维
 
-## 13. Responsive shell and upload originals
+Python 备份工具仍为 Linux 专用，停服后获取同一实例锁，复制两卷、复核摘要，仅在 app.db 复制件合并 WAL 和校验，排除可重建缓存，发布带清单的新目录。恢复到不存在的目标，保留账号密码并清除旧会话；不包括浏览器缓存和任意系统元数据。操作见 [备份](BACKUP.md)。
 
-A media-query subscription switches only Explorer presentation between desktop aside and a Radix modal drawer. The document editor remains outside that branch; its upload/navigation bridge stays stable across a viewport resize. A cleaned-up VisualViewport subscription exposes visible height/offset as CSS variables on small screens, retaining browser zoom behavior.
+同一 Go 二进制的离线改密绕过服务器配置与工作区初始化，锁定已有 app-data，检查账号结构，在 FULL 同步事务内更新哈希并撤销会话，保留账号盐和草稿身份；失败不重建账号库，见 [改密](PASSWORD.md)。
 
-File-picker/camera uploads use a separate in-memory queue retaining the raw File until a server acknowledgment. It survives auth-boundary component unmounts, supports explicit retry/download/confirmed discard and participates in logout/beforeunload protection. This queue is neither persistent draft storage nor server authority; it cannot survive page destruction. Server content/type/size/no-overwrite validation remains unchanged.
-
-## 14. Offline backup boundary
-
-A host-side Python utility acquires the same app-data instance flock while Folio is stopped. Descriptor-relative openat2 traversal copies ordinary files to a private sibling staging directory, rejects unsafe entries and source/output overlap, then revalidates source hashes. Only the private app.db copy is opened by SQLite to consolidate committed WAL and run integrity checks; rebuildable search caches and the runtime lock are explicitly excluded. The published snapshot is an ordinary two-directory tree with a SHA-256/metadata manifest.
-
-Restore checks the entire snapshot, copies/rechecks into a fresh private directory, preserves account credentials while clearing old sessions, then publishes a new pair of roots with no-replace rename. It never writes into existing mounts. The tool cannot freeze uncooperative external writers, preserve arbitrary filesystem metadata or include browser-local drafts. It adds no server runtime, network endpoint or cloud dependency; see `BACKUP.md`.
-
-## 15. Offline account maintenance
-
-The same Go binary provides an explicit offline password reset mode, requiring an existing app-data root and a private bounded password file. It bypasses server configuration/workspace initialization, takes the normal instance lock, checks account integrity/schema, and updates the Argon2id hash plus session revocation in one FULL-synchronous transaction. The account salt remains stable because it also namespaces browser drafts; no content or recovery records are rewritten. There is no remote reset endpoint.
-
-Authentication uses os.Root to inspect ordinary account files and opens SQLite by its configured absolute path in a trusted app-data directory. Static symlinks and special files are rejected. It no longer enforces Unix UID/mode/link-count ownership rules; deployment configures the runtime user and directory permissions/ACLs. Malicious same-user writers and concurrent local directory replacement are outside this boundary. Instance locks remain OS-backed and are released on process exit. See `PASSWORD.md` for operations and ambiguous-commit handling.
-
-## 16. Source line-ending fidelity
-
-CodeMirror's internal LF text is distinct from the canonical raw UTF-8 session string. Each mounted source editor chooses the first original line separator (LF when absent) for newly inserted lines, and tracks exceptional original separators in an immutable RangeSet. Ranges move/drop with document transactions; inverted history effects restore deleted separator metadata during undo/redo. Uniform files need no per-line exceptions. Serialization reconstructs the original separators before updating the independent session buffer, autosave or browser recovery cache. No metadata is written into Markdown and no editor is recreated on keystrokes. Async detached image appends also use the source's original separator.
-
-## 17. 标准库优先的跨平台文件层
-
-2026-10-16：工作区、上传、回收站、账号文件和搜索指纹不再依赖 openat2 或 /proc/self/fd。普通文件操作统一使用 os.Root/os.File；仅“不覆盖移动”、进程锁和根身份保留 internal/fileio 的平台文件。Linux 保留旧根身份格式与 flock，兼容已有恢复稿命名空间及离线备份锁。Windows 保存使用 os.Root.Rename，不先删除原件；目录同步无法提供 Unix 的同等保证，不宣称任意文件系统断电安全。权限信任边界、Windows 命令及验证范围见 PORTABILITY.md；早期验收记录为历史证据。
+V1 不引入存储适配平台、微服务、协作、离线同步或任意可执行插件；扩展编辑器/查看器分派应保持现有边界。

@@ -1,119 +1,57 @@
-# Web Markdown Workspace — Product & Technical Specification
+# 产品规范
 
-Status: V1.0 baseline · 2026-10-15
+Folio 是轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。普通目录中的真实文件是产品的核心，离开应用后仍可用标准工具编辑、检查和备份。
 
-## 1. Vision and boundaries
-A self-hosted, browser-first Markdown notebook and developer file workspace. **Files are the product**: Markdown, JSON, INI, YAML, logs, images, PDFs, archives and other resources coexist in an ordinary directory. The application adds a polished interface, not a proprietary content format.
+## 范围与技术选择
 
-Principles: File First; Markdown First (not Markdown Only); Web First; Simple by Default; Portable; Single-user First; Secure by Default. No block IDs, knowledge graph, proprietary note databases or required desktop app.
+面向单用户：登录后编辑笔记和配置，将图片、PDF、日志及归档与笔记放在同一目录，通过文件树、快开和全文搜索定位内容。部署为嵌入前端的 Go 单进程、单容器，使用 workspace 与 app-data 两个独立持久目录。
 
-### Users and jobs
-- Open any browser, authenticate and immediately edit notes.
-- Store config snippets, logs, screenshots, schematics, PDFs and archives next to the corresponding note.
-- Locate files by directory, quick-open or full-text search.
-- Back up, edit or inspect the same directory using standard tools outside the app.
+| 层次 | 固定选择 |
+| --- | --- |
+| 前端 | React、TypeScript、Vite 单页应用 |
+| 界面 | Tailwind CSS、语义主题变量、shadcn/ui 与 Radix、Lucide |
+| 路由与状态 | React Router、TanStack Query、Zustand；正文独立管理 |
+| 编辑器 | 动态加载 Milkdown Crepe 与 CodeMirror 6 |
+| 后端 | Go 模块化单体、net/http |
+| 元数据与索引 | 嵌入式 SQLite；账号 app.db 与可重建 search.db 分离 |
+| 正文权威 | 本地文件系统，不在数据库中保存权威正文 |
 
-### Success criteria
-- Complete ordinary daily Markdown editing, text/config editing, file upload/download, search and file organization in a browser.
-- No silent loss or overwrite of user content on failed saves, concurrent edits or unsupported Markdown serialization.
-- Portable data: workspace remains useful without this application.
-- Runs as one Docker image on Linux amd64/arm64, with two persistent mounts and no external database.
+依赖版本以锁文件为准，使用前核对已安装类型与接口。桌面拖拽目前使用原生事件，不要求另引入拖拽库。
 
-## 2. Stack (DECIDED)
-| Concern | Decision |
-|---|---|
-| Frontend | React + TypeScript + Vite, SPA (no Next.js/SSR) |
-| Components | shadcn/ui (source-owned components) + Radix primitives where appropriate |
-| Styling | Tailwind CSS + CSS design tokens; Lucide React icons |
-| Routing | React Router |
-| Remote state | TanStack Query |
-| UI state | Zustand; never put every editor keystroke into global state |
-| Markdown | Milkdown Crepe, dynamically loaded |
-| Text/code | CodeMirror 6, dynamically loaded |
-| File tree DnD | dnd-kit if necessary; keyboard-accessible alternatives required |
-| Backend | Go modular monolith, net/http + explicit middleware |
-| Index | Embedded SQLite FTS5; secondary, rebuildable |
-| Source of truth | Local filesystem |
-| Deployment | Go embeds Vite dist; Docker image; mounted `/workspace` and `/app-data` |
+## 文件与编辑
 
-Versions are pinned in lockfiles; verify dependency APIs against the versions installed. Prefer stable versions, never invent package APIs.
+- Markdown 默认富文本编辑，可切换源码；识别的 UTF-8 文本由 CodeMirror 编辑。
+- PNG/JPEG/WebP/GIF 可预览；PDF 使用 PDF.js 画布预览并保留原件下载。SVG/HTML 仅源码或下载，未知二进制仅元数据与下载；不解压、不执行附件。
+- 文件树支持新建、重命名、移动、上传、下载、移入回收站及恢复；不强制附件目录。单页同一路径只保留一个编辑会话。
+- 使用标准相对链接与图片路径，不引入专有语法。站内文件在标签页打开，外链隔离打开，远程图片默认不联网；移动文件不自动改写链接。
+- 文件和模式切换保留正文；撤销历史与光标可能重置，必须提示。源码保留 BOM、LF/CRLF/CR 与混合换行，新行采用打开时的首个换行格式，无换行则用 LF。
 
-## 3. Information architecture
-Desktop: compact top bar (workspace, search, settings), left Explorer (resizable, collapsible), tab strip, main editor/preview, optional small status bar. The document remains the visual focus. **No mandatory right panel**, complex splits, dashboards or graph canvas in V1.
+富文本转换必须实际解析并序列化比较。发现差异时展示原文、转换结果和可展开差异，支持下载原文；取消、Escape 或关闭预览均保留原文并进入源码。仅明确确认才替换会话正文，之后仍遵循条件自动保存；确认不会创建持久备份。预览期间正文变化或会话锁定时拒绝旧结果。兼容样本与限制见 [历史与兼容性](HISTORY.md)。
 
-Mobile: full-width document view, drawer Explorer, accessible file switcher, touch-friendly menus, uploads/camera photos. No installation or PWA requirement.
+## 保存与恢复
 
-### Explorer
-Tree folder expansion; create, rename, move, delete to trash, upload, download; context menu; keyboard navigation; file extension icons. Search by name and contents. Keep empty states actionable. No mandatory attachment folder.
+读取返回不透明版本；更新必须携带 If-Match，冲突不得采用最后写入者覆盖。约 800ms 停顿后自动保存，显式保存可立即提交；请求中继续输入不得被旧响应误标为已保存。同目录临时写入、同步、复核版本后替换，失败保留草稿。具体协议见 [接口说明](API.md)。
 
-### Editors and viewers
-- `.md`, `.markdown`: Milkdown Crepe WYSIWYG, with CodeMirror raw-source alternative.
-- `.txt`, `.log`, `.json`, `.jsonc`, `.yaml`, `.yml`, `.ini`, `.toml`, `.go`, `.py`, `.sh`, `.js`, `.ts` and recognized UTF-8 text: CodeMirror 6 with language support where available.
-- PNG/JPEG/WebP/GIF: image viewer; SVG treated as untrusted active content and only rendered with strict isolation or shown as source/download.
-- PDF: browser-based safe preview with download.
-- ZIP/7z/unknown/binary: metadata and download (no server-side extraction or execution).
-- Unknown type never opened blindly as HTML in the app origin.
+服务器只支持单实例写工作区。外部正文编辑通过周期核对和 ETag 检测；不提供对不协作外部写入者的全局文件系统条件交换保证。干净会话提示显式加载，脏会话暂停自动保存并比较或另存不覆盖副本，外部重命名不自动推断身份。
 
-Use an editor/viewer registry that maps file metadata to a component. Editor components own active document model; workspace state owns only tabs, navigation, file revisions and dirty status. Preserve drafts on navigation. Only one editable instance per file per browser workspace in V1.
+浏览器本机恢复缓存按工作区、路径和独立会话隔离。恢复必须显式打开为暂停自动保存的源码会话，不能覆盖已有脏标签。缓存有提交窗口、配额与驱逐风险，不是备份；待确认上传原件只保存在页面内存。服务器备份必须停写并成对处理两卷，见 [备份说明](BACKUP.md)。删除进入回收站，回收站也不是版本历史或备份。
 
-### Markdown compatibility
-Standard relative links and image paths (e.g. `![Image](./screenshot.png)`), preserved as ordinary Markdown. Internal file references open in app tabs. External links use safe browser navigation. No need for Wiki Links in V1.
+## 搜索与操作
 
-Milkdown may normalize or discard unsupported Markdown constructs. Establish a round-trip fixture suite (frontmatter, HTML, tables, fenced languages, nested lists, math, escapes, reference links, comments). Compare input -> parse -> serialize; reject unsafe conversion without a warning and a path back to raw source. **Never silently save lossy content.** Rich/source mode transitions must respect dirty state and undo-history limitations.
+名称/路径快开与已保存文本全文搜索支持中文和英文，不搜索未保存草稿、PDF 正文或 OCR。索引默认正文上限 1 MiB，超限及二进制仅索引名称；索引错误不能阻止编辑。刷新节奏与实现见架构说明，限额配置见 README。
 
-检测到转换差异时，先展示转换前原文、转换后 Markdown 和可展开的 Diff。取消、Escape 或关闭预览均保留原文并进入源码模式；只有明确确认才替换会话正文，随后遵循原有自动保存和 ETag 冲突规则。预览提供转换前原文下载，确认本身不创建持久备份；需要原文时应在确认前下载。Diff 使用线性复杂度的单个替换区间，不保证最小编辑集，并标注换行类型。预览只展示文本，不执行 HTML；预览期间正文变化或文件锁定时拒绝应用旧转换结果。
+快捷键：Ctrl/Cmd+S 保存，Ctrl/Cmd+P 快开，Ctrl/Cmd+Shift+F 全文搜索，编辑区外 Ctrl/Cmd+B 切换目录；Ctrl/Cmd+Alt+W 保存并关闭工作区标签，Alt+PageUp/PageDown 切换。保留浏览器自有关闭/切页键和编辑器加粗键，并提供可见菜单替代。
 
-## 4. Functional scope
-### M0: editor spike
-React + Milkdown Crepe mounting/lifecycle; raw Markdown extraction, realistic round-trip fixtures; CodeMirror; editing different files without cross-file state corruption. Decide safe behavior for unsupported syntax and switching modes.
+## 安全与部署
 
-### M1: useful personal app
-Single-user login; Explorer CRUD; multi-tabs; Milkdown/CodeMirror; autosave, explicit save and conflict handling; paste/drop image, upload attachments; download/preview basics; one-container deploy.
+单本地账号，Argon2id 密码哈希、可撤销会话、HttpOnly/Secure/SameSite Cookie、来源与 CSRF 校验、登录限速。文件、下载、预览和搜索均需认证。离线改密必须停服，用同一二进制更新密码并在事务内撤销会话，不提供远程重置入口。
 
-### M2: usability
-Name quick-open; full-text search; keyboard shortcuts; move/rename DnD; trash restore; external changes detection; stable file previews.
+路径必须限定于工作区，拒绝穿越、静态符号链接和特殊文件；使用 Go os.Root。运行用户、目录权限/ACL、硬链接与嵌套挂载由部署者管理；恶意同用户进程和并发目录命名空间替换不在应用隔离保证内。Windows 和 Linux 持久性保证不同，详见 [跨平台说明](PORTABILITY.md)。
 
-### M3: resilience/mobile
-Responsive layout; browser draft recovery; backup/restore documentation and tests; security, accessibility and performance QA.
+上传与文本限制在启动时读取，流式执行，不信任 Content-Length；同名不覆盖。默认文本 5 MiB、图片 20 MiB、PDF 50 MiB、其他附件 100 MiB、图片 3200 万像素。部署支持直接 TLS 或既有 HTTPS 代理，不增加代理服务。
 
-### Excluded from V1
-Block database, graph, mandatory tags, bidirectional links, custom plugin marketplace, collaboration/CRDT, filesystem shell, server command execution, Git UI, AI authoring, Obsidian plugin emulation, offline sync, S3 and WebDAV backends, public anonymous sharing.
+## 不属于 V1 的功能
 
-## 5. Persistence model
-Filesystem paths relative to a configured `/workspace` root. Preserve Unicode names. Store no authoritative file contents in SQLite. `/app-data` holds `app.db` (auth/settings metadata), a separate rebuildable `search.db` cache, trash and recovery data. External filesystem editors are allowed, so watch + reconcile changes; do not rely exclusively on inotify (network mounts may differ). Ignore app data, dangerous device files and unsafe symlinks.
+块数据库、知识图谱、强制标签、双向链接、插件市场、协作/CRDT、终端或远程执行、Git 界面、AI 写作、Obsidian 插件兼容、离线同步、强制 PWA、S3/WebDAV、匿名分享。
 
-### Safe files API
-Reject absolute paths, traversal, NUL, unsupported special files and symlink escape. Normalize paths carefully; path-prefix string checks alone are insufficient. Use Go standard-library `os.Root` for traversal-resistant workspace access, with static symlink/special-file rejection. Runtime user and directory permissions/ACLs are deployment responsibilities; trusted local programs must not concurrently replace directory namespaces or special files. Root containment still applies to browser requests. Hardlinks and nested mounts are operator-managed ordinary workspace content, not an application isolation boundary. Preserve conditional writes and test containment. See `PORTABILITY.md` for the revised trust boundary and minimal platform helpers.
-
-### Consistency
-- `GET` returns content plus opaque revision/ETag.
-- Writes supply `If-Match` (or explicit base revision); mismatches return HTTP 409/412 consistently per API contract. No last-write-wins.
-- Server serializes writes per canonical path; externally modified files are detected by validating current revision immediately before replacement.
-- Same-directory temporary write, flush, atomic rename and directory sync where supported; avoid partial writes. Preserve reasonable permissions.
-- Autosave: ~800ms after last edit; visible Saving/Saved/Unsaved/Error/Conflict state. `Ctrl/Cmd+S` forces save. Failed requests retain dirty buffer. M3 implements a browser-local recovery cache keyed by workspace namespace, relative path and independent editing-session ID; explicit restore is paused and never automatically replaces disk content. Browser cache has a commit window and can be cleared/evicted, so it is not a backup.
-- Deletion moves to app-managed trash with safe restore; file revisions and backup are distinct concerns. Define a documented backup procedure for both mounts, including SQLite consistency.
-
-## 6. Search
-FTS5 index filenames, paths and Markdown/eligible text bodies under a configurable size cap; no OCR or PDF text in V1. Use tokenizer strategy suitable for Chinese and English (test trigram vs tokenization for actual search behavior). Results show filename, path, excerpt. Index is rebuilt on demand; filesystem is authority; index errors never prevent editing.
-
-## 7. Auth and security
-Single local account for V1. Strong password hashing (Argon2id preferred), HttpOnly Secure SameSite cookie-based sessions, session rotation, logout/revocation, CSRF defense for mutations, rate-limited login, HTTPS behind a trusted reverse proxy or directly using configured Go TLS certificates, restrictive CORS and headers. Do not expose unrestricted filesystem browsing or executable endpoints. Untrusted uploads and previews served safely (prefer attachment disposition or isolated origin for active content). Authenticate all file and preview endpoints. Security review prior to public exposure.
-
-Forgotten-password recovery is an explicit offline mode of the same binary, requiring private existing app-data and a bounded private password file. It takes the instance lock and updates the password hash plus revokes all sessions in one transaction, without initializing a new workspace or changing the browser recovery namespace. No remote reset endpoint or implicit reset from a changed bootstrap password file. See `PASSWORD.md`.
-
-Default configurable maxima: editable text 5 MiB, images 20 MiB, PDF 50 MiB, arbitrary attachments 100 MiB; enforce limits while streaming and prevent decompression bombs by not auto-extracting. Identical names never silently overwrite.
-
-## 8. Shortcuts
-`Ctrl/Cmd+S` save; `Ctrl/Cmd+P` quick open; `Ctrl/Cmd+Shift+F` global search; `Ctrl/Cmd+W` close tab where browser interception permits; `Ctrl/Cmd+Tab` switch tabs where permitted; `Ctrl/Cmd+B` toggle Explorer. Do not override editor formatting or browser-critical shortcuts without fallback controls. Browser-owned close/switch chords remain untouched in the current browser build; `Ctrl/Cmd+Alt+W` saves/closes the workspace tab and `Alt+PageUp/PageDown` switches workspace tabs. The toolbar exposes shortcut help.
-
-## 9. Quality and acceptance tests
-- Round-trip Markdown corpus, with documented unsupported cases.
-- Concurrent write with stale ETag must reject and preserve both versions (recoverable local draft).
-- Server crash mid-save must leave a complete old or new file, never truncated content.
-- Path traversal, symlink traversal, filename edge-cases, upload limits, HTML/SVG injection, CSRF/session tests.
-- External file rename/change reflected or reconciled with explicit conflict handling.
-- Mobile viewport, keyboard Explorer, dialogs and screen reader labels.
-- Verify actual loading of a large note, 1,000+ tree items and multi-file search; set measured performance targets after M0 rather than inventing them.
-
-## 10. Acceptance definition
-M1 is accepted only when a user can create a folder, write a Markdown note, paste an image, edit a JSON alongside it, switch tabs, safely autosave, close/reopen the browser, download files, and recover from a stale-write conflict in a deployed container.
+验收要求与可复现命令统一见 [测试计划](TESTPLAN.md)，阶段结果见 [验收记录](ACCEPTANCE.md)，当前改造验证见跨平台说明；不能用历史镜像结果证明新构建。

@@ -1,119 +1,115 @@
-# HTTP API Contract — Draft V1
+# HTTP 接口协议
 
-Base path `/api/v1`, JSON except streaming file upload/download. All routes require a valid session except login and optional health. Same-origin cookies; anti-CSRF token/header on mutation requests. Each API version has stable errors and request schema. This document is a **contract proposal**; implement and test before declaring stable.
+基础路径 /api/v1。除上传/下载流外使用 JSON。下表记录已实现接口；PATCH /settings 尚未实现，不作为客户端可调用能力。代码字段与协议名称保留英文。
 
-## Conventions
-- Paths are workspace-relative URL query strings or JSON strings; encode URI components properly. Example `Linux/PVE/notes.md`. Never accept server absolute paths.
-- Filename/text metadata UTF-8. Binary content streams raw bytes, not JSON base64.
-- `revision` is opaque (e.g. strong hash/ETag) and returned for content reads; updates must supply `If-Match: "<revision>"`. Implemented create-only POSTs always use no-replace semantics and do not require `If-None-Match`; a collision is 409, never an overwrite option.
-- File timestamps are advisory; must not be the only concurrency guard.
-- Error schema: `{"error":{"code":"revision_conflict","message":"...","details":{}}}`. Do not leak absolute filesystem paths.
-- JSON list responses support documented pagination/limit before large-workspace usage.
+## 通用约定
 
-## Routes
-| Method | Route | Purpose |
-|---|---|---|
-| POST | `/auth/login` | Establish session |
-| POST | `/auth/logout` | Revoke session |
-| GET | `/auth/me` | Current principal + CSRF token/metadata |
-| GET | `/workspace/tree?path=` | List immediate children of directory |
-| GET | `/files/metadata?path=` | Classify an authenticated regular file for editor/viewer dispatch |
-| GET | `/files/revision?path=` | Bounded regular-text revision check, no body |
-| GET | `/files/content?path=` | Read bounded text with revision, encoding, metadata |
-| PUT | `/files/content?path=` | Update existing text, conditional revision required |
-| POST | `/files` | Create empty/text file only if absent |
-| POST | `/directories` | Create directory |
-| GET | `/entries/revision?path=` | Strong file/subtree revision for conditional operations |
-| PATCH | `/entries/move` | Rename/move file or directory |
-| DELETE | `/entries?path=` | Move entry to trash |
-| GET | `/trash` | List restorable entries |
-| POST | `/trash/{id}/restore` | Restore, reject collisions |
-| POST | `/uploads?directory=` | Multipart stream upload with name collision policy |
-| GET | `/files/download?path=` | Authenticated attachment download |
-| GET | `/files/preview?path=` | Strict-safe inline previews (type and CSP controls) |
-| GET | `/search?q=&mode=&limit=` | File and full-text search |
-| GET | `/settings` | Preferences and limits exposed safely |
-| PATCH | `/settings` | Change editable preferences |
-| GET | `/healthz` | Process liveness; no internal info |
+- 除登录、静态资源与无内部信息的健康检查外，接口需要有效会话。登录与 me 返回 {username,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
+- 修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
+- 路径使用正确编码的工作区相对路径，不接受服务器绝对路径。元数据/文本使用 UTF-8，二进制传原始字节。
+- revision 为不透明强版本；更新、移动、删除必须提供 If-Match: "<revision>"。缺少条件返回 428，陈旧版本返回 412。新建接口始终不覆盖，同名返回 409，无需 If-None-Match。
+- 时间戳仅供参考，不是并发依据。列表仅按明确的分页/限额返回，不承诺外部变动中的一致快照。
+- 错误形状：{"error":{"code":"revision_conflict","message":"中文说明","details":{}}}，不暴露绝对路径。
 
-## Core examples
-Read: `GET /api/v1/files/content?path=Linux%2Fnotes.md`
+## 已实现路由
+
+| 方法 | 路由 | 用途 |
+| --- | --- | --- |
+| POST | /auth/login | 登录 |
+| POST | /auth/logout | 撤销当前会话 |
+| GET | /auth/me | 当前账号、CSRF 与工作区身份 |
+| GET | /workspace/tree?path=&offset=&limit= | 列出目录直接子项 |
+| GET | /files/metadata?path= | 文件分类与预览元数据 |
+| GET | /files/revision?path= | 有限文本版本，不返回正文 |
+| GET | /files/content?path= | 读取 UTF-8 正文与版本 |
+| PUT | /files/content?path= | 条件更新现有文本 |
+| POST | /files | 不覆盖地创建文本文件 |
+| POST | /directories | 创建目录 |
+| GET | /entries/revision?path= | 文件或完整子树版本 |
+| PATCH | /entries/move | 条件重命名/移动 |
+| DELETE | /entries?path= | 条件移入回收站 |
+| GET | /trash?offset=&limit= | 回收记录 |
+| POST | /trash/{id}/restore | 不覆盖地恢复 |
+| POST | /uploads?directory=&image=false | 单文件流式上传 |
+| GET | /files/download?path= | 认证原件下载 |
+| GET | /files/preview?path= | 白名单安全预览 |
+| GET | /search?q=&mode=&limit= | 名称/正文搜索 |
+| GET | /search/status | 索引状态 |
+| POST | /search/rebuild | 异步重建索引 |
+| GET | /settings | 启动时文件限制 |
+| GET | /healthz | 存活检查 |
+
+离线密码恢复没有 HTTP 入口，见 [改密说明](PASSWORD.md)。
+
+## 文本读写与保存顺序
+
+读取示例：GET /api/v1/files/content?path=Linux%2Fnotes.md。
+
 ```json
-{"path":"Linux/notes.md","kind":"text","content":"# Notes\n","encoding":"utf-8","revision":"sha256:opaque","size":8,"mtime":"2026-10-15T09:00:00Z"}
+{"path":"Linux/notes.md","kind":"text","content":"# 笔记\n","encoding":"utf-8","revision":"sha256:opaque","size":9,"mtime":"2026-10-15T09:00:00Z"}
 ```
-For JSON content reads, `revision` is the response field; server may also send `ETag`. `sha256:opaque` is an illustrative value, not a mandated exact algorithm. Never decode and re-encode arbitrary binary files via this endpoint.
 
-Write: `PUT /api/v1/files/content?path=Linux%2Fnotes.md`
-Headers: `Content-Type: application/json`, `If-Match: "sha256:opaque"`, CSRF header.
+sha256:opaque 仅示意不透明值，客户端不能解析或自行生成版本。不要通过此接口解码再编码任意二进制。
+
+PUT 使用 Content-Type: application/json、If-Match 与 CSRF 头：
+
 ```json
-{"content":"# Updated\n","encoding":"utf-8"}
+{"content":"# 更新\n","encoding":"utf-8"}
 ```
-Success `200`: `{"path":"Linux/notes.md","revision":"sha256:new","savedAt":"..."}`. Conflict `412 Precondition Failed` with current revision metadata; invalid/unreadable files `415/422` as appropriate. Missing precondition `428 Precondition Required`. Create-only collisions return `409 Conflict`.
 
-Move request:
-```json
-{"from":"Linux/old.md","to":"Linux/new.md"}
-```
-Moves must reject target collision unless an explicit separate policy is later specified. Do not automatically rewrite Markdown links in V1; communicate impact.
+成功 200：{path,revision,savedAt}。读取后会话保存正文、基准版本与脏状态，同文件请求串行。成功响应只确认已发送快照；请求中继续输入则保持脏状态，并用新版本保存下一快照。412 保留正文、停止盲重试并比较/另存副本；网络错误保留草稿并提供显式重试，不能假装已保存。
 
-### Selected error codes
-`unauthenticated` (401), `forbidden` (403), `not_found` (404), `path_invalid` (400), `unsupported_file_type` (415), `too_large` (413), `revision_conflict` (412), `precondition_required` (428), `target_exists` (409), `rate_limited` (429), `internal_error` (500).
+GET /files/revision 返回 {path,revision} 及强 ETag，与正文版本一致；仅验证限额内普通 UTF-8 文本，不递归散列目录。缺失 404、非文本/目录 415、超限 413。探测失败不得推进基准版本，必须实际读取并协调正文。
 
-## Browser autosave protocol
-1. Fetch file content and opaque revision.
-2. Keep in-memory editing session (text, baseRevision, dirty status).
-3. Debounce and send a conditional write; serialize writes for that file.
-4. On 200 update base revision and clean state only if the response matches the last acknowledged snapshot. If edits occurred during request, remain dirty and enqueue next save.
-5. On 412 preserve local content, stop blind retries, show compare/keep separate options.
-6. On network error preserve dirty content and retry with bounded backoff only if base revision remains valid.
+## 目录、移动与回收
 
-## Security notes
-Authenticated downloads use correct `Content-Disposition` and `X-Content-Type-Options: nosniff`. Raw HTML/SVG must not execute in the app's origin. URL path normalization + filesystem-level race protection are mandatory. Session cookies are HttpOnly, Secure under HTTPS, SameSite; mutation endpoints enforce CSRF. Upload streaming applies size limits independently of declared Content-Length.
+目录 path 默认空字符串，offset 默认 0，limit 默认 200、最大 1000；返回 {entries:[{name,path,kind,size}],total,offset,limit}，kind 为 directory 或 file，不安全条目不列出。
 
-## Implemented status (M1/M2)
+GET /entries/revision 返回 {path,kind,revision} 与强 ETag，文件摘要与文本版本一致。目录版本覆盖排序子树的名称、类型、目录权限和文件摘要；不安全子树明确失败，不部分忽略。
 
-Implemented: health, login/logout/me, immediate-child tree listing, text content GET/PUT, create-only POST files, POST directories, metadata, uploads, authenticated downloads/previews read-only GET settings, conditional entry move/delete, trash listing and restore, bounded text revision checks, search/status/rebuild. Other routes above remain proposed.
+移动 JSON：{"from":"Linux/old.md","to":"Linux/new.md"}。移动/删除需要精确 If-Match，不覆盖目标，不自动重写 Markdown 链接。跨设备移动不提供静默复制降级，挂载与本地信任边界见 [跨平台说明](PORTABILITY.md)。
 
-Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaults to 200 (maximum 1000). Response is `{entries:[{name,path,kind,size}],total,offset,limit}`; `kind` is `directory` or `file`. Unsafe entries are omitted. Pagination is not a filesystem snapshot.
+删除返回 {id,path,kind,revision,deletedAt,state,stage?}；stage 是受管理的恢复名称，不是可编辑笔记路径。回收列表同样默认每页 200、最大 1000，返回 {entries,total,offset,limit}。状态包括 ready、preparing/incomplete、damaged，异常记录保留供检查。
 
-Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken,workspaceId}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
+恢复 POST 不需要正文，但需要 CSRF；成功返回 {path}，目标碰撞 409，原父目录缺失 404，不自动选择其他路径。500 或连接失败可能发生在目录变更后，客户端须保留缓冲并刷新目录/回收站协调，不能假定原路径仍在。
 
-Password recovery has no HTTP endpoint. An operator must stop the instance and use the explicit offline command described in `PASSWORD.md`; successful reset revokes all sessions, so existing authenticated requests return 401 until a new login. The same roots retain their browser recovery namespace.
+## 附件与限额
 
-Login permits one in-flight password verification globally. Concurrent attempts return 429 `rate_limited` with `Retry-After: 1`, without joining a hash queue or consuming the source's failed-password quota. The existing source attempt limit returns the same error code with `Retry-After: 600`. Clients preserve input and offer an explicit retry; no automatic password retries are required.
+元数据返回 {path,size,mtime,mediaType,viewer}，viewer 为 markdown、text、image、pdf 或 binary。按实际字节分类，静态链接和特殊文件拒绝；硬链接由部署管理，SVG/HTML 不活动预览。
 
-Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.
+上传只允许一个名为 file 的 multipart 部分，原始 filename 必须是纯文件名，穿越明确拒绝而非截断。image=true 仅接收支持且限额内的位图。成功 201 返回元数据；同名 409、超限 413、图片/预览不兼容 415 preview_unavailable。多个部分或不完整请求不得提交目标，多个文件分请求且不是批量事务。中断可能发生在服务端提交后，应先检查目录再重试。
 
-### Attachment contract
+下载强制 octet-stream 与 attachment，支持 Go 文件响应的 Range 下载。预览仅允许验证过的位图或有界 PDF 类型检查，带 sandbox CSP 与 nosniff；PDF 客户端以画布渲染，不构建活动页面。不解压归档。
 
-`GET /files/metadata?path=` returns `{path,size,mtime,mediaType,viewer}`. `viewer` is `markdown`, `text`, `image`, `pdf` or `binary`. Classification inspects actual bytes; special files and symlinks remain forbidden; hardlinks are operator-managed ordinary files under the trusted-local-directory policy (see PORTABILITY.md). SVG/HTML are never active previews.
+GET /settings 返回 {limits:{text,image,pdf,attachment,imagePixels}}，除 imagePixels 外均为字节数。只读启动配置，环境变量与默认值见 [README](../README.md)。
 
-`POST /uploads?directory=&image=false` requires one multipart part named `file`. The raw filename must be a basename; traversal is rejected, not silently stripped. `image=true` requires a supported, bounded raster image (clipboard/drop bridge). Success 201 returns the same metadata shape. Same-name files are rejected with 409, limits with 413, image-only/preview incompatibility with `preview_unavailable` (415). More than one part or an incomplete body never commits a target file. Multiple files use separate requests and are not transactional as a batch.
+## 搜索
 
-Download always uses attachment disposition and octet-stream. Preview allows only validated supported raster images or a bounded PDF header type, with a sandbox CSP and nosniff; the client renders PDFs through PDF.js canvas rather than HTML/plugin embedding. Range downloads are supported by the Go HTTP file response. No archive extraction exists.
+GET /search 返回 {entries:[{path,name,excerpt}],truncated,limit,status}。省略 mode 为全文，mode=names 为名称/路径子串。空全文返回无结果，空名称查询列文件。查询为最多 200 个 Unicode 字符的字面文本，不支持 FTS 运算符或正则；limit 默认 50、最大 200，超出标记 truncated，无分页。摘要为纯文本，支持 ASCII 大小写不敏感，不承诺 Unicode 规范化或重音折叠。
 
-`GET /settings` returns `{limits:{text,image,pdf,attachment,imagePixels}}` with byte counts, except imagePixels. Limits are startup configuration; PATCH settings is not yet implemented.
+GET /search/status 返回 {indexing,indexedAt,files,warning?}；POST /search/rebuild 需要 CSRF，返回 202 {accepted:true}，异步完成。缓存错误 503 index_unavailable 不阻断文件读写；warning 表示可能陈旧。索引正文限额见 README，刷新节奏见 [架构](ARCHITECTURE.md)，不包含未保存正文、PDF/OCR。
 
-### Entry and trash contract
+## 工作区身份
 
-`GET /entries/revision?path=` returns `{path,kind,revision}` and a strong ETag. For files the content hash matches the text-read revision. Directory revisions cover the sorted subtree, names, node kinds, directory permissions and file content hashes. Unsafe subtrees are rejected instead of partly omitted.
+workspaceId 由账号初始化盐与平台根身份派生，Linux 使用设备号/inode，Windows 使用卷/文件身份；它不是凭据或内容版本。页面请求以 X-Folio-Workspace 固定身份，预览/下载 URL 使用 workspace 查询字段。
 
-PATCH move and DELETE entries require the exact revision in `If-Match` (428 when absent, 412 when stale). Moves never replace targets. Cross-mount moves inside the workspace remain unsupported under the no-cross-device traversal policy. Delete returns the recovery record `{id,path,kind,revision,deletedAt,state,stage?}`; `stage` is a managed workspace-relative recovery name, not an API-editable note path.
+身份不符时，受保护的非认证接口在存储前返回 409 workspace_changed；客户端停止写入、保留/下载草稿并重新加载，不能自动采用新身份重试。缺少身份字段的旧客户端仍沿用原接口行为。迁移根或 app-data 可改变命名空间，浏览器缓存不属于服务器备份。
 
-`GET /trash?offset=0&limit=200` returns `{entries,total,offset,limit}`, maximum page size 1000. States include ready, preparing/incomplete (recoverable operation not fully acknowledged) and damaged (requires inspection). POST restore needs CSRF but no content body. It returns `{path}` on success and rejects any target collision with 409; missing original parent is 404. Restore never silently creates a different destination.
+## 错误与边界
 
-Additional errors: `operation_in_progress` (409), `trash_unavailable` (503), `trash_damaged` (422), `trash_failed` / `trash_incomplete` (500). A 500/connection failure can occur after a namespace change; clients retain buffers and refresh Explorer/trash to reconcile, rather than assuming the original path still exists. Failed or damaged recovery records are retained.
+| 状态 | 常见代码 |
+| --- | --- |
+| 400 | path_invalid |
+| 401 / 403 | unauthenticated / forbidden |
+| 404 | not_found |
+| 409 | target_exists、file_changed、workspace_changed、operation_in_progress |
+| 412 / 428 | revision_conflict / precondition_required |
+| 413 / 415 | too_large / unsupported_file_type、preview_unavailable |
+| 422 | trash_damaged |
+| 429 | rate_limited |
+| 500 | internal_error、durability_uncertain、trash_failed、trash_incomplete |
+| 503 | trash_unavailable、index_unavailable |
 
-### Search contract (M2 slice)
+file_changed 表示操作中的文件/父身份发生变化；durability_uncertain 表示替换后目录同步失败，客户端保留草稿并重读协调。外部写入者竞争窗口及平台持久性限制见跨平台说明，不保证全局文件系统条件交换。
 
-Authenticated `GET /search?q=&mode=&limit=` returns `{entries:[{path,name,excerpt}],truncated,limit,status}`. Omit mode for full-text search or set `mode=names` for path/name substring search. Empty full-text queries return no results; empty name queries list files. Queries are literal, at most 200 Unicode characters, never FTS operators or regular expressions. Limit defaults to 50, maximum 200; results beyond that set `truncated=true`, without pagination. Excerpts are plain text. ASCII case-insensitive matching is supported; Unicode normalization/accent folding is not promised.
-
-`GET /search/status` returns `{indexing,indexedAt,files,warning?}`. `POST /search/rebuild` requires CSRF and returns 202 `{accepted:true}`; completion is asynchronous. Cache failure returns 503 `index_unavailable` without blocking file reads/writes. A warning means results may be stale. Both endpoints use the same authentication boundary as file APIs. Body size cap and refresh timing are documented in `M2.md`; unsaved browser text and PDF/OCR contents are never searched.
-
-### Open-editor reconciliation (M2 slice)
-
-`GET /files/revision?path=` is authenticated and returns `{path,revision}` plus the strong ETag used by content GET/PUT. It validates regular UTF-8 text under the configured text size limit, including symlink/special-file policy; it never recursively hashes a directory. Missing files return 404, non-text/directory 415, oversized text 413. This is distinct from `/entries/revision`, which supports subtree operations. Clients retain buffers on probe errors and must not adopt a new base revision without loading/reconciling the content.
-
-### Workspace identity (M3 recovery slice)
-
-`workspaceId` is a stable opaque browser-recovery namespace derived from the account initialization salt and the opened root device/inode. It is neither a token nor a content revision. Browser API requests pin it with `X-Folio-Workspace`; authenticated preview/download links use the equivalent `workspace` query parameter. If a supplied identity differs from the running workspace, protected non-auth routes return 409 `workspace_changed` before invoking storage. Missing identity retains the existing API behavior for older clients. Clients must stop writes, preserve/download drafts and reload on this error; they must not silently retry against a newly returned workspace ID. Restoring mounts elsewhere can change the namespace; browser drafts are not part of server backups. See `M3.md`.
+登录仅允许一个在途密码校验，忙时 429、Retry-After: 1，不排队且不消耗来源密码错误配额；来源失败次数触限时 Retry-After: 600。客户端保留输入并显式重试，不自动反复发送密码。

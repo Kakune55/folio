@@ -70,7 +70,7 @@ Compose 配置只读根文件系统、临时 `/tmp`、drop-all capabilities、no
 
 证书续期后需重启 Folio；没有内置 ACME/自动续期服务。`FOLIO_TLS_CERT` 与 `FOLIO_TLS_KEY` 必须成对设置。安全 Cookie 默认开启；关闭它仍只允许绑定回环 IP，不为容器添加任意明文公网监听例外。
 
-## Rootless Podman
+## 无根权限 Podman 部署
 
 同一 Dockerfile 可用 Podman 构建。rootless bind mount 需要 `--userns=keep-id`，例如：
 
@@ -107,18 +107,7 @@ CONTAINER_ENGINE=podman make container-test
 
 测试包括创建目录、Markdown/JSON 编辑、粘贴图片、切换、自动保存、下载、关闭浏览器、重启容器、重新启动浏览器、实际外部文件修改后的陈旧写入冲突、副本保留，以及容器内目录回收/恢复。证据位于 `artifacts/container/`，失败时保留控制台诊断，测试容器与临时数据在 finally 中清理。
 
-M1 的实际运行环境、镜像摘要及限制见 [M1 记录](M1.md)。跨架构仿真、Compose 配置检查和 Docker daemon 上执行 `compose up` 是不同证据，不混称。
-
-## 本次本地镜像归档
-
-`artifacts/container/folio-m1.oci.tar` 包含 amd64 与 arm64 清单，旁边有 `.sha256` 校验文件。已用 Podman 检查和导入本机平台；Docker daemon 导入未在此环境验证。导入后可将显示的镜像 ID 标记为 `folio:local` 再用 Compose 运行：
-
-```sh
-podman load -i artifacts/container/folio-m1.oci.tar
-podman tag <导入时显示的镜像ID> folio:local
-```
-
-镜像归档、截图和 JSON 验收记录属于本机构建产物，不进入 Git。源码和 Dockerfile 可重建它们。
+历史实际运行环境、镜像摘要及限制见 [验收记录](ACCEPTANCE.md)。跨架构仿真、Compose 配置检查和 Docker daemon 上执行 `compose up` 是不同证据，不混称。
 
 ## 备份与切换恢复副本
 
@@ -126,7 +115,7 @@ podman tag <导入时显示的镜像ID> folio:local
 
 Compose 的宿主路径可由 `FOLIO_WORKSPACE_DIR` 与 `FOLIO_APP_DATA_DIR` 配置，默认仍为 `./workspace`、`./app-data`。恢复时两项必须一起切换，旧卷保持不动。恢复保留密码并清除旧登录会话；新位置启动后需重新登录、等待搜索重建并核对回收站/附件。备份工具运行在宿主机，需要 Python 3.11+，不向 scratch 镜像加入解释器。
 
-`make CONTAINER_ENGINE=podman image` 现在显式使用 Docker 镜像格式，以保留 HEALTHCHECK 元数据。M3 原生 amd64 HTTPS 容器恢复演练不等同于 arm64 或 Docker daemon 的重新验收，具体证据见 M3 记录。
+`make CONTAINER_ENGINE=podman image` 现在显式使用 Docker 镜像格式，以保留 HEALTHCHECK 元数据。M3 原生 amd64 HTTPS 容器恢复演练不等同于 arm64 或 Docker daemon 的重新验收，具体证据见 [验收记录](ACCEPTANCE.md)。
 
 ## M3 镜像的安全与故障演练
 
@@ -134,15 +123,8 @@ Compose 的宿主路径可由 `FOLIO_WORKSPACE_DIR` 与 `FOLIO_APP_DATA_DIR` 配
 
 `make container-test` 继续使用两个实际 bind mount，现已加入在线改密拒绝、停服后仅挂载 app-data 的离线重置、旧 Cookie/密码失效与新密码/文件/工作区身份验证。两种驱动均使用临时证书 SPKI 例外，浏览器不全局忽略 HTTPS 错误；宿主 CA 和主机名另行完整校验。新流程已在原生 amd64、QEMU arm64 候选镜像上通过，Docker daemon 与原生 ARM 硬件未在本机验证。
 
-## V1 最终本地交付
+## 历史交付与升级
 
-当前最终镜像、源码节点、逐项验收和平台边界见 [ACCEPTANCE.md](ACCEPTANCE.md)。`artifacts/container/folio-m3.oci.tar` 包含 amd64/arm64，旁有摘要与清单检查收据；保留 Docker v2s2/HEALTHCHECK，已用 Podman 导入本机平台。换行修复前的旧候选另存为 `folio-m3-before-eol.oci.tar`，不能作为当前版本使用。
+历史最终镜像 ID、归档摘要与导入范围统一见 [验收记录](ACCEPTANCE.md)，文件层改造后的验证见 [跨平台说明](PORTABILITY.md)。不要把旧镜像当作当前源码已构建验收的证明。
 
-```sh
-cd artifacts/container
-sha256sum -c folio-m3.oci.tar.sha256
-podman load -i folio-m3.oci.tar
-podman tag 3b1f397e0f070ec9470820ae947249e9952dfd88d17856167d24cdd2bbd60576 folio:local
-```
-
-上例在已验证的 amd64 主机上加载/标记；ARM 操作者选择对应平台镜像 ID，详见验收表。其他引擎导入命令应按其支持的格式核对。本机没有推送注册表，也没有执行 Docker daemon 部署。切换版本前先备份两卷、保存/下载浏览器草稿和待确认原件；部署新程序后刷新旧页面，不强制丢弃旧页面内存。
+升级前备份两卷，保存或下载浏览器草稿和待确认原件；部署新程序后刷新旧页面。导入本地归档后按实际平台镜像 ID 标记，核对 HEALTHCHECK 和摘要；不要依赖本机构建产物在其他机器上存在。

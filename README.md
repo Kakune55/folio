@@ -1,69 +1,71 @@
 # Folio · 文件工作区
 
-轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。真实文件是内容的唯一权威来源。
+轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。真实文件是正文唯一权威；React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go，嵌入式 SQLite 仅保存账号/会话及可重建索引。
 
-技术栈：React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go；嵌入式 SQLite 保存账号/会话与可重建搜索索引。UI、必要的代码注释及实现说明默认使用中文。
+支持文件/目录整理、Markdown 与源码编辑、条件自动保存及冲突副本、附件上传/预览/下载、中英文搜索、快开、回收恢复、本机草稿和移动端抽屉。界面与项目说明统一使用简体中文。
 
-**V1 的 M0–M3 历史验收已记录；后续标准库文件层改造见 [跨平台说明](docs/PORTABILITY.md)。** 支持真实文件、单用户登录、Markdown/源码编辑、原始换行、条件自动保存、冲突另存、附件预览/下载、目录整理与回收恢复、中英文搜索、快开、桌面拖拽与键盘操作。逐项证据、最终镜像/归档与限制见 [最终验收](docs/ACCEPTANCE.md)。
-
-底栏“恢复稿”提供本机缓存的显式恢复；移动端抽屉、文件选择/拍照入口及失败原件保留已接入。双卷备份/新目录恢复见 [备份说明](docs/BACKUP.md)，账号恢复见 [离线改密](docs/PASSWORD.md)。当前 amd64 原生与 arm64 QEMU 的 HTTPS 部署/重启/改密、安全及真实 ENOSPC 恢复通过；真实手机相机/软键盘、读屏器、原生 ARM 和 Docker daemon 的未验证边界均有明确记录。
+M0–M3 的历史验收及镜像证据见 [验收记录](docs/ACCEPTANCE.md)。后续标准库文件层的当前实现、权限边界与验证范围见 [跨平台说明](docs/PORTABILITY.md)，旧镜像结果不能替代新构建验证。
 
 ## 本地运行
 
-需要 Node.js 22.12+（本次使用 24）、npm、Go 1.27+、Python 3。
+需要 Node.js 22.12+、npm、Go 1.27+、Python 3。以下使用 Make，Windows 原生 PowerShell 命令见 [跨平台说明](docs/PORTABILITY.md)。
 
 ```sh
 make install
 make run
 ```
 
-打开 <http://127.0.0.1:8080>。账号为 `admin`，首次启动生成的密码位于 `app-data/initial-password`；生产环境建议用 `FOLIO_PASSWORD_FILE` 指定私密密码文件。`make build` 会构建前端并嵌入 Go 二进制，生成 `bin/folio`。`FOLIO_ADDR` 可设置监听地址。本地 `make run` / `make api` 使用回环 HTTP 与非 Secure Cookie；直接运行二进制默认要求 Secure Cookie，部署时需 HTTPS。
+打开 <http://127.0.0.1:8080>，账号 admin。首次自动初始化的密码在 app-data/initial-password；已有账号不会因更换引导密码文件而重置。make build 构建并嵌入前端，输出 bin/folio。
 
-开发时分别运行：
+开发时在两个终端分别运行 make api 和 make dev，访问 <http://127.0.0.1:5173>，/api 代理到 8080。make run/api 使用回环 HTTP 与非 Secure Cookie；直接启动程序默认使用 Secure Cookie，正式部署须 HTTPS。容器与代理操作见 [部署说明](docs/DEPLOY.md)。
 
-```sh
-make api  # Go，127.0.0.1:8080
-make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
-```
+## 数据与配置
 
-## 容器部署
+| 环境变量 | 默认值或用途 |
+| --- | --- |
+| FOLIO_WORKSPACE | ./workspace，真实正文与附件 |
+| FOLIO_APP_DATA | ./app-data，账号、会话、索引与回收站 |
+| FOLIO_ADDR | 监听地址；本地默认 127.0.0.1:8080 |
+| FOLIO_PASSWORD_FILE | 仅首次初始化用的私有普通密码文件 |
+| FOLIO_SECURE_COOKIE | true；false 仅允许回环 IP |
+| FOLIO_TLS_CERT / FOLIO_TLS_KEY | 直接 HTTPS 证书链与私钥，须同时设置 |
+| FOLIO_ORIGIN | 代理后的精确外部来源，如 https://notes.example.com |
+| FOLIO_MAX_TEXT_BYTES | 5 MiB，文本编辑上限 |
+| FOLIO_MAX_IMAGE_BYTES | 20 MiB，图片上限 |
+| FOLIO_MAX_PDF_BYTES | 50 MiB，PDF 上限 |
+| FOLIO_MAX_ATTACHMENT_BYTES | 100 MiB，其他附件上限 |
+| FOLIO_MAX_IMAGE_PIXELS | 3200 万像素，图片预览上限 |
+| FOLIO_MAX_INDEX_BYTES | 1 MiB，正文索引上限；可设 1 字节至 100 MiB |
 
-已提供 Dockerfile、Compose、直接 HTTPS/已有代理配置与两种 Linux 架构构建。部署命令、证书、挂载和实际验收边界见 [部署说明](docs/DEPLOY.md)。本地预览仍可使用 `make run`。
+配置只在启动读取，GET /api/v1/settings 返回文件限制，上传总上限最大 1 GiB。workspace 与 app-data 必须独立、不能相互包含，只支持单实例写工作区。运行用户和目录权限/ACL 由部署者保护，不应与外部工具同时写同一文件。
 
-## 数据目录与部署配置
-
-- `FOLIO_WORKSPACE`：真实文件目录，默认 `./workspace`。
-- `FOLIO_APP_DATA`：账号、会话和可重建搜索索引，默认 `./app-data`。
-- `FOLIO_PASSWORD_FILE`：部署者保护的普通密码文件（建议 Unix 0600 / Windows 私有 ACL），只用于首次初始化账号，后续启动不会重置既有密码。忘记密码见[离线重置说明](docs/PASSWORD.md)。
-- `FOLIO_SECURE_COOKIE`：默认 `true`；`false` 仅允许绑定回环 IP。
-- `FOLIO_TLS_CERT` / `FOLIO_TLS_KEY`：可选的直接 HTTPS 证书链和私钥，必须同时设置。
-- `FOLIO_ORIGIN`：反向代理后的精确外部 origin，例如 `https://notes.example.com`。
-
-两个目录必须独立，不能相互包含。运行时文件层已改用 Go 标准库 `os.Root`，不再要求 `openat2` 或 `/proc/self/fd`；Linux/Windows 仅保留少量进程锁、不覆盖移动与目录身份的平台适配。目录权限由运行用户及部署配置管理。Windows 启动和验证范围见 [跨平台说明](docs/PORTABILITY.md)。仅支持单实例写工作区；请避免外部工具同时写同一文件。完整边界和剩余工作见 [M1 记录](docs/M1.md)。
-
-上传默认上限为文本编辑 5 MiB、图片 20 MiB、PDF 50 MiB、其他附件 100 MiB，图片预览上限 3200 万像素。可分别用 `FOLIO_MAX_TEXT_BYTES`、`FOLIO_MAX_IMAGE_BYTES`、`FOLIO_MAX_PDF_BYTES`、`FOLIO_MAX_ATTACHMENT_BYTES`、`FOLIO_MAX_IMAGE_PIXELS` 配置，上传总上限最大 1 GiB。设置仅在启动时读取；`GET /api/v1/settings` 返回当前限制。
-
-使用 `Ctrl/Cmd+P` 按文件名/路径快开，`Ctrl/Cmd+Shift+F` 搜索已保存的文本。正文索引默认限制 1 MiB，可用 `FOLIO_MAX_INDEX_BYTES` 调整（1 字节至 100 MiB）；超限与二进制文件仅索引名称。外部文件变化每 10 秒扫描、每 5 分钟完整核对正文，详情见 [M2 实施记录](docs/M2.md)。
-
-PDF 采用浏览器 canvas 预览；加密文档和部分复杂字体/大图应下载原文件核对。SVG/HTML 不作为活动页面打开，未知二进制只提供下载。
+Ctrl/Cmd+P 快开，Ctrl/Cmd+Shift+F 搜索已保存文本，其余快捷键见应用帮助。超限或二进制仅索引名称。PDF 复杂字体/大图等以下载原件核对；SVG/HTML 不活动预览。升级/关闭前保存或下载草稿及待上传原件，本机缓存不是备份。
 
 ## 验证
 
 ```sh
 make test
-make qa    # 实际嵌入页面的无障碍与 1202 文件性能检查
+make qa
 ```
 
-浏览器测试默认使用 `/usr/bin/google-chrome`；其他路径用 `CHROME_BIN=/path/to/chromium make test`。验证范围与限制见 [M1 实施记录](docs/M1.md)，Markdown 兼容性见 [M0 实现记录](docs/M0.md)。
+浏览器默认 /usr/bin/google-chrome，其他路径通过 CHROME_BIN 指定。容器镜像需另运行 make container-test 与 make container-review。方法、平台差异和未验证范围见 [测试计划](docs/TESTPLAN.md)，本次执行不能沿用历史测试计数。
 
-最终本地回归运行 `make test && make qa`；构建镜像后另运行 `make container-test`、`make container-review`。无障碍/性能的实测、预算及真实读屏器等未验证范围见 [QA 记录](docs/QUALITY.md)。升级前先保存/下载旧页面草稿及待上传原件，刷新页面后加载新构建。
+## 文档导航
 
-## 项目文档
-
-- [SPEC](docs/SPEC.md)：产品范围与验收。
-- [DESIGN](docs/DESIGN.md)：视觉系统与交互。
-- [ARCHITECTURE](docs/ARCHITECTURE.md)：模块边界与数据流。
-- [API](docs/API.md)：拟定接口与版本协议；已实现状态见文末。
-- [ROADMAP](docs/ROADMAP.md)：M0 至 M3 交付顺序。
-- [TESTPLAN](docs/TESTPLAN.md)：可靠性、安全与体验验证。
-- [AGENTS](AGENTS.md)：编码约束。
+| 文档 | 维护内容 |
+| --- | --- |
+| [产品规范](docs/SPEC.md) | 产品边界、技术选择与行为要求 |
+| [视觉与交互](docs/DESIGN.md) | 主题、布局、交互与无障碍设计 |
+| [架构说明](docs/ARCHITECTURE.md) | 模块、数据流、文件与恢复机制 |
+| [接口协议](docs/API.md) | 已实现路由、字段、错误与并发协议 |
+| [路线图](docs/ROADMAP.md) | 阶段范围、完成标准与待验证环境 |
+| [测试计划](docs/TESTPLAN.md) | 验证命令、覆盖矩阵及证据要求 |
+| [部署](docs/DEPLOY.md) | 容器、HTTPS、代理与升级 |
+| [备份与恢复](docs/BACKUP.md) | 停写双卷备份、校验、新位置恢复 |
+| [离线改密](docs/PASSWORD.md) | 管理员密码恢复与会话撤销 |
+| [跨平台说明](docs/PORTABILITY.md) | 当前文件层、权限边界及 Windows 运行/验证 |
+| [安全记录](docs/SECURITY.md) | 安全检查、故障演练及限制 |
+| [质量记录](docs/QUALITY.md) | 无障碍范围、性能测量与预算 |
+| [历史验收](docs/ACCEPTANCE.md) | 对应历史构建的逐项结果、镜像与归档摘要 |
+| [历史与兼容性](docs/HISTORY.md) | M0–M3 摘要、Markdown 样本及使用限制 |
+| [代理约定](AGENTS.md) | 实现与交付必须遵守的规则 |
