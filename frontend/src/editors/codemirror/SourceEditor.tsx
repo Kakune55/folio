@@ -1,3 +1,5 @@
+import { literalRange } from '../../features/search/location'
+import type { SearchTarget, SearchLocated } from '../../features/search/location'
 import { useEffect, useRef } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection } from '@codemirror/view'
@@ -10,7 +12,8 @@ import type { CrepeBridge } from '../milkdown/bridge'
 import { imageMarkdown } from '../milkdown/bridge'
 import { preserveLineEndings } from './line-endings'
 
-export default function SourceEditor({ session, sessions, onBlocked, bridge }: { session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge }) {
+export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated }: { session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
+  const editorView = useRef<EditorView | null>(null)
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let disposed = false
@@ -47,9 +50,20 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge }: {
         }),
       ],
     }) })
+    editorView.current = view
     const description = LanguageDescription.matchFilename(languages, session.path)
     if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
-    return () => { disposed = true; view.destroy() }
+    return () => { disposed = true; editorView.current = null; view.destroy() }
   }, [session, sessions, onBlocked, bridge])
+  useEffect(() => {
+    const view = editorView.current
+    if (!view || !searchTarget || searchTarget.path !== session.path || session.locked) return
+    const range = literalRange(view.state.doc.toString(), searchTarget.query)
+    if (range) {
+      view.dispatch({ selection: { anchor: range.from, head: range.to }, effects: EditorView.scrollIntoView(range.from, { y: 'center' }) })
+      view.focus()
+    }
+    onSearchLocated?.(searchTarget, !!range)
+  }, [searchTarget, onSearchLocated, session, session.locked])
   return <div className="source-host" ref={host} />
 }

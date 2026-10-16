@@ -1,3 +1,6 @@
+import type { Crepe } from '@milkdown/crepe'
+import type { SearchTarget, SearchLocated } from '../../features/search/location'
+import { locateRichText } from './search-location'
 import { useEffect, useRef, useState } from 'react'
 import type { Session, WorkspaceSessions } from '../../sessions/workspace'
 import type { CrepeBridge } from './bridge'
@@ -8,9 +11,10 @@ import { Button } from '../../components/ui/button'
 import { downloadDraft } from '../../services/api'
 import { conversionDiff } from './conversion-diff'
 
-export default function RichEditor({ session, sessions, onBlocked, bridge }: {
-  session: Session; sessions: WorkspaceSessions; onBlocked: (reason: string) => void; bridge?: CrepeBridge
+export default function RichEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated }: {
+  session: Session; sessions: WorkspaceSessions; onBlocked: (reason: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated
 }) {
+  const editorRef = useRef<Crepe | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [conversion, setConversion] = useState<{ original: string; converted: string; diff: string; accept: () => void }>()
@@ -26,6 +30,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge }: {
       (source) => { if (accepted && !disposed) sessions.update(session.path, source) },
       (message) => onBlocked(message ?? '示例模式不提供文件上传和导航，请使用标准 Markdown 源码。'),
       bridge ? { ...bridge, attached: () => !disposed && accepted } : undefined)
+    editorRef.current = editor
     const created = editor.create().then(async () => {
       if (disposed) return
       if (session.source !== original) {
@@ -62,10 +67,16 @@ export default function RichEditor({ session, sessions, onBlocked, bridge }: {
     })
     return () => {
       disposed = true
+      if (editorRef.current === editor) editorRef.current = null
       // 每次挂载使用独立宿主，异步创建完成后仍会销毁，避免旧实例污染新文件。
       void created.then(() => editor.destroy()).catch(console.error).finally(() => root.remove())
     }
   }, [session, sessions, onBlocked, bridge])
+  useEffect(() => {
+    if (!ready || conversion || !editorRef.current || !searchTarget || searchTarget.path !== session.path || session.locked) return
+    const found = locateRichText(editorRef.current, searchTarget.query)
+    onSearchLocated?.(searchTarget, found)
+  }, [ready, conversion, searchTarget, onSearchLocated, session, session.locked])
   const cancel = () => {
     onBlocked('此文档经富文本转换后会发生变化。已保留完整原文，请使用源码编辑。')
     sessions.setMode(session.path, 'source')

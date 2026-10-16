@@ -1,3 +1,6 @@
+import { TabMenu } from '../features/tabs/TabMenu'
+import type { CloseTabsAction } from '../features/tabs/TabMenu'
+import type { SearchTarget, SearchLocated } from '../features/search/location'
 import { DialogContent } from '../components/ui/dialog-content'
 import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
@@ -53,8 +56,12 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const [directory, setDirectory] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [closingTabs, setClosingTabs] = useState(false)
+  const closingTabsRef = useRef(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [focusPath, setFocusPath] = useState<string | null>(null)
+  const [searchTarget, setSearchTarget] = useState<SearchTarget>()
+  const searchSequence = useRef(0)
   const [notice, setNotice] = useState('')
   const cameraInput = useRef<HTMLInputElement>(null)
   const uploadInput = useRef<HTMLInputElement>(null)
@@ -76,6 +83,11 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const [remote, setRemote] = useState<FileContent>()
   const requestSequence = useRef(0)
   const onBlocked = useCallback((message: string) => setNotice(message), [setNotice])
+  const onSearchLocated = useCallback<SearchLocated>((target, found) => {
+    if (target.id !== searchSequence.current) return
+    setSearchTarget(undefined)
+    if (!found && target.contentMatch) setNotice('当前正文中未找到该关键词，文件可能已修改；Markdown 标记中的命中可切换源码后重搜。')
+  }, [])
   const ThemeIcon = theme === 'system' ? Monitor : theme === 'light' ? Sun : Moon
   const themeLabel = theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'
 
@@ -94,6 +106,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   })
 
   const openFile = useCallback(async (path: string) => {
+    setSearchTarget((target) => target?.path === path ? target : undefined)
     const sequence = ++requestSequence.current
     setNotice('')
     if (workspace.has(path)) { open(path); if (window.matchMedia('(max-width: 767px)').matches) setSidebar(false); setLoading(false); return }
@@ -164,16 +177,43 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     } finally { setUploading(false); if (uploadInput.current) uploadInput.current.value = ''; if (cameraInput.current) cameraInput.current.value = '' }
   }
 
-  const closeFile = useCallback(async (session: Session) => {
+  const closeFile = useCallback(async (session: Session, focusAfter = true) => {
     const path = session.path
-    if (!workspace.has(path) || workspace.get(path) !== session) return
-    if (!(await workspace.flush(path))) { setNotice('此文件尚未保存，已保留标签页。请重试保存或先处理冲突。'); return }
-    if (!workspace.has(path) || workspace.get(path) !== session || session.path !== path) return
+    if (!workspace.has(path) || workspace.get(path) !== session) return false
+    if (!(await workspace.flush(path))) { setNotice('此文件尚未保存或仍有未完成操作，已保留标签页。请重试保存或先处理冲突。'); return false }
+    if (!workspace.has(path) || workspace.get(path) !== session || session.path !== path) return false
     if (workspace.remove(path)) {
+      setSearchTarget((target) => target?.path === path ? undefined : target)
       if (useUI.getState().activePath === path) open(workspace.list().at(-1)?.path ?? '')
+      if (focusAfter) requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>('.tabs [role="tab"][aria-selected="true"]') ?? document.getElementById('explorer-toggle'))?.focus())
+      return true
+    }
+    setNotice('文件仍有未完成操作，已保留标签页。')
+    return false
+  }, [open])
+
+  const closeTabs = useCallback(async (action: CloseTabsAction, anchor: Session) => {
+    if (closingTabsRef.current) return
+    const files = workspace.list(), index = files.indexOf(anchor)
+    if (index < 0) return
+    const saved = (file: Session) => !file.dirty && file.state === 'saved' && !file.pendingUploads && !file.locked
+    const targets = files.filter((file, position) => action === 'one' ? file === anchor : action === 'others' ? file !== anchor : action === 'right' ? position > index : action === 'saved' ? saved(file) : true)
+    closingTabsRef.current = true; setClosingTabs(true)
+    let retained = 0
+    try {
+      for (const session of targets) {
+        if (!workspace.has(session.path) || workspace.get(session.path) !== session) continue
+        // 关闭已保存仅处理仍然干净的会话，执行期间新增的输入不能被顺带保存并关闭。
+        if (action === 'saved' && !saved(session)) continue
+        if (!(await closeFile(session, false))) retained++
+      }
+      if (retained) setNotice(`${retained} 个标签页因保存失败、冲突或未完成操作而保留，请处理后重试。`)
+    } catch (error) { setNotice(`关闭标签页未完成，未关闭的正文仍保留：${error instanceof Error ? error.message : '未知错误'}`) }
+    finally {
+      closingTabsRef.current = false; setClosingTabs(false)
       requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>('.tabs [role="tab"][aria-selected="true"]') ?? document.getElementById('explorer-toggle'))?.focus())
     }
-  }, [open])
+  }, [closeFile])
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || uploads.length || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
@@ -263,7 +303,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       <div className="explorer-foot"><AccountControls principal={principal} onSettings={() => { if (mobile) setSidebar(false) }} /></div>
     </ExplorerPanel>
     <main className="main-pane"><div className="tabs-row"><Button id="explorer-toggle" size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role={workspace.list().length ? 'tablist' : undefined} aria-label={workspace.list().length ? '打开的文件' : undefined}>
-      {workspace.list().map((session, index, files) => <div key={session.path} className={`tab-container ${activePath === session.path ? 'active' : ''}`}><button id={`file-tab-${index}`} role="tab" aria-controls="document-panel" aria-describedby="file-tab-help" aria-selected={activePath === session.path} tabIndex={activePath === session.path ? 0 : -1} className={`tab ${activePath === session.path ? 'active' : ''}`} title={session.path} onClick={(event) => {
+      {workspace.list().map((session, index, files) => <TabMenu key={session.path} session={session} files={files} busy={closingTabs} onClose={(action, anchor) => { void closeTabs(action, anchor) }}><div className={`tab-container ${activePath === session.path ? 'active' : ''}`}><button id={`file-tab-${index}`} role="tab" aria-controls="document-panel" aria-describedby="file-tab-help" aria-selected={activePath === session.path} tabIndex={activePath === session.path ? 0 : -1} className={`tab ${activePath === session.path ? 'active' : ''}`} title={session.path} onClick={(event) => {
         if (event.target instanceof Element && event.target.closest('.tab-close-target')) void closeFile(session)
         else void openFile(session.path)
       }} onKeyDown={(event) => {
@@ -271,8 +311,8 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? files.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + files.length) % files.length
         void openFile(files[next].path); document.getElementById(`file-tab-${next}`)?.focus()
-      }}><FileIcon path={session.path} size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}<span className="tab-close-target" aria-hidden="true" title={`关闭 ${session.path}`}><X size={12} /></span></button></div>)}
-    </div>{current && <Button size="icon" className="close-current-tab" aria-label={`关闭 ${current.path}`} title="保存并关闭当前标签（也可在标签上按 Delete）" onClick={() => void closeFile(current)}><X size={14} /></Button>}<span id="file-tab-help" className="visually-hidden">左右方向键切换标签，Home 和 End 跳到首尾。按 Delete 保存并关闭此标签；保存失败时保留。</span></div>
+      }}><FileIcon path={session.path} size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}<span className="tab-close-target" aria-hidden="true" title={`关闭 ${session.path}`}><X size={12} /></span></button></div></TabMenu>)}
+    </div>{current && <Button size="icon" className="close-current-tab" aria-label={`关闭 ${current.path}`} title="保存并关闭当前标签（也可在标签上按 Delete）" onClick={() => void closeFile(current)}><X size={14} /></Button>}<span id="file-tab-help" className="visually-hidden">左右方向键切换标签，Home 和 End 跳到首尾。按 Delete 保存并关闭此标签；保存失败时保留。右键或 Shift+F10 打开标签页操作菜单。</span></div>
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
         {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
@@ -284,7 +324,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
-      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
     <footer className="statusbar" aria-label="编辑状态">
       <div className="statusbar-left"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state">{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
@@ -294,7 +334,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
 
     <Dialog.Root open={!!discardUpload} onOpenChange={(value) => { if (!value) setDiscardUpload(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>移除待上传原件？</Dialog.Title><Dialog.Description>「{discardUpload?.file.name}」移除后将不再由当前页面保留。请先确认已上传或已下载原件；此操作不会删除服务器文件。</Dialog.Description><div className="dialog-actions"><Button onClick={() => setDiscardUpload(undefined)}>取消</Button><Button variant="outline" onClick={() => { if (discardUpload) uploadQueue.remove(discardUpload.id); setDiscardUpload(undefined) }}>确认移除原件</Button></div></DialogContent></Dialog.Portal></Dialog.Root>
     <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />
-    {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} onOpen={(path) => { setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (useUI.getState().activePath !== path) setFocusPath(null) }) }} />}
+    {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} onOpen={(path, query, contentMatch) => { const id = ++searchSequence.current; setSearchTarget(undefined); setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (id !== searchSequence.current) return; if (useUI.getState().activePath !== path) { setFocusPath(null); return }; if (query.trim()) setSearchTarget({ id, path, query, contentMatch }) }) }} />}
     <Dialog.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>工作区快捷键</Dialog.Title><Dialog.Description>编辑时可使用以下按键，也可通过工具栏和文件菜单完成操作。</Dialog.Description>
       <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>搜索</dt><dd>Ctrl / Cmd + P 或 Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。在编辑器中先按 Escape，再按 Tab / Shift+Tab 可移出焦点；在文件标签上按 Delete 可保存并关闭。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
     </DialogContent></Dialog.Portal></Dialog.Root>

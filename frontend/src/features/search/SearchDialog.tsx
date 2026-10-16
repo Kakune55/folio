@@ -5,9 +5,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { literalRange } from './location'
 import { api } from '../../services/api'
 
-export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen: (path: string) => void }) {
+export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen: (path: string, query: string, contentMatch: boolean) => void }) {
   const [input, setInput] = useState('')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState('')
@@ -54,7 +55,7 @@ export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen:
     }
     anchor.current = { path, query, offset: item.getBoundingClientRect().top - container.getBoundingClientRect().top, scroll: container.scrollTop }
   })
-  const choose = (path: string) => { if (!changing) { onClose(); onOpen(path) } }
+  const choose = (path: string) => { if (!changing) { const excerpt = excerpts.get(path) ?? ''; onClose(); onOpen(path, query, !!query.trim() && (!literalRange(path, query) || !!literalRange(excerpt, query))) } }
   return <Dialog.Root open onOpenChange={(value) => { if (!value) onClose() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content search-dialog">
     <div className="search-heading"><Dialog.Title>搜索</Dialog.Title><Dialog.Close asChild><Button size="icon" aria-label="关闭搜索"><X size={17} /></Button></Dialog.Close></div>
     <Dialog.Description className="visually-hidden">搜索文件名、路径和已保存的文本，使用上下方向键选择，回车打开。</Dialog.Description>

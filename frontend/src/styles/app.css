@@ -398,3 +398,5 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .file-status .file-size { text-align: left; }
   .file-status .file-index-state { flex: 0 0 140px; }
 }
+
+.context-menu [role="menuitem"][data-disabled] { opacity: .45; cursor: default; }
