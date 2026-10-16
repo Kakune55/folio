@@ -103,7 +103,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .source-host .cm-selectionBackground, .source-host .cm-focused .cm-selectionBackground { background: var(--selection) !important; }
 .source-host .cm-cursor { border-left-color: var(--foreground); }
 
-.statusbar { height: 28px; flex-shrink: 0; border-top: 1px solid var(--border); padding: 0 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted-foreground); font-size: 10px; font-variant-numeric: tabular-nums; }
+.statusbar { height: 28px; flex-shrink: 0; border-top: 1px solid var(--border); padding: 0 14px; display: flex; align-items: center; gap: 12px; overflow: hidden; color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
 .status-divider { border-left: 1px solid var(--border); padding-left: 10px; margin-left: 10px; }
 .dialog-overlay { position: fixed; inset: 0; background: #0006; z-index: 30; }
 .dialog-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); max-height: 85dvh; overflow: auto; padding: 28px; background: var(--background); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 50px #0003; z-index: 31; font-size: 13px; line-height: 1.8; }
@@ -367,3 +367,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
  .users-table { min-width: 590px; }.user-search input { font-size: 16px; }
  .dialog-content select { font-size: 16px; }
 }
+
+/* 底栏固定分区，状态长度与恢复数量变化不重新分配整排位置。 */
+.statusbar-left { display: flex; align-items: center; flex: 1; min-width: 0; gap: 16px; }
+.statusbar .save-status { flex: 0 0 14em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.statusbar .draft-cache-state { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.statusbar .draft-recovery-trigger { flex: 0 0 124px; justify-content: flex-start; }
+.recovery-count { width: 2em; text-align: right; font-variant-numeric: tabular-nums; }
+.quota-usage { display: flex; flex-direction: column; align-items: stretch; gap: 7px; font-variant-numeric: tabular-nums; }
+.quota-meter { display: block; width: 100%; height: 4px; flex: 0 0 4px; overflow: hidden; border-radius: 2px; background: var(--border); }
+.quota-meter > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.quota-full .quota-meter > span { background: var(--destructive); }
+.file-type-icon { display: block; flex-shrink: 0; }
+@media (max-width: 767px) { .statusbar .save-status { flex: 1; min-width: 0; } }

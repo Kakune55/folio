@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronRight, Folder, FolderOpen, MoreHorizontal, X } from 'lucide-react'
+import { Check, ChevronRight, MoreHorizontal, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { api } from '../../services/api'
 import type { Entry } from '../../services/api'
 import { EntryDragProvider } from './EntryDrag'
 import { useEntryDrag } from './drag-context'
-import { FileIcon } from './FileIcon'
+import { FileIcon, FolderIcon } from './FileIcon'
 
 function focusEntry(nav: Element | null, path: string) {
   requestAnimationFrame(() => [...(nav?.querySelectorAll<HTMLButtonElement>('[data-entry-path]') ?? [])].find((row) => row.dataset.entryPath === path)?.focus())
@@ -27,7 +27,7 @@ export function Explorer(props: ExplorerProps) {
 }
 function RootFolder(props: ExplorerProps) {
   const drag = useEntryDrag()
-  return <button data-entry-path="" className={`folder-label root-folder ${props.directory === '' ? 'directory-selected' : ''} ${drag.target === '' ? 'drop-target' : ''}`} onClick={() => props.setDirectory('')} onDragOver={(event) => drag.over(event, '')} onDragLeave={drag.leave} onDrop={(event) => drag.drop(event, '')}><FolderOpen size={16} />工作区</button>
+  return <button data-entry-path="" className={`folder-label root-folder ${props.directory === '' ? 'directory-selected' : ''} ${drag.target === '' ? 'drop-target' : ''}`} onClick={() => props.setDirectory('')} onDragOver={(event) => drag.over(event, '')} onDragLeave={drag.leave} onDrop={(event) => drag.drop(event, '')}><FolderIcon expanded />工作区</button>
 }
 function FolderContents(props: ExplorerProps & { path: string; depth: number }) {
   const query = useInfiniteQuery({ queryKey: ['tree', props.path], queryFn: ({ pageParam }) => api.tree(props.path, pageParam), initialPageParam: 0, getNextPageParam: (last) => last.offset + last.entries.length < last.total ? last.offset + last.entries.length : undefined, staleTime: 30_000, retry: false })
@@ -71,7 +71,7 @@ function EntryRow({ entry, ...props }: ExplorerProps & { depth: number; entry: E
           if (event.shiftKey && event.key === 'F10') { event.preventDefault(); setMenuOpen(true) }
           if (event.key === 'ArrowRight' && directory) { event.preventDefault(); if (!expanded) setExpanded(true); else [...event.currentTarget.closest('nav')!.querySelectorAll<HTMLButtonElement>('[data-entry-path]')].find((row) => row.dataset.entryPath?.startsWith(`${entry.path}/`))?.focus() }
           else if (event.key === 'ArrowLeft') { event.preventDefault(); if (directory && expanded) setExpanded(false); else { const parent = entry.path.split('/').slice(0, -1).join('/'); [...event.currentTarget.closest('nav')!.querySelectorAll<HTMLButtonElement>('[data-entry-path]')].find((row) => row.dataset.entryPath === parent)?.focus() } }
-        }} className={`file-row ${directory ? 'folder-row' : ''} ${drag.target === entry.path ? 'drop-target' : ''} ${drag.entry?.path === entry.path ? 'drag-source' : ''} ${props.active === entry.path ? 'selected' : ''} ${directory && props.directory === entry.path ? 'directory-selected' : ''}`} style={{ paddingLeft: (directory ? 4 : 16) + props.depth * 14 }} aria-current={props.active === entry.path ? 'page' : undefined} aria-expanded={directory ? expanded : undefined} onClick={() => { if (directory) { setExpanded(!expanded); props.setDirectory(entry.path) } else props.onOpen(entry.path) }} title={entry.path}>{directory && <ChevronRight size={13} className={expanded ? 'expanded' : ''} />}{directory ? expanded ? <FolderOpen size={16} /> : <Folder size={16} /> : <FileIcon path={entry.path} />}<span>{entry.name}</span></button>
+        }} className={`file-row ${directory ? 'folder-row' : ''} ${drag.target === entry.path ? 'drop-target' : ''} ${drag.entry?.path === entry.path ? 'drag-source' : ''} ${props.active === entry.path ? 'selected' : ''} ${directory && props.directory === entry.path ? 'directory-selected' : ''}`} style={{ paddingLeft: (directory ? 4 : 16) + props.depth * 14 }} aria-current={props.active === entry.path ? 'page' : undefined} aria-expanded={directory ? expanded : undefined} onClick={() => { if (directory) { setExpanded(!expanded); props.setDirectory(entry.path) } else props.onOpen(entry.path) }} title={entry.path}>{directory && <ChevronRight size={13} className={expanded ? 'expanded' : ''} />}{directory ? <FolderIcon path={entry.path} expanded={expanded} /> : <FileIcon path={entry.path} />}<span>{entry.name}</span></button>
         <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}><Menu.Trigger asChild><Button className="entry-menu-trigger" size="icon" aria-label={`文件操作 ${entry.name}`} title="文件操作"><MoreHorizontal size={15} /></Button></Menu.Trigger><Menu.Portal><Menu.Content className="context-menu" align="end" sideOffset={4}>
           <Menu.Item onSelect={startRename}>重命名</Menu.Item><Menu.Item onSelect={() => props.onMove(entry)}>移动到…</Menu.Item><Menu.Separator /><Menu.Item className="destructive" onSelect={() => props.onDelete(entry)}>移到回收站</Menu.Item>
         </Menu.Content></Menu.Portal></Menu.Root>

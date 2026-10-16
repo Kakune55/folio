@@ -4,6 +4,30 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
+
+test('超限上传前提示类型上限与剩余配额，代理 413 保留具体原因', async ({ page }) => {
+  await login(page)
+  let count = 0
+  await page.route('**/api/v1/settings', (route) => route.fulfill({ json: { limits: { image: 4, pdf: 8, attachment: 16 } } }))
+  let remaining = 100
+  await page.route('**/api/v1/workspace/usage', (route) => route.fulfill({ json: { used: 0, quota: remaining } }))
+  await page.route('**/api/v1/uploads?**', (route) => { count++; return route.fulfill({ status: 413, contentType: 'text/html', body: '<h1>Too large</h1>' }) })
+  const input = page.getByLabel('上传附件文件', { exact: true })
+  for (const [name, size, message] of [['large.bin', 17, '附件上传上限 16 B'], ['large.png', 5, '图片上传上限 4 B'], ['large.pdf', 9, 'PDF上传上限 8 B']] as const) {
+    await input.setInputFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.alloc(size) })
+    await expect(page.locator('.upload-failure').filter({ hasText: name })).toContainText(message)
+  }
+  expect(count).toBe(0)
+  remaining = 1
+  await input.setInputFiles({ name: 'quota.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(2) })
+  await expect(page.locator('.upload-failure').filter({ hasText: 'quota.bin' })).toContainText('工作区仅剩 1 B')
+  expect(count).toBe(0)
+  remaining = 100
+  await input.setInputFiles({ name: 'proxy.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(2) })
+  await expect(page.locator('.upload-failure').filter({ hasText: 'proxy.bin' })).toContainText('服务器或代理拒绝了上传')
+  expect(count).toBe(1)
+  await expect(page.getByRole('button', { name: '下载待上传原件 proxy.bin' })).toBeVisible()
+})
 async function login(page: Page) {
   await page.goto('/')
   await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')

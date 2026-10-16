@@ -3,7 +3,7 @@ import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState,
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, Camera, ChevronRight, FilePlus2, FileText, FolderPlus, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, Camera, ChevronRight, FilePlus2, FileText, FolderPlus, History, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import { AccountControls } from '../features/auth/AccountControls'
@@ -20,6 +20,7 @@ import { uploadQueue } from '../sessions/uploads'
 import type { PendingUpload } from '../sessions/uploads'
 import { UploadFailures } from '../features/explorer/UploadFailures'
 import { ExplorerPanel } from '../features/explorer/ExplorerPanel'
+import { FileIcon } from '../features/explorer/FileIcon'
 import { Explorer } from '../features/explorer/Explorer'
 import { TrashDialog } from '../features/explorer/TrashDialog'
 import { useEntryOperations } from '../features/explorer/useEntryOperations'
@@ -28,7 +29,6 @@ import { DocumentEditor } from '../editors/registry'
 import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/milkdown/bridge'
 import type { CrepeBridge } from '../editors/milkdown/bridge'
 
-const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path)
 const basename = (path: string) => path.split('/').at(-1) ?? path
 const isSessionBusy = (session: Session) => session.pendingUploads > 0 || session.locked || session.state === 'saving'
 const saveLabels = { saved: '已保存', dirty: '未保存', saving: '正在保存…', error: '保存失败 · 草稿已保留', conflict: '版本冲突 · 草稿已保留' }
@@ -270,11 +270,11 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? files.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + files.length) % files.length
         void openFile(files[next].path); document.getElementById(`file-tab-${next}`)?.focus()
-      }}><FileText size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}<span className="tab-close-target" aria-hidden="true" title={`关闭 ${session.path}`}><X size={12} /></span></button></div>)}
+      }}><FileIcon path={session.path} size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}<span className="tab-close-target" aria-hidden="true" title={`关闭 ${session.path}`}><X size={12} /></span></button></div>)}
     </div>{current && <Button size="icon" className="close-current-tab" aria-label={`关闭 ${current.path}`} title="保存并关闭当前标签（也可在标签上按 Delete）" onClick={() => void closeFile(current)}><X size={14} /></Button>}<span id="file-tab-help" className="visually-hidden">左右方向键切换标签，Home 和 End 跳到首尾。按 Delete 保存并关闭此标签；保存失败时保留。</span></div>
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
-        {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
+        {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
         {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty || !!current.external} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
       </div></div>}
       <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />
@@ -285,7 +285,10 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
       {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
-    <footer className="statusbar"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : '已连接工作区'}</span><Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" onClick={() => setRecoveryOpen(true)}>恢复稿{recovery.entries.length ? `（${recovery.entries.length}）` : ''}</Button>{current?.dirty && ['markdown', 'text'].includes(current.viewer) && <span className="draft-cache-state">{recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…'}</span>}<span className="history-hint">切换保留正文，重置撤销历史</span><span>{current && ['markdown', 'text'].includes(current.viewer) ? 'UTF-8' : 'Folio'}{current && <span className="status-divider">{isMarkdown(current.path) ? 'Markdown' : basename(current.path).split('.').at(-1)?.toUpperCase()}</span>}</span></footer>
+    <footer className="statusbar" aria-label="编辑状态">
+      <div className="statusbar-left"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state">{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
+      <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} />浏览器恢复稿<span className="recovery-count">{recovery.entries.length || ''}</span></Button>
+    </footer>
 
     <Dialog.Root open={!!discardUpload} onOpenChange={(value) => { if (!value) setDiscardUpload(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>移除待上传原件？</Dialog.Title><Dialog.Description>「{discardUpload?.file.name}」移除后将不再由当前页面保留。请先确认已上传或已下载原件；此操作不会删除服务器文件。</Dialog.Description><div className="dialog-actions"><Button onClick={() => setDiscardUpload(undefined)}>取消</Button><Button variant="outline" onClick={() => { if (discardUpload) uploadQueue.remove(discardUpload.id); setDiscardUpload(undefined) }}>确认移除原件</Button></div></DialogContent></Dialog.Portal></Dialog.Root>
     <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />

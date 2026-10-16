@@ -1,3 +1,6 @@
+import { uploadLimit, uploadSizeMessage } from './upload-limits'
+import type { UploadLimits } from './upload-limits'
+import { formatBytes } from './format'
 export class ApiError extends Error {
   status: number
   code: string
@@ -70,7 +73,16 @@ export function downloadDraft(path: string, source: string) {
 }
 
 export const fileURL = (path: string, preview = false) => `/api/v1/files/${preview ? 'preview' : 'download'}?path=${encodeURIComponent(path)}${workspaceScope ? `&workspace=${encodeURIComponent(workspaceScope)}` : ''}`
-export function uploadFile(file: File, directory: string, onProgress?: (percent: number) => void, imageOnly = false, signal?: AbortSignal): Promise<FileMetadata> {
+export async function uploadFile(file: File, directory: string, onProgress?: (percent: number) => void, imageOnly = false, signal?: AbortSignal): Promise<FileMetadata> {
+  const [settings, usage] = await Promise.all([
+    request<{ limits: UploadLimits }>('/settings', { signal }),
+    request<{ used: number; quota: number }>('/workspace/usage', { signal }),
+  ])
+  const { limit, kind } = await uploadLimit(file, settings.limits, imageOnly)
+  if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(usage.used) || !Number.isFinite(usage.quota) || usage.used < 0 || usage.quota < 0) throw new Error('无法确认上传限制或剩余配额，请刷新后重试。')
+  if (file.size > limit) throw new ApiError(413, 'too_large', uploadSizeMessage(file.name, file.size, kind, limit))
+  const remaining = Math.max(0, usage.quota - usage.used)
+  if (file.size > remaining) throw new ApiError(413, 'quota_exceeded', `「${file.name}」为 ${formatBytes(file.size)}，工作区仅剩 ${formatBytes(remaining)}；请清理回收站或联系管理员增加配额。`)
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `/api/v1/uploads?directory=${encodeURIComponent(directory)}&image=${imageOnly}`)
@@ -81,13 +93,17 @@ export function uploadFile(file: File, directory: string, onProgress?: (percent:
     signal?.addEventListener('abort', abort, { once: true })
     const finish = () => signal?.removeEventListener('abort', abort)
     xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress?.(Math.round(event.loaded / event.total * 100)) }
-    xhr.onerror = () => { finish(); reject(new Error('网络中断，上传结果待确认，请刷新目录后重试')) }
+    xhr.onerror = () => { finish(); reject(new Error('未收到服务器的有效上传响应，可能是连接中断或服务提前拒绝；请检查目录确认结果后重试。')) }
     xhr.ontimeout = () => { finish(); reject(new Error('上传超时，请确认目录中的文件后重试')) }
     xhr.onabort = () => { finish(); reject(new Error('上传已取消，请确认服务端是否已接收文件')) }
     xhr.onload = () => {
       finish()
       let body: FileMetadata & { error?: { code: string; message: string } }
-      try { body = JSON.parse(xhr.responseText) } catch { reject(new Error(`上传响应无效（${xhr.status}），请确认文件是否已接收`)); return }
+      try { body = JSON.parse(xhr.responseText) } catch {
+        if (xhr.status === 413) reject(new ApiError(413, 'too_large', '服务器或代理拒绝了上传：文件超过其允许的大小，请调整上传限制。'))
+        else reject(new Error(`上传响应无效（${xhr.status}），请确认文件是否已接收`))
+        return
+      }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body)
       else {
         if (body.error?.code === 'workspace_changed') window.dispatchEvent(new Event('folio:workspace-changed'))

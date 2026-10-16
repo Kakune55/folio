@@ -1,8 +1,9 @@
+import { FileIcon } from '../explorer/FileIcon'
 import { DialogContent } from '../../components/ui/dialog-content'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { FileText, Search, X } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { api } from '../../services/api'
 
@@ -33,7 +34,7 @@ export function SearchDialog({ mode, onClose, onOpen, onMode }: { mode: 'names' 
     }} /></div>
     {(index?.warning || status.error || results.error || message) && <p className="search-notice" role="status">{message || results.error?.message || status.error?.message || index?.warning}</p>}
     <div id="search-results" className="search-results" role="listbox" aria-label="搜索结果" ref={list} aria-busy={waiting}>
-      {waiting ? <p className="search-empty" role="status">正在查找…</p> : entries.map((entry, position) => <button role="option" tabIndex={-1} id={`search-result-${position}`} aria-selected={position === active} key={entry.path} className="search-result" onMouseMove={() => setSelected(entry.path)} onClick={() => choose(entry.path)}><FileText size={16} /><div><strong>{entry.name}</strong><span>{entry.path}</span>{mode === 'full' && entry.excerpt && <p>{entry.excerpt}</p>}</div></button>)}
+      {waiting ? <p className="search-empty" role="status">正在查找…</p> : entries.map((entry, position) => <button role="option" tabIndex={-1} id={`search-result-${position}`} aria-selected={position === active} key={entry.path} className="search-result" onMouseMove={() => setSelected(entry.path)} onClick={() => choose(entry.path)}><FileIcon path={entry.path} /><div><strong>{entry.name}</strong><span>{entry.path}</span>{mode === 'full' && entry.excerpt && <p>{entry.excerpt}</p>}</div></button>)}
       {!waiting && !entries.length && !results.error && <p className="search-empty">{mode === 'full' && !query.trim() ? '搜索文件名、路径和已保存的文本。' : index?.indexing ? '正在更新索引，请稍候…' : '没有匹配的文件。'}</p>}
     </div>
     <div className="search-footer"><span>{index?.indexing ? '正在更新索引…' : `${index?.files ?? 0} 个已索引文件`}{results.data?.truncated ? ' · 仅显示前 50 项，请缩小查询' : ''}</span><div><Button onClick={() => onMode(mode === 'names' ? 'full' : 'names')}>{mode === 'names' ? '全文搜索' : '按名称查找'}</Button><Button disabled={rebuilding || index?.indexing} onClick={async () => {
