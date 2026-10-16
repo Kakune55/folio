@@ -22,7 +22,11 @@ func TestAuthenticatedFileFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	accounts, err := auth.Open(t.TempDir(), "测试用的足够长密码-123")
+	appData := filepath.Join(t.TempDir(), "app-data")
+	if err = os.Mkdir(appData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := auth.Open(appData, "测试用的足够长密码-123")
 	if err != nil {
 		t.Fatal(err)
 	}

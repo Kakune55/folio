@@ -24,7 +24,23 @@ import (
 
 func main() {
 	check := flag.Bool("healthcheck", false, "检查本进程服务是否存活")
+	reset := flag.Bool("reset-password", false, "停止服务后重置现有账号密码并撤销所有登录会话")
+	appData := flag.String("app-data", "", "离线重置使用的现有应用数据目录（必须显式指定）")
+	passwordFile := flag.String("password-file", "", "离线重置使用的私有新密码文件（不接受明文参数）")
 	flag.Parse()
+	if flag.NArg() != 0 || (*reset && *check) || (!*reset && (*appData != "" || *passwordFile != "")) {
+		log.Fatal("参数组合无效；使用 -help 查看帮助")
+	}
+	if *reset {
+		if *appData == "" || *passwordFile == "" {
+			log.Fatal("重置必须显式指定 -app-data 和 -password-file；请先停止 Folio 并备份两卷")
+		}
+		if err := auth.ResetPassword(*appData, *passwordFile); err != nil {
+			log.Fatal(err)
+		}
+		log.Print("密码已重置，所有旧登录会话已撤销。请删除或妥善保管本次密码文件；旧引导密码文件不会更新。")
+		return
+	}
 	if *check {
 		if err := healthcheck(); err != nil {
 			log.Print(err)

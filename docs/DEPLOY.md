@@ -23,7 +23,7 @@ docker compose up --build -d
 
 打开 **https://localhost:8443**。脚本生成 30 天有效的本地自签名证书，浏览器需要信任它。已有 TLS 目录不覆盖；存在不完整证书对时明确失败。可将受信任的证书链和私钥放入 `app-data/tls/server.crt`、`app-data/tls/server.key`，密钥应只允许运行用户读取。
 
-账号 `admin`，首次启动生成的密码在 `app-data/initial-password`。不要把密码文件或 app-data 加入版本库。账号初始化之后，此引导文件可删除；数据库中的密码哈希保持有效。忘记密码的恢复/重置流程将在 M3 完善，不能把删除整个 app-data 当作普通改密码操作。
+账号 `admin`，首次启动生成的密码在 `app-data/initial-password`。不要把密码文件或 app-data 加入版本库。账号初始化之后，此引导文件可删除；数据库中的密码哈希保持有效。忘记密码时使用 [离线密码重置](PASSWORD.md)，不能删除整个 app-data 或仅改引导文件。`FOLIO_PASSWORD_FILE` 与离线密码文件均要求当前运行用户私有的普通文件（0600），拒绝链接与特殊文件；密码读取有界。
 
 ```sh
 docker compose logs --tail 30

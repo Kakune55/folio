@@ -34,7 +34,7 @@ make dev  # Vite，127.0.0.1:5173；/api 代理至 Go
 
 - `FOLIO_WORKSPACE`：真实文件目录，默认 `./workspace`。
 - `FOLIO_APP_DATA`：账号、会话和可重建搜索索引，默认 `./app-data`。
-- `FOLIO_PASSWORD_FILE`：只用于首次初始化账号，后续启动不会重置既有密码。
+- `FOLIO_PASSWORD_FILE`：当前用户私有的普通文件（0600），只用于首次初始化账号，后续启动不会重置既有密码。忘记密码见[离线重置说明](docs/PASSWORD.md)。
 - `FOLIO_SECURE_COOKIE`：默认 `true`；`false` 仅允许绑定回环 IP。
 - `FOLIO_TLS_CERT` / `FOLIO_TLS_KEY`：可选的直接 HTTPS 证书链和私钥，必须同时设置。
 - `FOLIO_ORIGIN`：反向代理后的精确外部 origin，例如 `https://notes.example.com`。

@@ -97,6 +97,8 @@ FTS5 index filenames, paths and Markdown/eligible text bodies under a configurab
 ## 7. Auth and security
 Single local account for V1. Strong password hashing (Argon2id preferred), HttpOnly Secure SameSite cookie-based sessions, session rotation, logout/revocation, CSRF defense for mutations, rate-limited login, HTTPS behind a trusted reverse proxy or directly using configured Go TLS certificates, restrictive CORS and headers. Do not expose unrestricted filesystem browsing or executable endpoints. Untrusted uploads and previews served safely (prefer attachment disposition or isolated origin for active content). Authenticate all file and preview endpoints. Security review prior to public exposure.
 
+Forgotten-password recovery is an explicit offline mode of the same binary, requiring private existing app-data and a bounded private password file. It takes the instance lock and updates the password hash plus revokes all sessions in one transaction, without initializing a new workspace or changing the browser recovery namespace. No remote reset endpoint or implicit reset from a changed bootstrap password file. See `PASSWORD.md`.
+
 Default configurable maxima: editable text 5 MiB, images 20 MiB, PDF 50 MiB, arbitrary attachments 100 MiB; enforce limits while streaming and prevent decompression bombs by not auto-extracting. Identical names never silently overwrite.
 
 ## 8. Shortcuts

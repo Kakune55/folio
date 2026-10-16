@@ -26,7 +26,11 @@ func TestAttachmentBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	accounts, err := auth.Open(t.TempDir(), "附件测试密码-123456")
+	appData := filepath.Join(t.TempDir(), "app-data")
+	if err = os.Mkdir(appData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := auth.Open(appData, "附件测试密码-123456")
 	if err != nil {
 		t.Fatal(err)
 	}

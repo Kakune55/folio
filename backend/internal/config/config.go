@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"folio/internal/auth"
 	"folio/internal/storage"
 	"net"
 	"net/url"
@@ -88,11 +89,11 @@ func Load() (Config, error) {
 		return c, err
 	}
 	if file := os.Getenv("FOLIO_PASSWORD_FILE"); file != "" {
-		bytes, err := os.ReadFile(file)
+		password, err := auth.ReadPasswordFile(file)
 		if err != nil {
 			return c, err
 		}
-		c.InitialPassword = strings.TrimSuffix(strings.TrimSuffix(string(bytes), "\n"), "\r")
+		c.InitialPassword = password
 	}
 	c.Limits = storage.DefaultLimits
 	for key, target := range map[string]*int64{"FOLIO_MAX_TEXT_BYTES": &c.Limits.Text, "FOLIO_MAX_IMAGE_BYTES": &c.Limits.Image, "FOLIO_MAX_PDF_BYTES": &c.Limits.PDF, "FOLIO_MAX_ATTACHMENT_BYTES": &c.Limits.Attachment, "FOLIO_MAX_IMAGE_PIXELS": &c.Limits.ImagePixels} {

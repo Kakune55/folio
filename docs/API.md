@@ -78,6 +78,8 @@ Tree: `path` defaults to the root (`""`), `offset` defaults to 0, `limit` defaul
 
 Login body: `{username:"admin",password:"..."}`. Login and me return `{username,csrfToken,workspaceId}`. Mutations require `X-CSRF-Token` after login and the configured same-origin `Origin`; cross-site browser mutations are rejected. API responses use `Cache-Control: no-store`.
 
+Password recovery has no HTTP endpoint. An operator must stop the instance and use the explicit offline command described in `PASSWORD.md`; successful reset revokes all sessions, so existing authenticated requests return 401 until a new login. The same roots retain their browser recovery namespace.
+
 Additional errors: `file_changed` (409) when a read/parent identity changes during operation; `durability_uncertain` (500) when replacement completed but directory sync failed. Clients retain drafts and re-read before reconciliation. See `M1.md` for external-writer race boundaries; this contract does not assert atomic filesystem CAS against uncooperative external processes.
 
 ### Attachment contract

@@ -2,11 +2,13 @@ package auth
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestSessionPersistenceRotationAndThrottling(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTestDirectory(t)
 	password := "足够长的测试密码-987654"
 	service, err := Open(dir, password)
 	if err != nil {
@@ -51,4 +53,13 @@ func TestSessionPersistenceRotationAndThrottling(t *testing.T) {
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatal("未限制登录尝试")
 	}
+}
+
+func privateTestDirectory(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "app-data")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

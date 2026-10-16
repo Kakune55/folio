@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -32,6 +31,7 @@ type attempt struct {
 type Service struct {
 	db         *sql.DB
 	lock       *os.File
+	root       *os.File
 	salt, hash []byte
 	mu         sync.Mutex
 	attempts   map[string]attempt
@@ -42,7 +42,29 @@ var ErrCredentials = errors.New("账号或密码错误")
 var ErrRateLimited = errors.New("尝试次数过多，请稍后重试")
 
 func Open(dir, initialPassword string) (*Service, error) {
-	lock, err := os.OpenFile(filepath.Join(dir, "instance.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	return open(dir, initialPassword, false)
+}
+
+func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
+	root, err := privateDirectory(dir)
+	if err != nil {
+		return nil, err
+	}
+	keepRoot := false
+	defer func() {
+		if !keepRoot {
+			root.Close()
+		}
+	}()
+	// 重置不能因路径写错而初始化一套新账号。
+	if existingOnly {
+		file, err := privateFile(root, "app.db", false)
+		if err != nil {
+			return nil, err
+		}
+		file.Close()
+	}
+	lock, err := privateFile(root, "instance.lock", true)
 	if err != nil {
 		return nil, err
 	}
@@ -50,39 +72,58 @@ func Open(dir, initialPassword string) (*Service, error) {
 		lock.Close()
 		return nil, errors.New("此应用数据目录已有运行中的实例")
 	}
-	path := filepath.Join(dir, "app.db")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := privateFile(root, "app.db", !existingOnly)
 	if err != nil {
 		lock.Close()
 		return nil, err
 	}
-	f.Close()
-	if err = os.Chmod(path, 0o600); err != nil {
+	if err = f.Chmod(0o600); err != nil {
+		f.Close()
 		lock.Close()
 		return nil, err
 	}
-	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)"
+	f.Close()
+	for _, name := range []string{"app.db-wal", "app.db-shm", "app.db-journal"} {
+		file, err := privateFile(root, name, false)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			lock.Close()
+			return nil, err
+		}
+		file.Close()
+	}
+	// SQLite 的多文件协议依赖目录命名空间；持有私有根描述符直至关闭。
+	path := fmt.Sprintf("/proc/self/fd/%d/app.db", root.Fd())
+	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?_pragma=busy_timeout(5000)&_pragma=trusted_schema(OFF)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)"
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		lock.Close()
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	service := &Service{db: db, lock: lock, attempts: make(map[string]attempt)}
+	service := &Service{db: db, lock: lock, root: root, attempts: make(map[string]attempt)}
+	keepRoot = true
 	closeOnError := func(err error) (*Service, error) { service.Close(); return nil, err }
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL, hash BLOB NOT NULL);
+	if !existingOnly {
+		if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY CHECK(id=1), salt BLOB NOT NULL, hash BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires INTEGER NOT NULL);`); err != nil {
-		return closeOnError(err)
+			return closeOnError(err)
+		}
 	}
 	err = db.QueryRow("SELECT salt,hash FROM account WHERE id=1").Scan(&service.salt, &service.hash)
 	if errors.Is(err, sql.ErrNoRows) {
+		if existingOnly {
+			return closeOnError(errors.New("账号不存在，拒绝重置或初始化"))
+		}
 		if initialPassword == "" {
 			// 首次启动生成私密密码文件，不在日志、前端或版本库中泄露密码。
 			initialPassword, err = randomToken()
 			if err != nil {
 				return closeOnError(err)
 			}
-			passFile, err := os.OpenFile(filepath.Join(dir, "initial-password"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			passFile, err := createPrivateFile(root, "initial-password")
 			if err != nil {
 				return closeOnError(fmt.Errorf("初始化密码文件失败，请检查已有文件或指定 FOLIO_PASSWORD_FILE：%w", err))
 			}
@@ -97,6 +138,9 @@ func Open(dir, initialPassword string) (*Service, error) {
 			}
 			if closeErr != nil {
 				return closeOnError(closeErr)
+			}
+			if err = root.Sync(); err != nil {
+				return closeOnError(err)
 			}
 		}
 		if len(initialPassword) < 12 || len(initialPassword) > 1024 {
@@ -125,10 +169,11 @@ func (s *Service) WorkspaceID(identity string) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Service) Close() error {
+	var err error
 	if s.db != nil {
-		s.db.Close()
+		err = s.db.Close()
 	}
-	return s.lock.Close()
+	return errors.Join(err, s.lock.Close(), s.root.Close())
 }
 func randomToken() (string, error) {
 	var bytes [32]byte
