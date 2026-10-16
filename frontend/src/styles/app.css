@@ -392,11 +392,22 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .file-index-state { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .file-index-state:hover { color: var(--foreground); }
 @media (max-width: 767px) {
-  .statusbar { gap: 8px; flex-wrap: wrap; height: 64px; align-content: center; row-gap: 2px; }
-  .statusbar-left { flex: 1 1 calc(100% - 132px); }
-  .statusbar .file-status { order: 3; flex: 1 0 100%; gap: 12px; }
-  .file-status .file-size { text-align: left; }
-  .file-status .file-index-state { flex: 0 0 140px; }
+  .source-host { padding: 8px 0 0; }
+  .source-host .cm-line { padding-inline: 4px; }
+  .source-host .cm-lineNumbers { font-size: inherit; line-height: 1.8; }
+  .source-host .cm-lineNumbers .cm-gutterElement { padding-inline: 0 2px; min-width: 2ch; }
+  .statusbar { display: grid; grid-template-columns: 68px minmax(0, 1fr) 40px; grid-template-rows: 40px; gap: 8px; height: 41px; min-height: 41px; padding: 0 8px; font-size: 11px; }
+  .statusbar-left { grid-column: 1; gap: 0; }
+  .statusbar .draft-cache-state { display: none; }
+  .statusbar-left:has(.draft-cache-state[data-phase="failed"]) .save-status { display: none; }
+  .statusbar .draft-cache-state[data-phase="failed"] { display: block; color: var(--destructive); }
+  .statusbar .file-status { grid-column: 2; gap: 10px; }
+  .file-status .file-size { flex: 0 0 auto; text-align: left; }
+  .file-status .file-index-state { flex: 1; min-height: 40px; }
+  .statusbar .draft-recovery-trigger { grid-column: 3; position: relative; width: 40px; min-height: 40px; justify-content: center; padding: 0; }
+  .draft-recovery-trigger .recovery-label { display: none; }
+  .draft-recovery-trigger .recovery-count { position: absolute; top: 0; right: 1px; width: auto; font-size: 9px; line-height: 12px; }
+  .draft-recovery-trigger .recovery-count:empty { display: none; }
 }
 
 .context-menu [role="menuitem"][data-disabled] { opacity: .45; cursor: default; }

@@ -167,3 +167,28 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 - git diff --check 通过；本地生产二进制更新至 127.0.0.1:8080 并健康检查正常。更新使用确定 PID 的既有本地进程，未清理或修改用户工作区文件和账号。
 
 限制：内存为 Go 分配器指标，不等于 RSS/宿主物理内存；逻辑 CPU 数不表示实时 CPU 利用率。索引计数只覆盖已打开工作区。目录统计是并发文件变化期间的近似逻辑大小，不是磁盘占块/配额；包含根目录，跳过链接/特殊文件，扫描失败显式报错。两个目录同卷时显示相同容量，不能相加；其他平台仅卷容量明确不可用。降低文本限制可能使现有超限文件暂不能编辑，文件保留可下载并可恢复上限；在途上传沿用其开始时限额快照。已保存系统设置优先于环境变量，未提供远程重启或复杂监控。没有新的资源压测、容器/备份或真实读屏器验收。
+
+
+## 2026-10-17 手机行号与底栏裁切
+
+涉及 frontend/src/styles/app.css、tests/browser/mobile-layout.spec.ts 和 DESIGN.md。缩小手机源码行号与左右留白；底栏由可换行 flex 改为明确两行网格，修复宽度计算加 gap 导致第三行裁切，保持文件大小/索引可见与恢复稿独立点击区。不改正文缓冲、编辑器实例或保存协议。
+
+本次 npm run build、npm run lint、python E:/folio/scripts/copy-dist.py、Go 生产构建、git diff --check 通过。既有 mobile.spec.ts（3 项）及 search.spec.ts（7 项）全部通过；新增 mobile-layout.spec.ts 单独通过（1 项，4.6s），使用 12000 行真实文本，在 320/390/430 宽度核对五位行号区域小于 46px、正文左起点小于 58px、底栏恒定 64px、所有状态/入口完整落在栏内且互不遮挡，并实际打开恢复弹窗。人工查看 390 宽度截图，正文宽度增加、底部大小和索引不再被裁切。
+
+新增用例初次未等待登录完成即请求大正文，出现代理 ECONNRESET/502；修正为等待已登录界面后执行 API 请求，并缩短测试文本但保留五位行号覆盖，最终通过。嵌入生产资源的 accessibility.spec.ts 明暗桌面/手机 4 项通过。测试使用临时工作区，未修改用户文件；已更新本地 127.0.0.1:8080 并检查健康。未重跑 Go 单元测试（无 Go 代码变更），未验证真实手机软键盘、系统安全区或其他浏览器。
+
+
+## 2026-10-17 手机底栏改为单行与行号字号对齐
+
+涉及 frontend/src/styles/app.css、app/Workbench.tsx、tests/browser/mobile-layout.spec.ts 与 DESIGN.md。行号恢复为正文相同字号和行高，同时进一步减小水平留白；底栏从 64px 两行改为 41px 单行，恢复稿文字在手机折叠为具名图标，数量仍可见，缓存失败文字替代普通保存状态。没有更改正文、保存与恢复逻辑。
+
+本次 npm run build、npm run lint、python E:/folio/scripts/copy-dist.py、Go 生产构建与 git diff --check 通过。npx playwright test tests/browser/mobile-layout.spec.ts tests/browser/mobile.spec.ts：4 项通过（15.0s）；更新后的 12000 行样本在 320/390/430 下验证行号与正文字号/行高一致、底栏恒定 41px、所有信息完整包含于栏内、状态与索引位于同一水平中心、无相互遮挡，以及恢复图标可实际打开弹窗；既有触屏编辑/上传/恢复回归通过。人工查看 390 宽度截图确认行号首行对齐和单行底栏。嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机共 4 项通过（16.6s）。已更新本地 127.0.0.1:8080 并健康检查正常。
+
+本次仅前端布局及标签包裹调整，无 Go 源码变化，未重跑 Go 单测或前端纯逻辑单测；没有清理用户文件，未新增网络/磁盘权限。真实手机软键盘、安全区和其他浏览器仍未专项验证。
+
+
+## 2026-10-17 空白页底栏定位与恢复说明
+
+涉及 frontend/src/styles/app.css、features/recovery/DraftRecovery.tsx、tests/browser/mobile-layout.spec.ts 和 DESIGN.md。手机底栏三个区域显式指定网格列，修复未打开文件时恢复图标自动填入第二列；简化恢复窗口说明和空列表文案，无记录时不显示选择指引，不改变恢复、保存或删除逻辑。
+
+本次 npm run build、npm run lint、python E:/folio/scripts/copy-dist.py、Go 生产构建和 git diff --check 通过。npx playwright test tests/browser/mobile-layout.spec.ts tests/browser/recovery.spec.ts：6 项通过（24.2s），新增空白页按钮右边缘位置断言，既有手机布局、恢复保存、失败另存、双页面隔离、禁止存储提示及重启独立浏览器读取草稿回归通过。已更新本地 127.0.0.1:8080，健康检查正常，未修改用户文件。无后端逻辑变更，未重跑 Go 单测或全套无障碍检查；真实手机与其他浏览器仍未专项验证。
