@@ -15,13 +15,13 @@ type FileStatus struct {
 
 // FileState 对照已提交索引与客户端已保存版本，不读取正文或将草稿作为索引依据。
 func (i *Index) FileState(ctx context.Context, name, revision string) (FileStatus, error) {
-	output := FileStatus{BodyLimit: i.bodyLimit, State: "not_indexed"}
+	output := FileStatus{BodyLimit: i.bodyLimit.Load(), State: "not_indexed"}
 	size, err := i.store.IndexFileSize(name)
 	if err != nil {
 		return output, err
 	}
 	output.Size = size
-	if size > i.bodyLimit {
+	if size > output.BodyLimit {
 		output.State = "too_large"
 		return output, nil
 	}

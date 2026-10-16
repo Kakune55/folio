@@ -149,3 +149,15 @@ file_changed 表示操作中的文件/父身份发生变化；durability_uncerta
 GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需要账号鉴权及工作区身份校验，返回 {size,bodyLimit,state}，大小和上限单位为字节。state 为 indexed、names_only、too_large、pending、not_indexed 或 error。对照已提交索引记录和已保存版本判断，不信任扩展名推断索引成功；空文本可为 indexed。revision 仅用于发现当前会话版本与索引版本不同，不作为权限或磁盘写入条件。非法路径 400、不存在 404、目录或特殊文件拒绝、索引不可用 503。状态查询只读取安全文件元数据和 SQLite 已提交记录，不重新读取正文或计算摘要。只有 pending 状态短暂轮询，切换文件/保存后的新版本会重新查询，手动重建使状态缓存失效。
 
 默认 FOLIO_MAX_INDEX_BYTES 从 1 MiB 提高到 5 MiB；环境变量仍可覆盖。启动首次访问工作区时全量重建，因此原先仅索引名称、现在不超过 5 MiB 的文本会自动补上正文。
+
+
+## 系统设置与状态（2026-10-17）
+
+所有接口仅管理员访问，沿用会话、工作区身份、Origin/CSRF 校验：
+
+- GET /api/v1/admin/settings：返回 {limits:{Text,Image,PDF,Attachment,ImagePixels},indexLimit}，字节/像素整数。
+- PUT /api/v1/admin/settings：提交同结构完整设置；文本与索引 1 字节–100 MiB，附件 1 字节–1 GiB，图片/PDF 正整数且不得高于附件，像素 1–10 亿。400 invalid_settings / 500 settings_failed；失败不改变生效配置。保存后在线生效、索引变化自动重建。GET /settings 继续返回当前工作区有效限额。
+- GET /api/v1/admin/status：返回 goVersion、platform、uptime（秒）、goroutines、cpus、openWorkspaces、indexedFiles、memory（Go runtime.MemStats）、lastPauseNs、sinceGC（秒）。indexedFiles 仅包括已打开工作区。
+- GET /api/v1/admin/disk：显式扫描 workspace/appData，分别返回 bytes、files、directories（包括根目录）、total、available（所在卷）；volumeError 表示卷容量不可用。扫描失败 503 disk_unavailable，并发扫描 409 operation_in_progress。逻辑文件大小不等于实际磁盘占块或用户配额；appData 含数据库、索引、回收站。
+
+保存设置覆盖持久化值，重启继续使用；环境变量仅为未保存系统设置时的初始值。降低限制不清理文件；超过新文本上限的已有文件可能无法继续编辑，仍可下载，管理员可恢复上限。

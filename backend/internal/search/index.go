@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -46,7 +47,7 @@ type Index struct {
 	requested, completed uint64
 	store                *storage.Store
 	filename             string
-	bodyLimit            int64
+	bodyLimit            atomic.Int64
 	dbMu                 sync.RWMutex
 	db                   *sql.DB
 	mu                   sync.Mutex
@@ -67,7 +68,8 @@ func Open(directory string, store *storage.Store, bodyLimit int64) (*Index, erro
 	if bodyLimit < 1 || bodyLimit > 100<<20 {
 		return nil, errors.New("索引正文限制必须介于 1 字节和 100 MiB")
 	}
-	index := &Index{store: store, filename: filepath.Join(directory, "search.db"), bodyLimit: bodyLimit, requests: make(chan struct{}, 1), pendingPaths: make(map[string]struct{}), done: make(chan struct{})}
+	index := &Index{store: store, filename: filepath.Join(directory, "search.db"), requests: make(chan struct{}, 1), pendingPaths: make(map[string]struct{}), done: make(chan struct{})}
+	index.bodyLimit.Store(bodyLimit)
 	db, err := openDB(index.filename)
 	index.db = db
 	if err != nil {
@@ -321,6 +323,7 @@ func (i *Index) update(ctx context.Context, full bool, paths []string) (int, err
 	if err != nil {
 		return 0, err
 	}
+	bodyLimit := i.bodyLimit.Load()
 	visit := func(entry storage.IndexEntry) error {
 		previous, exists := known[entry.Path]
 		delete(known, entry.Path)
@@ -328,9 +331,9 @@ func (i *Index) update(ctx context.Context, full bool, paths []string) (int, err
 			return nil
 		}
 		body := ""
-		if entry.Size <= i.bodyLimit {
+		if entry.Size <= bodyLimit {
 			var err error
-			body, err = i.store.ReadIndexText(entry.Path, entry.Stamp, i.bodyLimit)
+			body, err = i.store.ReadIndexText(entry.Path, entry.Stamp, bodyLimit)
 			if err != nil {
 				return err
 			}
@@ -425,4 +428,11 @@ func (i *Index) Query(ctx context.Context, query, mode string, limit int) (Respo
 		return output, err
 	}
 	return output, nil
+}
+
+// SetBodyLimit 与扫描并发安全；当前事务完成后全量重建以应用新上限。
+func (i *Index) SetBodyLimit(limit int64) {
+	if i.bodyLimit.Swap(limit) != limit {
+		i.Refresh(true)
+	}
 }

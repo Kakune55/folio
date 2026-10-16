@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router'
 import { TabMenu } from '../features/tabs/TabMenu'
 import type { CloseTabsAction } from '../features/tabs/TabMenu'
 import type { SearchTarget, SearchLocated } from '../features/search/location'
@@ -48,6 +49,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const client = useQueryClient()
   const { activePath, sidebar, theme, open, toggleSidebar, setSidebar, setTheme } = useUI()
   const mobile = useMobile()
+  const route = useLocation()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
   const manager = useMemo(() => getDraftManager(workspaceId, workspace), [workspaceId])
   const recovery = useSyncExternalStore(manager.subscribe, manager.snapshot)
@@ -294,7 +296,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
         }}><LogOut size={17} /></Button></div>
     </header>
-    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || shortcutsOpen || recoveryOpen || !!searchOpen || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
+    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={route.pathname !== '/system-setting' && sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || shortcutsOpen || recoveryOpen || !!searchOpen || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
       <div className="explorer-heading"><span>文件</span><div className="explorer-tools">{mobile && <Button size="icon" aria-label="关闭文件列表" onClick={() => setSidebar(false)}><X size={17} /></Button>}<Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" disabled={external.checking} onClick={() => void external.check()}><RefreshCw size={14} /></Button></div></div>
       {mobile && <div className="drawer-upload-row"><Button className="drawer-upload" variant="outline" disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={16} />上传到{directory ? `「${directory}」` : '工作区'}</Button><Button size="icon" variant="outline" disabled={uploading} aria-label="拍照上传" title="拍照上传到当前目录" onClick={() => cameraInput.current?.click()}><Camera size={17} /></Button></div>}
       {mobile && notice && <p className="tree-message" role="status">{notice}</p>}

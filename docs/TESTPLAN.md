@@ -149,3 +149,21 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 - 已将生产二进制更新到本地 127.0.0.1:8080，健康检查正常；未清理用户数据，未修改后端正文/索引/鉴权协议。本次未重跑 Go 测试（无 Go 源码变更），未执行新的容器、备份、性能压测或实际读屏器验收。
 
 定位目前选择首次可见正文命中，不提供下一处/上一处或全文命中列表。Markdown 标记、链接地址等不可见源码命中需切换源码后重搜，当前内容已无关键词时会提示。批量关闭非原子操作：部分标签可关闭，失败目标保留并汇总，不静默丢失正文；关闭已保存不会顺带保存新输入。
+
+
+## 2026-10-17 系统设置与系统状态
+
+涉及 backend/internal/auth/system.go、httpapi/{accounts,api,users,system,system_test,volume_windows,volume_linux,volume_other}.go、search/{index,file_status}.go，frontend/src/features/auth/{SystemSettings,SystemPanel}.tsx、app/Workbench.tsx、services/api.ts、styles/app.css、tests/browser/system.spec.ts，并同步 README、SPEC、DESIGN、ARCHITECTURE、API、ROADMAP。
+
+管理员新增六项现有资源限制的持久化在线设置，以及 Go 运行时/内存/Heap/Stack/内部内存/GC 状态。设置写入 app.db 后应用到现有和后续工作区，索引上限使用原子值并触发串行全量重建；不改变正文、ETag、配额和账号隔离。状态默认 5 秒刷新，可暂停；目录大小/数量为显式扫描，卷空间使用 Windows/Linux 原生接口，无后台目录轮询。
+
+本次实际执行：
+
+- cd backend; go test ./... -count=1、go vet ./... 全部通过。新增真实 HTTP/SQLite/文件测试覆盖匿名和普通用户拒绝、CSRF、合法/非法配置、非法值不改变生效限制、现有与新打开工作区、文本限额拒绝、索引降低后排除/提高后重建、运行状态和磁盘返回，以及关闭并重建 Accounts 后持久配置覆盖启动默认值。Windows 既有链接权限样本仍按测试约定跳过。
+- cd frontend; npm run build、npm run lint、npm test（5 文件、20 项）通过，保留既有大分块构建提示。python E:/folio/scripts/copy-dist.py 与 Go Windows 生产构建通过；GOOS=linux GOARCH=amd64 的服务器交叉构建通过，仅证明编译，未执行 Linux 运行验收。
+- 最终 npx playwright test tests/browser/system.spec.ts tests/browser/users.spec.ts tests/browser/mobile.spec.ts：7 项通过（28.0s）。新用例验证保存与刷新读回、实际附件超限 413、保存 500 保留表单输入、运行时/卷状态，以及 1440/390 明暗两页 axe 无违规和无外壳溢出；既有用户管理、权限、配额、自助改密、编辑器保留、触屏上传/恢复回归通过。测试使用独立临时工作区，并在用例末尾恢复其原配置。
+- 嵌入生产资源的 npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：明暗桌面/手机共 4 项通过（16.4s）。人工查看了系统状态深色桌面与系统设置浅色手机截图，使用紧凑列表且无横向溢出。截图位于 frontend/test-results/system-*.png。
+- 验证发现切换到手机断点时，已隐藏的工作区仍可产生文件抽屉 portal 遮住系统设置，已在工作区目录抽屉显示条件中加入路由检查，保留编辑器实例。其后补充路由 hook 曾误用未安装的 react-router-dom，构建明确失败；改用本项目已安装的 react-router 后构建与最终回归通过。一次从仓库根目录误运行 Playwright 未执行用例，已改在 frontend 执行并将该次生成结果移至 artifacts/system-root-playwright-error；最终通过结果以上述命令为准。
+- git diff --check 通过；本地生产二进制更新至 127.0.0.1:8080 并健康检查正常。更新使用确定 PID 的既有本地进程，未清理或修改用户工作区文件和账号。
+
+限制：内存为 Go 分配器指标，不等于 RSS/宿主物理内存；逻辑 CPU 数不表示实时 CPU 利用率。索引计数只覆盖已打开工作区。目录统计是并发文件变化期间的近似逻辑大小，不是磁盘占块/配额；包含根目录，跳过链接/特殊文件，扫描失败显式报错。两个目录同卷时显示相同容量，不能相加；其他平台仅卷容量明确不可用。降低文本限制可能使现有超限文件暂不能编辑，文件保留可下载并可恢复上限；在途上传沿用其开始时限额快照。已保存系统设置优先于环境变量，未提供远程重启或复杂监控。没有新的资源压测、容器/备份或真实读屏器验收。

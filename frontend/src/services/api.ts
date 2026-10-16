@@ -36,7 +36,14 @@ export async function request<T>(url: string, init: RequestInit = {}): Promise<T
 }
 export type UserAccount = { id: number; username: string; admin: boolean; enabled: boolean; quota: number; used: number | null; usageError?: string }
 export type UserInput = { username: string; enabled: boolean; quota: number; password: string }
+export type SystemConfiguration = { limits: { Text: number; Image: number; PDF: number; Attachment: number; ImagePixels: number }; indexLimit: number }
+export type SystemRuntimeStatus = { goVersion: string; platform: string; uptime: number; goroutines: number; cpus: number; openWorkspaces: number; indexedFiles: number; memory: Record<string, number>; lastPauseNs: number; sinceGC: number }
+export type SystemDisk = Record<'workspace' | 'appData', { bytes: number; files: number; directories: number; total: number; available: number; volumeError?: string }>
 export const api = {
+ systemConfiguration: () => request<SystemConfiguration>('/admin/settings'),
+ saveSystemConfiguration: (value: SystemConfiguration) => request<SystemConfiguration>('/admin/settings', { method: 'PUT', body: JSON.stringify(value) }),
+ systemStatus: () => request<SystemRuntimeStatus>('/admin/status'),
+ systemDisk: () => request<SystemDisk>('/admin/disk'),
   usage: () => request<{ used: number; quota: number }>('/workspace/usage'),
   users: (q = '', offset = 0) => request<{ entries: UserAccount[]; total: number }>(`/admin/users?q=${encodeURIComponent(q)}&offset=${offset}&limit=20`),
   saveUser: (id: number, data: UserInput) => request<UserAccount>(id ? `/admin/users/${id}` : '/admin/users', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(data) }),

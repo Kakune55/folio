@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"folio/internal/auth"
 	"folio/internal/config"
@@ -27,6 +29,8 @@ type accountWorkspace struct {
 	id      string
 }
 type Accounts struct {
+	started time.Time
+	diskMu  sync.Mutex
 	mu      sync.Mutex
 	cfg     config.Config
 	auth    *auth.Service
@@ -47,12 +51,31 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		roots.Close()
 		return nil, err
 	}
-	a := &Accounts{cfg: cfg, auth: accounts, assets: assets, roots: roots, data: data, entries: map[int64]*accountWorkspace{}}
+	raw, err := accounts.SystemSettings()
+	if err != nil {
+		roots.Close()
+		data.Close()
+		return nil, err
+	}
+	if len(raw) > 0 {
+		var saved systemSettings
+		if err = json.Unmarshal(raw, &saved); err == nil {
+			err = saved.validate()
+		}
+		if err != nil {
+			roots.Close()
+			data.Close()
+			return nil, err
+		}
+		cfg.Limits = saved.Limits
+		cfg.IndexLimit = saved.IndexLimit
+	}
+	a := &Accounts{started: time.Now(), cfg: cfg, auth: accounts, assets: assets, roots: roots, data: data, entries: map[int64]*accountWorkspace{}}
 	a.base = New(assets, a.options())
 	return a, nil
 }
 func (a *Accounts) options() Options {
-	return Options{Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
+	return Options{System: a, Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
 		entry, err := a.get(id)
 		if err != nil {
 			return "", err

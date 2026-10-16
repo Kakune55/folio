@@ -1,3 +1,4 @@
+import { SystemConfigurationPanel, SystemStatusPanel } from './SystemPanel'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
@@ -11,6 +12,7 @@ import { formatBytes } from '../../services/format'
 
 export function SystemSettings({ principal }: { principal: Principal }) {
   const client = useQueryClient()
+  const [page, setPage] = useState('用户管理')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
   const [editing, setEditing] = useState<UserAccount | 'new' | null>(null)
@@ -35,15 +37,15 @@ export function SystemSettings({ principal }: { principal: Principal }) {
   const close = () => { if (!busy) { setEditing(null); setReset(null); setPassword(''); setError('') } }
   return <main className="settings-page">
     <header className="settings-header"><Link to="/" className="settings-back"><ArrowLeft size={17} />返回工作区</Link><span>{principal.username}</span></header>
-    <div className="settings-layout"><aside className="settings-nav"><h1>系统设置</h1><span aria-current="page">用户管理</span></aside>
-      <section className="users-section" aria-labelledby="users-heading"><div className="users-heading"><h2 id="users-heading">用户管理 <span>{users.data?.total ?? ''}</span></h2><Button variant="outline" onClick={() => begin('new')}><Plus size={16} />创建用户</Button></div>
+    <div className="settings-layout"><aside className="settings-nav"><h1>系统设置</h1><nav aria-label="系统管理">{['用户管理', '系统设置', '系统状态'].map((name) => <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}>{name}</button>)}</nav></aside>
+      {page === '系统设置' ? <SystemConfigurationPanel /> : page === '系统状态' ? <SystemStatusPanel /> : <section className="users-section" aria-labelledby="users-heading"><div className="users-heading"><h2 id="users-heading">用户管理 <span>{users.data?.total ?? ''}</span></h2><Button variant="outline" onClick={() => begin('new')}><Plus size={16} />创建用户</Button></div>
         <label className="user-search"><Search size={16} /><input aria-label="搜索用户名" placeholder="搜索用户名" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0) }} /></label>
         {notice && <p role="status">{notice}</p>}{users.isPending && <p role="status">正在读取用户…</p>}{users.error && <p role="alert">{users.error.message} <Button onClick={() => void users.refetch()}>重试</Button></p>}
         {users.data && <><div className="users-table-scroll"><table className="users-table"><thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>已用 / 配额</th><th>操作</th></tr></thead><tbody>
           {users.data.entries.map((user) => <tr key={user.id}><td>{user.username}</td><td>{user.admin ? '管理员' : '用户'}</td><td><span className={user.enabled ? '' : 'muted'}>{user.enabled ? '启用' : '禁用'}</span></td><td className={user.used !== null && user.used > user.quota ? 'quota-full' : ''}>{user.used === null ? <button onClick={() => void users.refetch()}>读取失败，重试</button> : `${formatBytes(user.used)} / ${formatBytes(user.quota)}`}</td><td><div className="user-actions"><Button onClick={() => begin(user)}>编辑</Button><Button onClick={() => { setReset(user); setPassword(''); setError('') }}>重置密码</Button></div></td></tr>)}
           {!users.data.entries.length && <tr><td colSpan={5} className="users-empty">没有匹配的用户</td></tr>}
         </tbody></table></div><div className="users-pagination"><span>共 {users.data.total} 个用户</span><Button disabled={offset === 0 || users.isFetching} onClick={() => setOffset(Math.max(0, offset - 20))}>上一页</Button><Button disabled={offset + 20 >= users.data.total || users.isFetching} onClick={() => setOffset(offset + 20)}>下一页</Button></div></>}
-      </section></div>
+      </section>}</div>
     <Dialog.Root open={!!editing || !!reset} onOpenChange={(value) => { if (!value) close() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content user-dialog">
       <Dialog.Title>{reset ? '重置密码' : editing === 'new' ? '创建用户' : '编辑用户'}</Dialog.Title><Dialog.Description>{reset ? `${reset.username} 的旧会话将立即失效。` : editing === 'new' ? '创建独立工作区。' : '修改账号与工作区配额。'}</Dialog.Description>
       <form onSubmit={async (event) => {

@@ -19,6 +19,7 @@ import (
 )
 
 type Options struct {
+	System       *Accounts
 	OwnerID      int64
 	WorkspaceFor func(int64) (string, error)
 	UserUsage    func(int64) (storage.Usage, error)
@@ -163,6 +164,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 }
 func (a *api) register(mux *http.ServeMux) {
 	a.registerUsers(mux)
+	a.registerSystem(mux)
 	a.registerAttachments(mux)
 	a.registerEntries(mux)
 	a.registerSearch(mux)

@@ -32,7 +32,7 @@ func (a *api) administrator(next http.HandlerFunc) http.HandlerFunc {
 	return a.protect(func(w http.ResponseWriter, r *http.Request) {
 		p, err := a.Auth.Authenticate(sessionToken(r))
 		if err != nil || !p.Admin {
-			writeError(w, 403, "forbidden", "仅管理员可以管理用户", nil)
+			writeError(w, 403, "forbidden", "仅管理员可以访问系统管理", nil)
 			return
 		}
 		next(w, r)
