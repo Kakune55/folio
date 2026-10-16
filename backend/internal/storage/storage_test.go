@@ -152,3 +152,29 @@ func TestSymlinkSwapCannotEscape(t *testing.T) {
 		t.Fatalf("逃逸写入：%q %v", data, err)
 	}
 }
+
+func TestPermissionFailurePreservesOriginal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("需要普通用户权限语义，root 可绕过目录权限")
+	}
+	store, root := testStore(t)
+	revision, err := store.Write("note.md", "原始完整正文\r\n", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(root, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(root, 0o700)
+	if _, err = store.Write("note.md", "不得部分改写", revision, false); !errors.Is(err, unix.EACCES) {
+		t.Fatalf("未观察到真实目录权限失败：%v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil || string(content) != "原始完整正文\r\n" {
+		t.Fatal("失败后原文件被改变", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("权限失败留下了额外文件", err)
+	}
+}

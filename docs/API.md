@@ -5,7 +5,7 @@ Base path `/api/v1`, JSON except streaming file upload/download. All routes requ
 ## Conventions
 - Paths are workspace-relative URL query strings or JSON strings; encode URI components properly. Example `Linux/PVE/notes.md`. Never accept server absolute paths.
 - Filename/text metadata UTF-8. Binary content streams raw bytes, not JSON base64.
-- `revision` is opaque (e.g. strong hash/ETag) and returned for content reads; writes must supply `If-Match: "<revision>"`. Use `If-None-Match: *` for create-only writes.
+- `revision` is opaque (e.g. strong hash/ETag) and returned for content reads; updates must supply `If-Match: "<revision>"`. Implemented create-only POSTs always use no-replace semantics and do not require `If-None-Match`; a collision is 409, never an overwrite option.
 - File timestamps are advisory; must not be the only concurrency guard.
 - Error schema: `{"error":{"code":"revision_conflict","message":"...","details":{}}}`. Do not leak absolute filesystem paths.
 - JSON list responses support documented pagination/limit before large-workspace usage.

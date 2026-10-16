@@ -50,7 +50,7 @@ docker compose -f compose.yaml -f deploy/compose.proxy.yaml up --build -d
 
 此覆盖文件关闭容器内 TLS；安全 Cookie 仍开启。代理 upstream 默认是 `http://127.0.0.1:8443`，应正确转发 Host、Cookie、请求体和错误状态。上传限制需要与代理的请求体限制协调，不能把 412/413/428 转换成成功页面。登录限速按服务看到的连接源 IP，尚不信任任意转发头。
 
-公网暴露前仍需完成 M3 安全与恢复审查，当前默认只发布回环端口。
+当前默认只发布回环端口。M3 已完成本文所列环境的安全与恢复审查，范围见 [最终验收](ACCEPTANCE.md)；实际公网证书、域名/Origin、代理限制和状态码透传仍需在部署环境核对。
 
 ## 镜像与架构
 
@@ -126,8 +126,21 @@ Compose 的宿主路径可由 `FOLIO_WORKSPACE_DIR` 与 `FOLIO_APP_DATA_DIR` 配
 
 `make CONTAINER_ENGINE=podman image` 现在显式使用 Docker 镜像格式，以保留 HEALTHCHECK 元数据。M3 原生 amd64 HTTPS 容器恢复演练不等同于 arm64 或 Docker daemon 的重新验收，具体证据见 M3 记录。
 
-## M3 候选镜像的安全与故障演练
+## M3 镜像的安全与故障演练
 
 `CONTAINER_ENGINE=podman FOLIO_TEST_IMAGE=<本地镜像> make container-review` 验证实际生产 CSP、恶意内容与内核 ENOSPC 后的草稿恢复。它只使用本次容器的 512 KiB tmpfs（mode 1777，让非 root 用户无需新增权限即可写入）及临时私有 app-data，不修改日常挂载或填满宿主磁盘。该受限测试挂载不应替换生产的持久工作区。
 
 `make container-test` 继续使用两个实际 bind mount，现已加入在线改密拒绝、停服后仅挂载 app-data 的离线重置、旧 Cookie/密码失效与新密码/文件/工作区身份验证。两种驱动均使用临时证书 SPKI 例外，浏览器不全局忽略 HTTPS 错误；宿主 CA 和主机名另行完整校验。新流程已在原生 amd64、QEMU arm64 候选镜像上通过，Docker daemon 与原生 ARM 硬件未在本机验证。
+
+## V1 最终本地交付
+
+当前最终镜像、源码节点、逐项验收和平台边界见 [ACCEPTANCE.md](ACCEPTANCE.md)。`artifacts/container/folio-m3.oci.tar` 包含 amd64/arm64，旁有摘要与清单检查收据；保留 Docker v2s2/HEALTHCHECK，已用 Podman 导入本机平台。换行修复前的旧候选另存为 `folio-m3-before-eol.oci.tar`，不能作为当前版本使用。
+
+```sh
+cd artifacts/container
+sha256sum -c folio-m3.oci.tar.sha256
+podman load -i folio-m3.oci.tar
+podman tag 3b1f397e0f070ec9470820ae947249e9952dfd88d17856167d24cdd2bbd60576 folio:local
+```
+
+上例在已验证的 amd64 主机上加载/标记；ARM 操作者选择对应平台镜像 ID，详见验收表。其他引擎导入命令应按其支持的格式核对。本机没有推送注册表，也没有执行 Docker daemon 部署。切换版本前先备份两卷、保存/下载浏览器草稿和待确认原件；部署新程序后刷新旧页面，不强制丢弃旧页面内存。

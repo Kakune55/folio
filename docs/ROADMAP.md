@@ -35,7 +35,7 @@ M2 exit gate passed: Chinese/English search, quick-open, external-change reconci
 - Security and accessibility reviews; measured performance regression suite.
 **Exit gate:** mobile flows, recoverability and deploy/recovery drill verified.
 
-M3 is in progress: browser recovery, mobile Explorer/uploads, offline dual-volume backup/restore, offline account recovery and initial security/fault checks are implemented. Production-build accessibility and measured performance checks are recorded in [`QUALITY.md`](QUALITY.md). Final browser-security, ENOSPC and dual-architecture deployment gates remain; the overall M3 gate is not yet passed. Evidence and limits are in [`M3.md`](M3.md).
+M3 exit gate passed on 2026-10-16 in the documented environment: browser recovery/mobile flows, exact source line endings, dual-volume restore, offline account reset, security/accessibility/performance review, and current-image HTTPS/ENOSPC/deploy drills on native amd64 and QEMU arm64. See the requirement-by-requirement [`acceptance record`](ACCEPTANCE.md), [`quality limits`](QUALITY.md) and [`M3 history`](M3.md). Real assistive devices/phone hardware, native ARM and Docker daemon execution are not claimed.
 
 ## Change control
 When introducing a feature, update SPEC/API/DESIGN (as applicable), list failure modes, implement test coverage, and record any deliberately unsupported behavior. Do not silently expand scope or switch frameworks.
