@@ -218,3 +218,19 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 已人工查看 artifacts/navigation/navigation-abstract-large.png，抽象线条与可视范围显示正常。构建保留既有大分块提示，快速模式/布局测试仍可出现已记录的 CodeMirror 测量提示。未改变磁盘正文、恢复、ETag 或接口权限；没有新增外部请求/内容执行入口。样本测试验证处理量与不重绘行为，不等于跨设备 CPU/内存/帧率基准；抽样可能略过部分行，超长行仅前 100 字符参与形状计算，不再显示语法颜色。无 Go 源码变化，未重跑 Go 单元或新增真实手机/其他浏览器测试。本轮未启动/重启日常工作区服务器，产物 bin/folio.exe 已更新。
 
 本轮生产嵌入资源：npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts，明暗桌面/手机 4 项通过（15.4s）。
+
+
+## 2026-10-17 缩略图视窗拖动
+
+本轮涉及 frontend/src/editors/navigation/SourceNavigation.tsx、styles/app.css、tests/browser/navigation.spec.ts，及 SPEC/DESIGN/ARCHITECTURE/ROADMAP。补齐按住视窗拖动、轨道点击后继续拖动、抓取位置不跳动、Pointer Capture 越界拖动与上下限位；滚动范围按 scrollDOM 实际高度映射，12px 最小视窗仍能拖至首尾。鼠标/指针动作和键盘定位均只滚动，不改变编辑光标、正文、历史或保存状态；滑块辅助值跟随滚动位置。手势使用每帧最后位置，不增加 Canvas 重绘；松手、pointercancel、丢失捕获、关闭面板均清理状态和动画帧。CSS 使用 grab/grabbing 与 touch-action:none。
+
+本次实际执行（不引用前轮测试作为本轮结果）：
+
+- cd frontend; npm run build、npm run lint 通过。构建保留既有大分块提示，最终 lint 无告警。中途 lint 指出回调直接赋值 props 所属 DOM 属性，改为原生 scrollTo 后检查通过。
+- npx playwright test tests/browser/navigation.spec.ts tests/browser/selection.spec.ts：4 项通过（19.3s），覆盖既有导航/主题/手机布局与源码拖选。随后加入手势中断/卸载覆盖并修正滑块辅助值及键盘滚动后，navigation.spec.ts 单独复跑通过；最终版本结果另记。
+- 十万行测试用真实鼠标按住视窗、分步移动至轨道外和上下边界，断言按下不跳动、持续滚动到文件首尾、松手后不再跟随、轨道点击有效、拖动不增加 Canvas 绘制次数，并直接核对磁盘正文。人工 dispatch 的 pointercancel 单独验证中断清理和释放捕获；程序关闭处于拖动中的面板后继续移动/松手，再打开确认光标恢复且无 pageerror。后两项为故障/生命周期注入，不冒充真实触摸或系统取消手势验收。
+- python scripts/copy-dist.py 与 cd backend; go build -o ../bin/folio.exe ./cmd/server 通过。使用独立临时测试目录，没有启动/重启日常服务器或修改用户正文和账号。
+
+限制：真实触摸设备、笔、其他浏览器与跨设备帧率尚未验证；很长或换行高度差异大的文本仍受 CodeMirror 原生高度估算/布局影响。十万行大幅滚动时开发日志仍有已记录的 “Measure loop restarted more than 5 times” 提示，测试定位与边界断言通过，不能据此声称所有设备持续 60 FPS。无后端源码变更，未重跑 Go 单元测试；没有新增文件操作、网络请求或鉴权入口，ETag、恢复和未保存正文保护保留。
+
+最终版本实际复跑：npx playwright test tests/browser/navigation.spec.ts：2 项通过（10.7s）；npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：明暗桌面/手机 4 项通过（15.7s）。git diff --check 通过。

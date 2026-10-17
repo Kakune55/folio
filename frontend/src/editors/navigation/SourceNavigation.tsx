@@ -9,29 +9,30 @@ export function SourceNavigation({ view, markdown }: { view: EditorView; markdow
   const viewport = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLElement>(null)
   const jump = (ratio: number) => {
-    const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, Math.round(ratio * (view.state.doc.lines - 1)) + 1)))
-    view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
-    view.focus()
+    const scroll = view.scrollDOM
+    scroll.scrollTo({ top: Math.max(0, Math.min(1, ratio)) * Math.max(0, scroll.scrollHeight - scroll.clientHeight), behavior: 'instant' })
   }
   useEffect(() => {
     let previous = view.state.doc
     let initialized = false
     let timer: ReturnType<typeof setTimeout>
     let frame = 0
+    let dragFrame = 0
+    let drag: { id: number; offset: number; clientY: number } | undefined
     let drawingKey = ''
     const updateViewport = () => {
       frame = 0
-      const next = { line: view.state.doc.lineAt(view.state.selection.main.head).number, lines: view.state.doc.lines }
+      const scroll = view.scrollDOM
+      const ratio = Math.max(0, Math.min(1, scroll.scrollTop / Math.max(1, scroll.scrollHeight - scroll.clientHeight)))
+      const next = { line: Math.round(ratio * (view.state.doc.lines - 1)) + 1, lines: view.state.doc.lines }
       setPosition((current) => current.line === next.line && current.lines === next.lines ? current : next)
       const element = canvas.current, overlay = viewport.current
       if (!element || !overlay) return
-      const spacing = Math.min(4, element.clientHeight / next.lines)
-      const top = view.scrollDOM.getBoundingClientRect().top - view.documentTop
-      const first = view.state.doc.lineAt(view.lineBlockAtHeight(Math.max(0, top)).from).number - 1
-      const last = view.state.doc.lineAt(view.lineBlockAtHeight(Math.max(0, top + view.scrollDOM.clientHeight)).to).number
-      const height = Math.min(element.clientHeight, Math.max(12, (last - first) * spacing))
+      const contentHeight = Math.min(element.clientHeight, next.lines * 4)
+      const height = Math.min(contentHeight, Math.max(12, contentHeight * scroll.clientHeight / Math.max(1, scroll.scrollHeight)))
+      const travel = Math.max(0, contentHeight - height)
       overlay.style.height = `${height}px`
-      overlay.style.transform = `translateY(${Math.max(0, Math.min(first * spacing, element.clientHeight - height))}px)`
+      overlay.style.transform = `translateY(${Math.max(0, Math.min(1, ratio)) * travel}px)`
     }
     const scheduleViewport = () => { if (!frame) frame = requestAnimationFrame(updateViewport) }
     const refresh = () => {
@@ -77,7 +78,57 @@ export function SourceNavigation({ view, markdown }: { view: EditorView; markdow
       if (!initialized || previous !== view.state.doc) { clearTimeout(timer); timer = setTimeout(refresh, 120) }
     }
     const scheduleDrawing = () => { clearTimeout(timer); timer = setTimeout(refresh, 120) }
+    const applyDrag = () => {
+      dragFrame = 0
+      const element = canvas.current, overlay = viewport.current
+      if (!drag || !element || !overlay) return
+      const rect = element.getBoundingClientRect()
+      const contentHeight = Math.min(rect.height, view.state.doc.lines * 4)
+      const travel = Math.max(0, contentHeight - overlay.getBoundingClientRect().height)
+      const ratio = travel > 0 ? Math.max(0, Math.min(1, (drag.clientY - rect.top - drag.offset) / travel)) : 0
+      const scroll = view.scrollDOM
+      // 只滚动原生容器，不改变光标或正文；每帧只应用最后一个指针位置。
+      scroll.scrollTop = ratio * Math.max(0, scroll.scrollHeight - scroll.clientHeight)
+      updateViewport()
+    }
+    const pointerDown = (event: PointerEvent) => {
+      const element = canvas.current, overlay = viewport.current
+      if (!element || !overlay || drag || !event.isPrimary || event.button !== 0) return
+      event.preventDefault()
+      updateViewport()
+      const thumb = overlay.getBoundingClientRect()
+      const inside = event.clientY >= thumb.top && event.clientY <= thumb.bottom
+      drag = { id: event.pointerId, offset: inside ? event.clientY - thumb.top : thumb.height / 2, clientY: event.clientY }
+      element.setPointerCapture(event.pointerId)
+      element.focus({ preventScroll: true })
+      element.style.cursor = 'grabbing'
+      if (!inside) applyDrag()
+    }
+    const pointerMove = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.id) return
+      drag.clientY = event.clientY
+      if (!dragFrame) dragFrame = requestAnimationFrame(applyDrag)
+    }
+    const finishDrag = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.id) return
+      cancelAnimationFrame(dragFrame)
+      dragFrame = 0
+      if (event.type === 'pointerup') { drag.clientY = event.clientY; applyDrag() }
+      const id = drag.id
+      drag = undefined
+      const element = canvas.current
+      if (element) {
+        element.style.cursor = ''
+        if (element.hasPointerCapture(id)) element.releasePointerCapture(id)
+      }
+    }
     refresh()
+    const element = canvas.current
+    element?.addEventListener('pointerdown', pointerDown)
+    element?.addEventListener('pointermove', pointerMove)
+    element?.addEventListener('pointerup', finishDrag)
+    element?.addEventListener('pointercancel', finishDrag)
+    element?.addEventListener('lostpointercapture', finishDrag)
     view.dom.addEventListener('folio-navigation', schedule)
     view.scrollDOM.addEventListener('scroll', scheduleViewport)
     const resize = new ResizeObserver(scheduleDrawing)
@@ -85,19 +136,23 @@ export function SourceNavigation({ view, markdown }: { view: EditorView; markdow
     const theme = new MutationObserver(scheduleDrawing)
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => {
-      clearTimeout(timer); cancelAnimationFrame(frame); resize.disconnect(); theme.disconnect()
+      if (drag && element?.hasPointerCapture(drag.id)) element.releasePointerCapture(drag.id)
+      drag = undefined
+      if (element) element.style.cursor = ''
+      element?.removeEventListener('pointerdown', pointerDown)
+      element?.removeEventListener('pointermove', pointerMove)
+      element?.removeEventListener('pointerup', finishDrag)
+      element?.removeEventListener('pointercancel', finishDrag)
+      element?.removeEventListener('lostpointercapture', finishDrag)
+      clearTimeout(timer); cancelAnimationFrame(dragFrame); cancelAnimationFrame(frame); resize.disconnect(); theme.disconnect()
       view.dom.removeEventListener('folio-navigation', schedule)
       view.scrollDOM.removeEventListener('scroll', scheduleViewport)
     }
   }, [view, markdown])
   return <aside ref={panel} className={`document-navigation ${markdown ? '' : 'minimap-navigation'}`} aria-label={markdown ? 'Markdown 大纲' : '文本缩略图'}><div className="navigation-title">{markdown ? '大纲' : '缩略图'}</div>{markdown ? <nav aria-label="标题导航">{headings.length ? headings.map((heading) => <button key={heading.from} style={{ paddingInlineStart: 12 + (heading.level - 1) * 12 }} title={heading.text} onClick={() => {
     view.dispatch({ selection: { anchor: heading.from }, effects: EditorView.scrollIntoView(heading.from, { y: 'start' }) }); view.focus()
-  }}>{heading.text}</button>) : <p>当前文档没有标题</p>}</nav> : <div className="minimap-surface"><div ref={viewport} className="minimap-viewport" aria-hidden="true" /><canvas ref={canvas} tabIndex={0} role="slider" aria-label="文本位置" aria-valuemin={1} aria-valuemax={position.lines} aria-valuenow={position.line} onPointerDown={(event) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const spacing = Math.min(4, rect.height / view.state.doc.lines)
-    jump((event.clientY - rect.top) / (view.state.doc.lines * spacing))
-  }} onKeyDown={(event) => {
-    const current = view.state.doc.lineAt(view.state.selection.main.head).number
+  }}>{heading.text}</button>) : <p>当前文档没有标题</p>}</nav> : <div className="minimap-surface"><div ref={viewport} className="minimap-viewport" aria-hidden="true" /><canvas ref={canvas} tabIndex={0} role="slider" aria-label="文本位置" aria-valuemin={1} aria-valuemax={position.lines} aria-valuenow={position.line} onKeyDown={(event) => {
+    const current = position.line
     const target = event.key === 'Home' ? 1 : event.key === 'End' ? view.state.doc.lines : event.key === 'ArrowDown' ? current + 1 : event.key === 'ArrowUp' ? current - 1 : undefined
     if (target !== undefined) { event.preventDefault(); jump((target - 1) / Math.max(1, view.state.doc.lines - 1)); event.currentTarget.focus() }
   }} /></div>}</aside>

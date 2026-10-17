@@ -68,6 +68,8 @@ test('大纲准确定位重复标题、实时更新并保持实例；文本缩�
 })
 
 test('十万行抽象缩略图绘制有界，连续滚动只移动遮罩，编辑与主题变化仍刷新', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {
     const fillRect = CanvasRenderingContext2D.prototype.fillRect
     const fillText = CanvasRenderingContext2D.prototype.fillText
@@ -114,6 +116,45 @@ test('十万行抽象缩略图绘制有界，连续滚动只移动遮罩，编�
   await page.waitForTimeout(250)
   await expect(canvas).toHaveAttribute('data-draws', String(draws))
   await expect(canvas).not.toHaveAttribute('data-glyphs')
+  const scroll = page.locator('.cm-scroller')
+  const thumb = (await overlay.boundingBox())!
+  const track = (await canvas.boundingBox())!
+  const beforeDrag = await scroll.evaluate((element) => element.scrollTop)
+  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2)
+  await page.mouse.down()
+  // 按住视窗本身不跳动；移到轨道外仍通过 Pointer Capture 连续拖动。
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(beforeDrag)
+  await page.mouse.move(track.x - 60, track.y + track.height * .8, { steps: 15 })
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeDrag)
+  await page.mouse.move(track.x - 60, track.y + track.height + 80, { steps: 10 })
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(2)
+  await page.mouse.up()
+  const afterRelease = await scroll.evaluate((element) => element.scrollTop)
+  await page.mouse.move(track.x + 20, track.y + 5, { steps: 10 })
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(afterRelease)
+  const bottomThumb = (await overlay.boundingBox())!
+  await page.mouse.move(bottomThumb.x + 20, bottomThumb.y + bottomThumb.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(track.x + 20, track.y - 50, { steps: 15 })
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBe(0)
+  await page.mouse.up()
+  await canvas.click({ position: { x: 20, y: track.height * .4 } })
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  // 人工取消事件验证系统中断手势的清理；不把它当作真机触摸验收。
+  await canvas.evaluate((element) => element.addEventListener('pointerdown', (event) => { (element as HTMLElement).dataset.pointerId = String((event as PointerEvent).pointerId) }, { once: true }))
+  const cancelThumb = (await overlay.boundingBox())!
+  await page.mouse.move(cancelThumb.x + 20, cancelThumb.y + cancelThumb.height / 2)
+  await page.mouse.down()
+  const pointerId = Number(await canvas.getAttribute('data-pointer-id'))
+  await canvas.dispatchEvent('pointercancel', { pointerId })
+  const canceledScroll = await scroll.evaluate((element) => element.scrollTop)
+  await page.mouse.move(track.x - 50, track.y + 10, { steps: 5 })
+  await page.mouse.up()
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(canceledScroll)
+  expect(await canvas.evaluate((element, id) => element.hasPointerCapture(id), pointerId)).toBe(false)
+  await expect(canvas).toHaveCSS('cursor', 'grab')
+  await expect(canvas).toHaveAttribute('data-draws', String(draws))
+  expect((await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(name)}`)).json()).content).toBe(content)
   await page.evaluate(() => document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')
   await expect.poll(async () => Number(await canvas.getAttribute('data-draws'))).toBeGreaterThan(draws)
   const themedCount = Number(await canvas.getAttribute('data-draws'))
@@ -123,4 +164,15 @@ test('十万行抽象缩略图绘制有界，连续滚动只移动遮罩，编�
   await expect(canvas).toHaveAttribute('aria-valuemax', '100001')
   await expect.poll(async () => Number(await canvas.getAttribute('data-draws'))).toBeGreaterThan(themedCount)
   await page.screenshot({ path: '../artifacts/navigation/navigation-abstract-large.png' })
+  const lastThumb = (await overlay.boundingBox())!
+  await page.mouse.move(lastThumb.x + 20, lastThumb.y + lastThumb.height / 2)
+  await page.mouse.down()
+  // 捕获仍生效时程序关闭面板，验证卸载不会遗留手势或回调。
+  await page.getByRole('button', { name: '收起大纲与缩略图' }).evaluate((element) => (element as HTMLButtonElement).click())
+  await expect(canvas).not.toBeVisible()
+  await page.mouse.move(track.x + 20, track.y + 20)
+  await page.mouse.up()
+  await page.getByRole('button', { name: '展开大纲与缩略图' }).click()
+  await expect(canvas).toHaveCSS('cursor', 'grab')
+  expect(errors).toEqual([])
 })

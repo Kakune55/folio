@@ -99,3 +99,5 @@ HTTP 鉴权层不再对所有成功写请求触发全工作区刷新。正文新
 ## 文档导航（2026-10-17）
 
 editors/navigation 提供局部导航：源码使用已安装 @codemirror/lang-markdown 的解析器提取 ATX/Setext 标题及 LF 文档位置，跳过代码/注释伪标题；富文本从当前 ProseMirror 文档提取 heading 及文档位置，DOM 变更只触发延迟重新读取原生状态，不将 DOM 作为正文权威。重复标题按位置定位，不用文本搜索推断。文本缩略图基于 CodeMirror 当前文档，用 Canvas 矩形表现采样行缩进/长度，不绘制字形或遍历语法树。绘图次数约束为面板高度 / 3，每次仅取采样行前 100 字符；DPR 上限为 2。正文、尺寸或主题颜色变化才重画内容；实际可视行区间由独立 DOM 遮罩表示，滚动合并到 requestAnimationFrame，只更新遮罩位置和高度。卸载清理监听器、定时器和动画帧。开关仅为 Workbench 局部界面状态，不增加正文全局状态或 API。
+
+缩略图拖动使用 Pointer Events 与 Pointer Capture，记录视窗内抓取偏移，每个 requestAnimationFrame 仅应用最后一个指针位置。遮罩大小和位置按真实 scrollDOM 可滚动范围计算，最小视窗高度 12px，并对轨道上下边界限位；直接设置 scrollTop，不派发正文或选区事务。pointerup、pointercancel、lostpointercapture 和卸载均清理捕获、动画帧与拖动状态。
