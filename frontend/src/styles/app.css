@@ -422,3 +422,24 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .system-status-actions { display: flex; align-items: center; gap: 12px; }.system-status-actions label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .system-metrics { padding: 16px 0; border-top: 1px solid var(--border); }.system-metrics h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }.system-metrics dl { margin: 0; }.system-metrics dl > div { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); gap: 20px; padding: 6px 0; }.system-metrics dt { color: var(--muted-foreground); }.system-metrics dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 @media(max-width:767px) { .settings-nav nav { display: flex; flex-wrap: wrap; }.system-status-actions { flex-wrap: wrap; justify-content: flex-end; }.system-field { grid-template-columns: minmax(110px, 1fr) minmax(0, 180px); gap: 8px; }.system-number input { width: 100px; }.system-metrics dl > div { grid-template-columns: minmax(130px, 1fr) minmax(0, 1fr); gap: 12px; } }
+
+/* 右侧导航独立于正文滚动，切换时不重建编辑器。 */
+.editor-with-navigation { display: flex; height: 100%; min-height: 0; overflow: hidden; }
+.editor-with-navigation > .source-host { flex: 1; min-width: 0; }
+.rich-scroll { flex: 1; min-width: 0; overflow: auto; }
+.document-navigation { width: 220px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--background); display: flex; flex-direction: column; min-height: 0; }
+.navigation-title { padding: 12px 8px; color: var(--muted-foreground); font-size: 12px; white-space: nowrap; }
+.document-navigation nav { overflow: auto; padding-bottom: 16px; }
+.document-navigation nav button { display: block; text-align: left; width: 100%; padding: 7px 12px; font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.document-navigation nav button:hover, .document-navigation nav button:focus-visible { background: var(--surface-hover); color: var(--foreground); }
+.document-navigation p { padding: 12px; color: var(--muted-foreground); font-size: 12px; }
+.minimap-navigation { width: 125px; }
+.minimap-surface { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.minimap-navigation canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+.minimap-viewport { position: absolute; inset: 0 0 auto; background: var(--selection); opacity: .5; pointer-events: none; will-change: transform; }
+@media (max-width: 767px) {
+  .document-navigation { width: 130px; }
+  .document-navigation nav button { min-height: 40px; }
+  .minimap-navigation { width: 56px; }
+  .rich-navigation-layout:has(.document-navigation) .rich-host { padding-inline: 14px; }
+}

@@ -192,3 +192,29 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 涉及 frontend/src/styles/app.css、features/recovery/DraftRecovery.tsx、tests/browser/mobile-layout.spec.ts 和 DESIGN.md。手机底栏三个区域显式指定网格列，修复未打开文件时恢复图标自动填入第二列；简化恢复窗口说明和空列表文案，无记录时不显示选择指引，不改变恢复、保存或删除逻辑。
 
 本次 npm run build、npm run lint、python E:/folio/scripts/copy-dist.py、Go 生产构建和 git diff --check 通过。npx playwright test tests/browser/mobile-layout.spec.ts tests/browser/recovery.spec.ts：6 项通过（24.2s），新增空白页按钮右边缘位置断言，既有手机布局、恢复保存、失败另存、双页面隔离、禁止存储提示及重启独立浏览器读取草稿回归通过。已更新本地 127.0.0.1:8080，健康检查正常，未修改用户文件。无后端逻辑变更，未重跑 Go 单测或全套无障碍检查；真实手机与其他浏览器仍未专项验证。
+
+## 2026-10-17 右侧大纲与文本缩略图
+
+涉及 frontend/src/app/Workbench.tsx、editors/registry.tsx、editors/{codemirror/SourceEditor,milkdown/RichEditor}.tsx、editors/navigation/{headings,SourceNavigation,RichNavigation}、styles/app.css，以及 navigation.spec.ts、headings.test.ts；同步 SPEC、DESIGN、ARCHITECTURE 与 ROADMAP。顶栏主题/快捷键旁提供开关，Markdown 按原生标题位置定位，其他文本提供主题化 Canvas 缩略图与可视范围。面板刷新不重建编辑器、不提交正文变更。
+
+本次实际执行（不沿用历史验收）：
+
+- cd frontend; npm run build、npm run lint、npm test 全部通过（6 文件、21 项）。构建保留已有大分块提示，lint 最终无告警。
+- npx playwright test tests/browser/navigation.spec.ts tests/browser/workbench.spec.ts tests/browser/line-endings.spec.ts：12 项通过；另跑 navigation.spec.ts、search-location.spec.ts、selection.spec.ts 共 7 项通过。最终增加富文本面板 axe 与滚动区域键盘入口后，navigation.spec.ts + workbench.spec.ts 重新运行 10 项全部通过（15.8s）。覆盖富文本/源码重复标题定位、实时修改与撤销、开关不重建、磁盘正文未被导航改写、源码追加标题、JSON 末行键盘定位、1440/1024/390 无溢出、面板 axe、换行保真与既有搜索/选区保护。
+- python scripts/copy-dist.py 与 cd backend; go build -o ../bin/folio.exe ./cmd/server 通过，产物已包含新前端。使用独立临时工作区，没有启动或重启日常工作区服务器，没有修改用户文件或账号。
+- 已人工查看浅色桌面大纲、深色桌面与手机缩略图截图，最终截图位于 artifacts/navigation/。最终 npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：生产嵌入页面明暗桌面/手机 4 项全部通过（15.5s）。git diff --check 通过。
+
+验证过程明确修复了源码和富文本在长文跳转后滚动区域缺少键盘入口的问题（axe scrollable-region-focusable），没有排除规则。开发服务在快速切模式/缩放流程中出现一次 CodeMirror “Measure loop restarted more than 5 times” 测量提示，用例与实际定位均通过，尚未开展连续缩放压力验证。早期编辑脚本因 Windows 默认编码或相对目录错误明确失败，已改用 UTF-8 与正确路径后构建复核通过。
+
+限制：超长文本缩略图每像素区域抽样，长行最多绘制前 100 字符；语法强调沿用已加载语法树，仅用于导航，不是全文可读预览。源码大纲标题保留行内 Markdown 标记，富文本显示解析后文字。当前不提供标题折叠树、滚动自动高亮标题或拖拽缩略图；图片/PDF/二进制无大纲或文本缩略图。不改变正文、序列化、ETag、恢复或服务端权限；没有新增外部请求/执行内容入口。未重跑 Go 单测（无 Go 代码变化），未做新增性能压测、真实触屏、其他浏览器或真实读屏器验收。
+
+
+## 2026-10-17 抽象缩略图与滚动绘制分离
+
+本轮替代上一节的迷你字体实现。涉及 SourceNavigation.tsx、SourceEditor.tsx、app.css、navigation.spec.ts 及 SPEC/DESIGN/ARCHITECTURE/ROADMAP。移除 fillText 与语法树遍历，改用采样行长度/缩进矩形；内容变化、尺寸或主题变化才重画 Canvas。滚动用 requestAnimationFrame 更新独立 DOM 遮罩，选择位置没变化时不重复更新 React 状态；画布 DPR 最大为 2。开关、正文与点击/键盘跳转逻辑保留。
+
+本次实际执行：npm run build、npm run lint、python scripts/copy-dist.py、Go Windows 生产构建及 git diff --check 通过。npx playwright test tests/browser/navigation.spec.ts tests/browser/line-endings.spec.ts 共 4 项通过（17.6s），包括三视口/面板明暗 axe、原生编辑器/换行回归和新增约 2.4 MiB、十万行样本。新增测试拦截实际 Canvas 调用，确认无字体绘制、每次矩形数量不超过 ceil(面板高度 / 3)、滚动并等待超过 120ms 后 Canvas 绘制次数不增加，以及主题切换、编辑追加第 100001 行后重新绘制和行数更新。初版测试把挂载与布局变化的两次绘制累计当成单次预算，断言失败；改为每次 Canvas 重置分别计数，并单独记录绘制总次数，最终通过，未放宽单次绘制预算。
+
+已人工查看 artifacts/navigation/navigation-abstract-large.png，抽象线条与可视范围显示正常。构建保留既有大分块提示，快速模式/布局测试仍可出现已记录的 CodeMirror 测量提示。未改变磁盘正文、恢复、ETag 或接口权限；没有新增外部请求/内容执行入口。样本测试验证处理量与不重绘行为，不等于跨设备 CPU/内存/帧率基准；抽样可能略过部分行，超长行仅前 100 字符参与形状计算，不再显示语法颜色。无 Go 源码变化，未重跑 Go 单元或新增真实手机/其他浏览器测试。本轮未启动/重启日常工作区服务器，产物 bin/folio.exe 已更新。
+
+本轮生产嵌入资源：npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts，明暗桌面/手机 4 项通过（15.4s）。

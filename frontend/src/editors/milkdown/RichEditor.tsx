@@ -1,3 +1,4 @@
+import { RichNavigation } from '../navigation/RichNavigation'
 import type { Crepe } from '@milkdown/crepe'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
 import { locateRichText } from './search-location'
@@ -11,11 +12,12 @@ import { Button } from '../../components/ui/button'
 import { downloadDraft } from '../../services/api'
 import { conversionDiff } from './conversion-diff'
 
-export default function RichEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated }: {
-  session: Session; sessions: WorkspaceSessions; onBlocked: (reason: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated
+export default function RichEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: {
+  navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked: (reason: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated
 }) {
   const editorRef = useRef<Crepe | null>(null)
   const host = useRef<HTMLDivElement>(null)
+  const [navigationEditor, setNavigationEditor] = useState<Crepe>()
   const [ready, setReady] = useState(false)
   const [conversion, setConversion] = useState<{ original: string; converted: string; diff: string; accept: () => void }>()
   useEffect(() => {
@@ -51,6 +53,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
           accepted = true
           root.style.visibility = ''
           setReady(true)
+          setNavigationEditor(editor)
           setConversion(undefined)
           onBlocked('已按确认结果转换为富文本；转换后的内容将按现有保存规则保存。切换模式会重置撤销历史。')
         } })
@@ -59,6 +62,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
       accepted = true
       root.style.visibility = ''
       setReady(true)
+      setNavigationEditor(editor)
     }).catch((error: unknown) => {
       if (!disposed) {
         onBlocked(`富文本编辑器加载失败，原文已保留：${error instanceof Error ? error.message : '未知错误'}`)
@@ -82,9 +86,10 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
     sessions.setMode(session.path, 'source')
   }
   return <>
-    <div className="rich-host" ref={host} aria-busy={!ready && !conversion}>
+    <div className="editor-with-navigation rich-navigation-layout"><div className="rich-scroll" tabIndex={0} aria-label="富文本滚动区域"><div className="rich-host" ref={host} aria-busy={!ready && !conversion}>
       {!ready && <div className="editor-loading" role="status">{conversion ? '等待确认转换，原文尚未更改。' : '正在检查 Markdown 兼容性…'}</div>}
     </div>
+    </div>{navigationOpen && ready && navigationEditor && <RichNavigation editor={navigationEditor} />}</div>
     <Dialog.Root open={!!conversion} onOpenChange={(open) => { if (!open) cancel() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content conflict-dialog conversion-dialog" onOpenAutoFocus={(event) => { event.preventDefault(); document.getElementById('cancel-conversion')?.focus() }}>
       <Dialog.Title>富文本转换预览</Dialog.Title>
       <Dialog.Description>此文档转换后会发生变化，部分语法或内容可能丢失。预览不会修改原文；确认后会替换当前正文，并按现有规则自动保存。请先检查差异，必要时下载原文。切换模式会重置撤销历史。</Dialog.Description>

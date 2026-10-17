@@ -1,6 +1,7 @@
+import { SourceNavigation } from '../navigation/SourceNavigation'
 import { literalRange } from '../../features/search/location'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -12,7 +13,8 @@ import type { CrepeBridge } from '../milkdown/bridge'
 import { imageMarkdown } from '../milkdown/bridge'
 import { preserveLineEndings } from './line-endings'
 
-export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated }: { session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
+export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: { navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
+  const [navigationView, setNavigationView] = useState<EditorView | null>(null)
   const editorView = useRef<EditorView | null>(null)
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
         EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
         EditorView.domEventHandlers({ paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => handleFiles(event, view, event.dataTransfer?.files) }),
         EditorView.updateListener.of((update) => {
+          if (update.docChanged || update.viewportChanged || update.selectionSet) update.view.dom.dispatchEvent(new Event('folio-navigation'))
           if (update.docChanged) {
             for (const [id, position] of uploads) uploads.set(id, update.changes.mapPos(position))
             sessions.update(session.path, lineEndings.serialize(update.state))
@@ -50,7 +53,10 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
         }),
       ],
     }) })
+    view.scrollDOM.tabIndex = 0
+    view.scrollDOM.setAttribute('aria-label', '源码滚动区域')
     editorView.current = view
+    setNavigationView(view)
     const description = LanguageDescription.matchFilename(languages, session.path)
     if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
     return () => { disposed = true; editorView.current = null; view.destroy() }
@@ -65,5 +71,5 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     }
     onSearchLocated?.(searchTarget, !!range)
   }, [searchTarget, onSearchLocated, session, session.locked])
-  return <div className="source-host" ref={host} />
+  return <div className="editor-with-navigation"><div className="source-host" ref={host} />{navigationOpen && navigationView && <SourceNavigation view={navigationView} markdown={session.viewer === 'markdown'} />}</div>
 }
