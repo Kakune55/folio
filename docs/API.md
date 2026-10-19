@@ -39,7 +39,7 @@
 | GET | /settings | 启动时文件限制 |
 | GET | /healthz | 存活检查 |
 
-离线密码恢复没有匿名 HTTP 入口，见 [改密说明](PASSWORD.md)。
+离线密码恢复没有匿名 HTTP 入口，须停服后用同一二进制的离线命令执行。
 
 ## 文本读写与保存顺序
 
@@ -67,7 +67,7 @@ GET /files/revision 返回 {path,revision} 及强 ETag，与正文版本一致�
 
 GET /entries/revision 返回 {path,kind,revision} 与强 ETag，文件摘要与文本版本一致。目录版本覆盖排序子树的名称、类型、目录权限和文件摘要；不安全子树明确失败，不部分忽略。
 
-移动 JSON：{"from":"Linux/old.md","to":"Linux/new.md"}。移动/删除需要精确 If-Match，不覆盖目标，不自动重写 Markdown 链接。跨设备移动不提供静默复制降级，挂载与本地信任边界见 [跨平台说明](PORTABILITY.md)。
+移动 JSON：{"from":"Linux/old.md","to":"Linux/new.md"}。移动/删除需要精确 If-Match，不覆盖目标，不自动重写 Markdown 链接。跨设备移动不提供静默复制降级；挂载与本地信任边界由部署环境管理。
 
 删除返回 {id,path,kind,revision,deletedAt,state,stage?}；stage 是受管理的恢复名称，不是可编辑笔记路径。回收列表同样默认每页 200、最大 1000，返回 {entries,total,offset,limit}。状态包括 ready、preparing/incomplete、damaged，异常记录保留供检查。
 

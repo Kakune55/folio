@@ -4,11 +4,11 @@
 
 支持文件/目录整理、Markdown 与源码编辑、条件自动保存及冲突副本、附件上传/预览/下载、中英文搜索、快开、回收恢复、本机草稿和移动端抽屉。界面与项目说明统一使用简体中文。
 
-M0–M3 的历史验收及镜像证据见 [验收记录](docs/ACCEPTANCE.md)。后续标准库文件层的当前实现、权限边界与验证范围见 [跨平台说明](docs/PORTABILITY.md)，旧镜像结果不能替代新构建验证。
+M0–M3 的历史验收及镜像证据可从 Git 历史查阅；旧镜像结果不能替代新构建验证。
 
 ## 本地运行
 
-需要 Node.js 22.12+、npm、Go 1.27+、Python 3。以下使用 Make，Windows 原生 PowerShell 命令见 [跨平台说明](docs/PORTABILITY.md)。
+需要 Node.js 22.12+、npm、Go 1.27+、Python 3。以下使用 Make，Windows 可直接执行等效 PowerShell 命令。
 
 ```sh
 make install
@@ -17,9 +17,9 @@ make run
 
 打开 <http://127.0.0.1:8080>，账号 admin。首次自动初始化的密码在 app-data/initial-password；已有账号不会因更换引导密码文件而重置。make build 构建并嵌入前端，输出 bin/folio。
 
-开发时在两个终端分别运行 make api 和 make dev，访问 <http://127.0.0.1:5173>，/api 代理到 8080。make run/api 使用回环 HTTP 与非 Secure Cookie；直接启动程序默认使用 Secure Cookie，正式部署须 HTTPS。容器与代理操作见 [部署说明](docs/DEPLOY.md)。
+开发时在两个终端分别运行 make api 和 make dev，访问 <http://127.0.0.1:5173>，/api 代理到 8080。make run/api 使用回环 HTTP 与非 Secure Cookie；直接启动程序默认使用 Secure Cookie，正式部署须 HTTPS。容器编排见 compose.yaml 与 deploy/compose.proxy.yaml，镜像构建见 Dockerfile。
 
-首次初始化的 admin 是管理员，可在左下角进入 `/system-setting` 创建和管理用户；每个用户拥有独立工作区，默认配额 5 GB。管理员可改名、启用/禁用、调整配额和重置密码。开发阶段旧单账号数据不迁移，需停服后清理两数据目录重新初始化，详见 [多账号说明](docs/MULTIUSER.md)。
+首次初始化的 admin 是管理员，可在左下角进入 `/system-setting` 创建和管理用户；每个用户拥有独立工作区，默认配额 5 GB。管理员可改名、启用/禁用、调整配额和重置密码。开发阶段旧单账号数据不迁移，需停服后清理两数据目录重新初始化。
 
 ## 数据与配置
 
@@ -56,21 +56,12 @@ make qa
 
 | 文档 | 维护内容 |
 | --- | --- |
-| [多账号](docs/MULTIUSER.md) | 账户隔离、配额、开发数据重置与本轮验证 |
 | [产品规范](docs/SPEC.md) | 产品边界、技术选择与行为要求 |
 | [视觉与交互](docs/DESIGN.md) | 主题、布局、交互与无障碍设计 |
 | [架构说明](docs/ARCHITECTURE.md) | 模块、数据流、文件与恢复机制 |
 | [接口协议](docs/API.md) | 已实现路由、字段、错误与并发协议 |
 | [路线图](docs/ROADMAP.md) | 阶段范围、完成标准与待验证环境 |
 | [测试计划](docs/TESTPLAN.md) | 验证命令、覆盖矩阵及证据要求 |
-| [部署](docs/DEPLOY.md) | 容器、HTTPS、代理与升级 |
-| [备份与恢复](docs/BACKUP.md) | 停写双卷备份、校验、新位置恢复 |
-| [离线改密](docs/PASSWORD.md) | 管理员密码恢复与会话撤销 |
-| [跨平台说明](docs/PORTABILITY.md) | 当前文件层、权限边界及 Windows 运行/验证 |
-| [安全记录](docs/SECURITY.md) | 安全检查、故障演练及限制 |
-| [质量记录](docs/QUALITY.md) | 无障碍范围、性能测量与预算 |
-| [历史验收](docs/ACCEPTANCE.md) | 对应历史构建的逐项结果、镜像与归档摘要 |
-| [历史与兼容性](docs/HISTORY.md) | M0–M3 摘要、Markdown 样本及使用限制 |
 | [代理约定](AGENTS.md) | 实现与交付必须遵守的规则 |
 
 搜索索引由文件 API 变更异步更新，无定时工作区扫描或系统文件监听。直接修改宿主目录后，请在搜索窗口重建索引，或重启服务后访问工作区；启动重建同时补偿未完成的索引事件。打开文档的版本探测与 ETag 保存保护仍保留。
