@@ -147,15 +147,31 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   }, [focusPath, activePath, loading, searchOpen])
 
   const bridge = useMemo<CrepeBridge | undefined>(() => current?.viewer === 'markdown' ? {
+    reference: (entry) => {
+      if (entry.kind !== 'file') { setNotice('请拖入文件，暂不支持插入目录引用。'); return }
+      if (current.locked || workspace.isLocked(current.path) || workspace.isLocked(entry.path)) { setNotice('相关文件正在处理操作，请稍后再插入引用。'); return }
+      return { url: relativeFileLink(current.path, entry.path), alt: entry.name, image: /\.(png|jpe?g|webp|gif)$/i.test(entry.name) }
+    },
     beginUpload: () => workspace.beginUpload(current.path),
     endUpload: () => workspace.endUpload(current.path),
     upload: async (file) => {
       const extension = /\.(png|jpg|jpeg|webp|gif)$/i.exec(file.name)?.[1] ?? ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[file.type] ?? 'png'
       const named = new File([file], `image-${crypto.randomUUID().slice(0, 12)}.${extension}`, { type: file.type })
       const parent = current.path.split('/').slice(0, -1).join('/')
-      const metadata = await uploadFile(named, parent, (percent) => setNotice(`${basename(current.path)}：正在上传图片 ${percent}%`), true)
-      void client.invalidateQueries({ queryKey: ['tree'] }); setNotice(`${basename(current.path)}：图片已上传。`)
-      return relativeFileLink(current.path, metadata.path)
+      const pending = uploadQueue.add(named, parent, true)
+      pending.onUploaded = (path) => {
+        if (!workspace.has(current.path) || workspace.get(current.path) !== current || current.locked) throw new Error(`图片已上传到「${path}」，原笔记已关闭或正在处理文件操作，请重新打开笔记后手动插入引用。`)
+        workspace.appendAttachment(current.path, imageMarkdown(relativeFileLink(current.path, path), file.name))
+      }
+      try {
+        const metadata = await uploadFile(named, parent, (percent) => setNotice(`${basename(current.path)}：正在上传图片 ${percent}%`), true)
+        uploadQueue.remove(pending.id)
+        void client.invalidateQueries({ queryKey: ['tree'] }); setNotice(`${basename(current.path)}：图片已上传。`)
+        return relativeFileLink(current.path, metadata.path)
+      } catch (error) {
+        uploadQueue.fail(pending.id, error instanceof Error ? error.message : '图片上传失败')
+        throw error
+      }
     },
     imageURL: (href) => { try { return fileURL(resolveFileLink(current.path, href), true) } catch { return '' } },
     openLink: (href) => {
@@ -178,11 +194,12 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       for (const entry of entries) {
         const file = entry.file
         try {
-          await uploadFile(file, directory, (percent) => setNotice(`正在上传 ${file.name} · ${percent}%`), entry.imageOnly)
+          const metadata = await uploadFile(file, directory, (percent) => setNotice(`正在上传 ${file.name} · ${percent}%`), entry.imageOnly)
+          try { entry.onUploaded?.(metadata.path) } catch (error) { failures.push(error instanceof Error ? error.message : `图片已上传到「${metadata.path}」，引用插入失败，请手动插入。`) }
           uploadQueue.remove(entry.id); completed++; void client.invalidateQueries({ queryKey: ['tree'] })
         } catch (error) { const message = error instanceof Error ? error.message : '上传失败'; uploadQueue.fail(entry.id, message); failures.push(`${file.name}：${message}`) }
       }
-      setNotice(failures.length ? `已上传 ${completed} 个文件。以下文件未确认成功，请检查后重试：${failures.join('；')}` : `已上传 ${completed} 个文件。`)
+      setNotice(failures.length ? `已上传 ${completed} 个文件。以下项目需要处理，请核对提示：${failures.join('；')}` : `已上传 ${completed} 个文件。`)
     } finally { setUploading(false); if (uploadInput.current) uploadInput.current.value = ''; if (cameraInput.current) cameraInput.current.value = '' }
   }
 
@@ -346,7 +363,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />
     {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} onOpen={(path, query, contentMatch) => { const id = ++searchSequence.current; setSearchTarget(undefined); setFocusPath(path); void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path).then(() => { if (id !== searchSequence.current) return; if (useUI.getState().activePath !== path) { setFocusPath(null); return }; if (query.trim()) setSearchTarget({ id, path, query, contentMatch }) }) }} />}
     <Dialog.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>工作区快捷键</Dialog.Title><Dialog.Description>编辑时可使用以下按键，也可通过工具栏和文件菜单完成操作。</Dialog.Description>
-      <dl className="shortcut-list"><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>搜索</dt><dd>Ctrl / Cmd + P 或 Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。在编辑器中先按 Escape，再按 Tab / Shift+Tab 可移出焦点；在文件标签上按 Delete 可保存并关闭。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
+      <dl className="shortcut-list"><div><dt>打开链接或图片引用</dt><dd>Ctrl / Cmd + 点击</dd></div><div><dt>插入图片引用</dt><dd>粘贴图片或拖入编辑器</dd></div><div><dt>保存当前文件</dt><dd>Ctrl / Cmd + S</dd></div><div><dt>搜索</dt><dd>Ctrl / Cmd + P 或 Ctrl / Cmd + Shift + F</dd></div><div><dt>上一个 / 下一个标签</dt><dd>Alt + PageUp / PageDown</dd></div><div><dt>保存并关闭当前标签</dt><dd>Ctrl / Cmd + Alt + W</dd></div><div><dt>切换文件列表</dt><dd>Ctrl / Cmd + B</dd></div><div><dt>浏览目录</dt><dd>↑ ↓ ← → / Home / End</dd></div><div><dt>重命名 / 删除确认</dt><dd>F2 / Delete</dd></div><div><dt>文件操作菜单</dt><dd>Shift + F10</dd></div></dl><p>加粗快捷键在编辑器内保留。在编辑器中先按 Escape，再按 Tab / Shift+Tab 可移出焦点；在文件标签上按 Delete 可保存并关闭。浏览器的 Ctrl / Cmd + W 和 Ctrl + Tab 仍由浏览器处理；窗口管理器也可能占用部分按键。</p><div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
     </DialogContent></Dialog.Portal></Dialog.Root>
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content">

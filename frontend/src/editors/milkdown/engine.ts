@@ -1,3 +1,6 @@
+import { dropIndicatorPlugin } from '@milkdown/kit/plugin/cursor'
+import { safeDropIndicator } from './drop-indicator'
+import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
 import { Crepe } from '@milkdown/crepe'
 import { editorViewOptionsCtx } from '@milkdown/kit/core'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
@@ -42,6 +45,8 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
       },
     },
   })
+  void crepe.editor.remove(dropIndicatorPlugin)
+  crepe.editor.use(safeDropIndicator)
   const uploads = new PluginKey<Map<symbol, number>>('folio-image-uploads')
   const handleFiles = (view: EditorView, event: ClipboardEvent | DragEvent, files: FileList | undefined) => {
     if (!bridge || !files?.length) return false
@@ -81,8 +86,13 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
       view: () => {
         const handleLink = (event: MouseEvent) => {
           const link = event.target instanceof Element ? event.target.closest('a') : null
-          if (!link) return
-          event.preventDefault(); event.stopPropagation(); bridge.openLink(link.getAttribute('href') ?? '')
+          const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>('img[data-file-link]') : null
+          if (!link && !image) return
+          if (event.button !== 0 || !(event.ctrlKey || event.metaKey)) {
+            if (link) event.preventDefault()
+            return
+          }
+          event.preventDefault(); event.stopPropagation(); bridge.openLink(image?.dataset.fileLink ?? link?.getAttribute('href') ?? '')
         }
         root.addEventListener('click', handleLink, true)
         return { destroy: () => root.removeEventListener('click', handleLink, true) }
@@ -91,7 +101,7 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     crepe.editor.use($view(imageSchema.node, () => (initialNode) => {
       const image = document.createElement('img')
       image.loading = 'lazy'; image.className = 'folio-markdown-image'
-      const bind = (node: typeof initialNode) => { const url = bridge.imageURL(node.attrs.src); if (url) image.src = url; else image.removeAttribute('src'); image.alt = node.attrs.alt ?? ''; image.title = node.attrs.title ?? '' }
+      const bind = (node: typeof initialNode) => { const url = bridge.imageURL(node.attrs.src); if (url) image.src = url; else image.removeAttribute('src'); image.alt = node.attrs.alt ?? ''; image.dataset.fileLink = node.attrs.src; image.title = 'Ctrl/Cmd+点击打开图片文件' }
       bind(initialNode)
       image.onerror = () => onUnsupported?.('笔记中的图片加载失败，请确认文件仍存在、格式受支持且登录有效。')
       return { dom: image, update: (node) => { if (node.type !== initialNode.type) return false; bind(node); return true }, destroy: () => { image.onerror = null } }
@@ -114,11 +124,30 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
           return false
         },
         paste: (view, event) => handleFiles(view, event, event.clipboardData?.files),
-        drop: (view, event) => handleFiles(view, event, event.dataTransfer?.files),
+        dragover: (_view, event) => {
+          if (!bridge || !hasEntryTransfer(event.dataTransfer)) return false
+          event.preventDefault(); event.dataTransfer!.dropEffect = 'copy'; return true
+        },
+        drop: (view, event) => {
+          if (bridge && event.dataTransfer?.types.includes(entryMime)) {
+            event.preventDefault()
+            const entry = readEntryTransfer(event.dataTransfer)
+            const reference = entry && bridge.reference(entry)
+            if (reference) {
+              const position = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from
+              const node = reference.image ? view.state.schema.nodes.image.create({ src: reference.url, alt: reference.alt }) : view.state.schema.text(reference.alt, [view.state.schema.marks.link.create({ href: reference.url })])
+              try { view.dispatch(view.state.tr.replaceRangeWith(position, position, node)); view.focus() }
+              catch { onUnsupported?.('当前拖放位置无法插入引用，请选择正文段落后重试。') }
+            }
+            return true
+          }
+          return handleFiles(view, event, event.dataTransfer?.files)
+        },
         click: (_view, event) => {
           const link = (event.target as HTMLElement).closest('a')
           if (!link) return false
           event.preventDefault()
+          if (bridge) return false
           onUnsupported?.()
           return true
         },

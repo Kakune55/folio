@@ -111,3 +111,13 @@ editors/navigation 提供局部导航：源码使用已安装 @codemirror/lang-m
 ## 彩色差异视图（2026-10-19）
 
 components/diff 提供独立纯函数 lineDiff 与 React DiffView，精确比较包含换行符的行。先剔除相同首尾，再在 250000 单元预算内做 LCS；超限明确展示完整替换区间。组件 useMemo 按两个输入缓存计算，最多呈现 2000 行并提示限制；不进入正文缓冲或保存协议，不新增依赖和接口。
+
+
+## 图片插入与引用导航（2026-10-19）
+
+SourceEditor 在 Ctrl/Cmd+鼠标主键按下时调用 codemirror/links.ts，使用已安装 markdownLanguage 解析标准链接、图片与引用定义，不匹配代码内伪链接，不逐键解析或重建实例。富文本根捕获点击按修饰键分派，图片 node view 保留原始相对引用 data-file-link，导航仍经 resolveFileLink/openFile 与服务端鉴权。编辑器上传使用已有内存 uploadQueue，失败可下载／重试；onUploaded 仅驻留内存，重试成功向原会话追加引用，身份/锁定不符明确提示已上传路径，不重复上传已确认成功文件。
+
+
+## 侧栏拖入引用（2026-10-19）
+
+features/explorer/entry-transfer.ts 共享本页面活动拖拽条目与随机手势令牌；DataTransfer 只携带令牌，不信任外部路径。dragover 仅识别活动手势，drop 校验令牌后经 CrepeBridge.reference 检查类型与路径锁定，生成相对引用，使用原生编辑事务插入。drop/dragend/侧栏卸载清理活动手势，effectAllowed 为 copyMove，目录目标仍用 move。Milkdown 的默认 dropIndicatorPlugin 替换为保持原有 API 的生命周期包装：销毁后延迟回调不再写上下文。将既有间接依赖 prosemirror-drop-indicator 0.1.4 声明为固定直接依赖，不升级 Milkdown 或替换编辑器。

@@ -5,7 +5,7 @@ import { DragContext } from './drag-context'
 import type { DragControls } from './drag-context'
 import { workspace } from '../../sessions/current'
 
-const mime = 'application/x-folio-entry'
+import { beginEntryTransfer, endEntryTransfer, entryMime as mime } from './entry-transfer'
 
 export function EntryDragProvider({ children, disabled, onMove, onNotice, onDirectory }: {
   children: ReactNode; disabled: boolean; onMove: (entry: Entry, directory: string) => Promise<void>
@@ -18,11 +18,11 @@ export function EntryDragProvider({ children, disabled, onMove, onNotice, onDire
   const [entry, setEntry] = useState<Entry>()
   const [target, setTarget] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const end = () => { source.current = undefined; gesture.current = ''; setEntry(undefined); setTarget(null) }
+  const end = () => { source.current = undefined; gesture.current = ''; endEntryTransfer(); setEntry(undefined); setTarget(null) }
   useEffect(() => {
-    const clear = () => { source.current = undefined; gesture.current = ''; setEntry(undefined); setTarget(null) }
+    const clear = () => { source.current = undefined; gesture.current = ''; endEntryTransfer(); setEntry(undefined); setTarget(null) }
     document.addEventListener('dragend', clear); document.addEventListener('drop', clear)
-    return () => { document.removeEventListener('dragend', clear); document.removeEventListener('drop', clear) }
+    return () => { document.removeEventListener('dragend', clear); document.removeEventListener('drop', clear); endEntryTransfer() }
   }, [])
   const internal = (event: DragEvent<HTMLElement>) => !!source.current && event.dataTransfer.types.includes(mime) && !event.dataTransfer.types.includes('Files')
   const allowed = (directory: string) => {
@@ -34,8 +34,7 @@ export function EntryDragProvider({ children, disabled, onMove, onNotice, onDire
     start: (event, value) => {
       if (disabled || pending.current || workspace.isLocked(value.path)) { event.preventDefault(); return }
       source.current = value; setEntry(value); setTarget(null)
-      gesture.current = crypto.randomUUID()
-      event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData(mime, gesture.current)
+      gesture.current = beginEntryTransfer(value, event.dataTransfer)
     },
     over: (event, directory) => {
       if (!internal(event)) return
@@ -55,5 +54,5 @@ export function EntryDragProvider({ children, disabled, onMove, onNotice, onDire
       return true
     },
   }
-  return <DragContext.Provider value={controls}>{children}<div className="tree-drag-status" role="status">{busy ? '正在移动文件…' : entry ? target !== null ? `移动到：${target || '工作区根目录'}` : '拖到目标文件夹或工作区根目录' : ''}</div></DragContext.Provider>
+  return <DragContext.Provider value={controls}>{children}<div className="tree-drag-status" role="status">{busy ? '正在移动文件…' : entry ? target !== null ? `移动到：${target || '工作区根目录'}` : '拖到文件夹以移动，拖到 Markdown 正文以插入引用' : ''}</div></DragContext.Provider>
 }

@@ -1,4 +1,7 @@
+import type { Entry } from '../../services/api'
+export type FileReference = { url: string; alt: string; image: boolean }
 export type CrepeBridge = {
+  reference: (entry: Entry) => FileReference | undefined
   upload: (file: File) => Promise<string>
   imageURL: (url: string) => string
   openLink: (url: string) => void
@@ -28,3 +31,5 @@ export function relativeFileLink(documentPath: string, target: string) {
   return `${from.length ? '../'.repeat(from.length) : './'}${encoded}`
 }
 export function imageMarkdown(url: string, alt: string) { return `![${alt.replace(/[\\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ')}](${url})` }
+
+export function referenceMarkdown(reference: FileReference) { return `${reference.image ? '!' : ''}[${reference.alt.replace(/[\\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ')}](${reference.url})` }

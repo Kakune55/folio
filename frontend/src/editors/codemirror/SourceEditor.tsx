@@ -1,3 +1,5 @@
+import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
+import { markdownLinkAt } from './links'
 import { SourceNavigation } from '../navigation/SourceNavigation'
 import { literalRange } from '../../features/search/location'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
@@ -10,7 +12,7 @@ import { languages } from '@codemirror/language-data'
 import { codeTheme } from '../theme'
 import type { Session, WorkspaceSessions } from '../../sessions/workspace'
 import type { CrepeBridge } from '../milkdown/bridge'
-import { imageMarkdown } from '../milkdown/bridge'
+import { imageMarkdown, referenceMarkdown } from '../milkdown/bridge'
 import { preserveLineEndings } from './line-endings'
 
 export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: { navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
@@ -43,7 +45,29 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(),
         lineEndings.extension, codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
-        EditorView.domEventHandlers({ paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => handleFiles(event, view, event.dataTransfer?.files) }),
+        EditorView.domEventHandlers({
+          mousedown: (event, view) => {
+            if (!bridge || event.button !== 0 || !(event.ctrlKey || event.metaKey)) return false
+            const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+            const href = position === null ? undefined : markdownLinkAt(view.state.doc.toString(), position)
+            if (!href) return false
+            event.preventDefault(); bridge.openLink(href); return true
+          }, dragover: (event) => {
+            if (!bridge || !hasEntryTransfer(event.dataTransfer)) return false
+            event.preventDefault(); event.dataTransfer!.dropEffect = 'copy'; return true
+          }, paste: (event, view) => handleFiles(event, view, event.clipboardData?.files), drop: (event, view) => {
+            if (bridge && event.dataTransfer?.types.includes(entryMime)) {
+              event.preventDefault()
+              const entry = readEntryTransfer(event.dataTransfer)
+              const reference = entry && bridge.reference(entry)
+              if (reference) {
+                const position = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head
+                view.dispatch({ changes: { from: position, insert: referenceMarkdown(reference) } }); view.focus()
+              }
+              return true
+            }
+            return handleFiles(event, view, event.dataTransfer?.files)
+          } }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged || update.viewportChanged || update.selectionSet) update.view.dom.dispatchEvent(new Event('folio-navigation'))
           if (update.docChanged) {

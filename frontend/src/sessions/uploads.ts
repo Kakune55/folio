@@ -1,4 +1,4 @@
-export type PendingUpload = { id: string; file: File; directory: string; imageOnly: boolean; state: 'sending' | 'failed'; error: string }
+export type PendingUpload = { id: string; file: File; directory: string; imageOnly: boolean; onUploaded?: (path: string) => void; state: 'sending' | 'failed'; error: string }
 // 原件保留到服务端明确确认成功；登录过期也不销毁尚待处理的拍照/附件文件。
 class UploadQueue {
   private entries: PendingUpload[] = []

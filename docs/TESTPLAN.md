@@ -259,3 +259,34 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 - 随后扩展转换预览主题/布局检查，单独运行 npx playwright test tests/browser/workbench.spec.ts -g '有损转换保留原文'：1 项通过（5.8s），覆盖明暗 × 1440/1024/390、增删背景不同、外壳无横向溢出、弹窗 axe 无违规；截图 frontend/test-results/diff-*.png，人工查看深色手机截图。
 
 仅改变差异呈现，不修改正文、ETag、恢复和服务端鉴权。匹配超预算时可能把相同行计入替换，明确提示；超 2000 行只呈现前 2000 行，完整正文保留。没有自动合并、逐字高亮、逐块采纳或折叠区展开；可直接核对上方完整正文。测试用独立临时工作区，未修改日常用户文件，未重启日常服务器。无后端源码变化，未重跑 Go 单测、容器、其他浏览器、真实手机与读屏器验收。
+
+
+## 图片插入与引用导航（2026-10-19）
+
+涉及 Workbench.tsx、codemirror/{SourceEditor,links,links.test}、milkdown/engine.ts、sessions/uploads.ts，新增 tests/browser/editor-references.spec.ts，并同步 SPEC、DESIGN、ARCHITECTURE、ROADMAP。
+
+本次实际执行（不沿用历史结果）：
+
+- npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 全部通过（8 文件、26 项）。构建仍有既有大分块提示。
+- frontend 下 npx playwright test tests/browser/editor-references.spec.ts tests/browser/attachments.spec.ts：最终 6 项通过（26.7s），覆盖两模式粘贴／拖入上传、相对链接与嵌套目录文件实际存在、Ctrl/Meta 文字引用导航、图片导航、上传失败下载入口与重试、既有异步上传切换文件与三种附件预览。
+- 补充源码图片引用跳转、失败下载原件字节比对后，npx playwright test tests/browser/editor-references.spec.ts tests/browser/workbench.spec.ts tests/browser/line-endings.spec.ts：14 项通过（33.0s）。涵盖普通点击不导航、Ctrl 与 Meta 两种修饰键、源码与富文本图片导航、失败后下载原件字节一致／重试插入、混合换行保存／撤销／恢复、转换保护和明暗三视口既有 axe 检查。
+- python scripts/copy-dist.py、git diff --check 通过。未构建或重启日常 Go 服务，测试使用独立临时目录，没有修改用户正文和账号。
+
+首轮 6 项中源码上传后的图片点击失败：拖图位置使图片嵌套在文字链接中，原捕获事件优先选择了外层链接。已改为优先打开图片原始引用，最终组合回归通过。一次依赖读取误带重复 frontend 前缀明确失败，已改为正确路径核对本机类型和 Markdown 解析树；未据失败命令宣称验证成功。
+
+范围及限制：图片插入仅适用于 Markdown 富文本／源码，图片类型、像素、配额和鉴权沿用服务端校验；Ctrl/Cmd 导航支持标准 Markdown 链接／图片／引用式链接，代码内伪引用不跳转，不支持段内锚点定位或专有 wiki 链接。失败原件只驻留页面内存，刷新前须重试或下载；重试到当前目录并向原会话末尾追加，不恢复原插入位置。原会话已关闭／锁定时明确报告已上传路径，由用户手动插入引用。拖图和剪贴板测试使用合成 DOM 事件与真实上传接口，Ctrl/Meta 点击为 Playwright 鼠标动作；不冒充操作系统剪贴板、Finder/资源管理器拖放、Mac 实机或真实触屏验收。无后端源码变化，未重跑 Go 单测、容器或其他浏览器。保留 ETag、转换确认、未保存缓冲和恢复保护，不新增内容执行或鉴权绕过入口。
+
+
+## 侧栏拖入引用（2026-10-19）
+
+本轮在上一节未提交修改之上，涉及 features/explorer/{entry-transfer,EntryDrag}、codemirror/SourceEditor、milkdown/{bridge,engine,drop-indicator}、Workbench.tsx、package.json/lock，新增 sidebar-references.spec.ts。使用既有 prosemirror-drop-indicator 0.1.4 的公开接口增加销毁后回调保护，未升级实际包版本。
+
+本次实际执行：npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 通过（8 文件、26 项）；构建保留既有大分块提示。sidebar-references.spec.ts 两模式用真实 Playwright dragTo 从侧栏拖到正文，核对带中文/空格/方括号的文件名、跨目录相对路径、图片与文字引用、原文保留、原文件存在、不产生上传/移动请求、拒绝目录与无活动令牌的伪造 drop，以及拖放后立即切换模式无 pageerror。workflow.spec.ts 原有三条目录移动/碰撞/菜单测试在本轮组合中全部通过。
+
+验证过程：初版断言把正文中间合法插入引用误认为原文不连续，已改为剔除插入引用后逐字核对原文，两模式均通过。之后暴露上游拖放指示器的 30ms 隐藏回调在销毁后仍写 Milkdown 上下文，已用实例 disposed 生命周期保护替代默认指示器插件，保留原有拖放指示与行为。新增直接依赖声明时离线 npm 命令因 ENOTCACHED 失败，联网安装同一已安装版本成功，锁文件仅增加根依赖声明。
+
+一轮 11 项组合测试中，10 项通过；attachments.spec.ts 的既有新建图片笔记用例在创建后未出现编辑标签，等待富文本超时（30 秒），尚未复现并确定该偶发失败根因；不能把该轮描述为全部通过。最终复跑结果另记。python scripts/copy-dist.py 与 git diff --check 通过；未启动／重启日常服务或修改用户正文。
+
+限制：侧栏一次拖入一个文件，目录不插入引用；仅 Markdown 编辑器，支持 PNG/JPEG/WebP/GIF 扩展名的图片引用，其他扩展名为文字链接，实际预览继续由服务端校验。无批量拖拽、触屏长按或真实手机拖拽专项验收。拖入只执行原生编辑事务，不改变 ETag、恢复和内容安全边界；移动文件后不自动重写引用。无后端源码变更，未重跑 Go 单测、容器或其他浏览器。
+
+最终版本复跑：frontend 下 npx playwright test tests/browser/attachments.spec.ts tests/browser/sidebar-references.spec.ts tests/browser/workbench.spec.ts，14 项全部通过（31.0s），包含既有图片粘贴切换用例、侧栏原生拖拽及指示器卸载后回调检查；无 Milkdown 上下文异常。上述单次创建后无标签的超时仍作为偶发未定位问题保留记录。
