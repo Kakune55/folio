@@ -234,3 +234,17 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 限制：真实触摸设备、笔、其他浏览器与跨设备帧率尚未验证；很长或换行高度差异大的文本仍受 CodeMirror 原生高度估算/布局影响。十万行大幅滚动时开发日志仍有已记录的 “Measure loop restarted more than 5 times” 提示，测试定位与边界断言通过，不能据此声称所有设备持续 60 FPS。无后端源码变更，未重跑 Go 单元测试；没有新增文件操作、网络请求或鉴权入口，ETag、恢复和未保存正文保护保留。
 
 最终版本实际复跑：npx playwright test tests/browser/navigation.spec.ts：2 项通过（10.7s）；npx playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：明暗桌面/手机 4 项通过（15.7s）。git diff --check 通过。
+
+
+## 2026-10-19 个性化
+
+变更涉及 Workbench.tsx、styles/app.css、新增 stores/appearance.ts、features/appearance/AppearanceDialog.tsx 与 tests/browser/appearance.spec.ts，同步 SPEC/DESIGN/ARCHITECTURE/ROADMAP。顶栏新增模态入口，宽度 800/1200/1600px（默认 1200）、字号 14/16/18px（默认 16）、恢复默认、本机持久化及失败重试提示。宽度仅作用于 Markdown 富文本；手机宽度铺满、字号最小 16px。保留原生单选键盘操作、Escape 和焦点返回。
+
+本次实际执行：frontend 下 npm run build、npm run lint、npm test（6 文件 21 项）通过；appearance.spec.ts 最终复跑 1 项通过（7.4s），覆盖三档真实正文宽度、字号即时生效、实例标记保留、正文磁盘字节不变、刷新偏好、恢复默认、源码字号、2200/1440/1024/390/320 视口与明暗 axe。workbench.spec.ts、mobile.spec.ts 12 项在组合执行中通过（该次新增个性化用例失败，修正后单独复跑通过）。人工查看 320px 截图后将选项改为上下排列并再次验证。python scripts/copy-dist.py 通过。
+
+验证早期错误：模态框使背景编辑器在辅助树中隐藏，测试定位需显式 includeHidden；主题过渡中间帧引起对比度失败，启用减少动态效果后完整 axe 通过，未排除规则。两次命令误从根目录运行 npm/Playwright 明确失败，已改为 frontend 执行。构建保留既有大分块提示。未启动或重启日常服务器，测试使用独立临时工作区；无后端逻辑变更，未重跑 Go 单元、容器、真实手机或其他浏览器验收。
+
+偏好在当前浏览器跨账号共用，不提供服务器同步；存储受限时只在当前页面生效并明确提示，可重新选择或恢复默认重试。没有修改正文、序列化、ETag、恢复、文件边界或鉴权，没有新增远程请求/内容执行入口。
+
+
+2026-10-19 个性化界面简化：AppearanceDialog.tsx 移除简介及宽度/字号说明，app.css 缩小弹窗至 400px、去除分组分隔线并收紧间距。保留设置选项、恢复默认与存储错误提示。本次 npm run build、npm run lint、appearance.spec.ts（1 项，7.3s，含明暗 axe 与移动端）、python scripts/copy-dist.py、git diff --check 通过。无正文或权限逻辑变化，不新增内容丢失或安全入口；本机偏好不跨设备同步的限制保持。

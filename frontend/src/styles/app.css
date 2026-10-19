@@ -76,7 +76,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .notice { margin: 0 24px 8px; display: flex; align-items: center; gap: 9px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.6; }
 .notice > svg { flex-shrink: 0; color: var(--accent); }
 .notice > span { flex: 1; }
-.rich-host { max-width: 880px; margin: 0 auto; padding: 12px 36px 0; min-height: 100%; display: flex; flex-direction: column; }
+.rich-host { width: 100%; max-width: calc(var(--editor-width, 1200px) + 72px); margin: 0 auto; padding: 12px 36px 0; min-height: 100%; display: flex; flex-direction: column; }
 .rich-editor-root, .rich-editor-root .milkdown { flex: 1; display: flex; flex-direction: column; }
 .rich-host .milkdown {
   --crepe-color-background: var(--background); --crepe-color-on-background: var(--foreground);
@@ -89,13 +89,13 @@ button, a { -webkit-tap-highlight-color: transparent; }
   --crepe-color-hover: var(--surface-hover); --crepe-color-selected: var(--selected);
   --crepe-color-inline-area: var(--code); --crepe-font-title: var(--font-ui); --crepe-font-default: var(--font-ui); --crepe-font-code: var(--font-code);
 }
-.rich-host .milkdown .ProseMirror { flex: 1; padding: 0 0 80px; font-size: 16px; line-height: 1.75; outline: none; }
+.rich-host .milkdown .ProseMirror { flex: 1; padding: 0 0 80px; font-size: var(--editor-font-size, 16px); line-height: 1.75; outline: none; }
 .rich-host .milkdown .ProseMirror h1 { font-size: 30px; line-height: 1.4; margin: 20px 0 24px; letter-spacing: -.8px; font-weight: 650; }
 .rich-host .milkdown .ProseMirror h2 { font-size: 21px; margin: 28px 0 12px; font-weight: 600; }
 .rich-host .milkdown .ProseMirror p { margin: 12px 0; }
 .rich-host .milkdown .ProseMirror blockquote { border-left: 3px solid var(--border); padding-left: 18px; color: var(--muted-foreground); }
 .source-host { height: 100%; min-height: 240px; padding: 12px 12px 0; }
-.source-host .cm-editor { height: 100%; color: var(--foreground); background: var(--background); font-family: var(--font-code); font-size: 14px; }
+.source-host .cm-editor { height: 100%; color: var(--foreground); background: var(--background); font-family: var(--font-code); font-size: var(--editor-font-size, 16px); }
 .source-host .cm-editor.cm-focused { outline: none; }
 .source-host .cm-content { padding: 8px 0 80px; caret-color: var(--foreground); line-height: 1.8; }
 .source-host .cm-line { padding: 0 16px; }
@@ -443,3 +443,25 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .minimap-navigation { width: 56px; }
   .rich-navigation-layout:has(.document-navigation) .rich-host { padding-inline: 14px; }
 }
+
+/* 个性化仅改变呈现，不参与正文会话或编辑器生命周期。 */
+.appearance-dialog { width: min(400px, calc(100vw - 32px)); }
+.appearance-dialog fieldset { border: 0; padding: 0; margin: 20px 0; min-width: 0; }
+.appearance-dialog legend { padding: 0; margin-bottom: 10px; font-weight: 500; }
+.appearance-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.appearance-options label { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; padding: 10px 4px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.appearance-options label:has(:checked) { border-color: var(--accent); background: var(--selected); }
+.appearance-options input { accent-color: var(--accent); margin: 0; }
+.appearance-options small { display: block; font-size: 11px; color: var(--muted-foreground); }
+.appearance-footer { display: flex; justify-content: space-between; margin-top: 8px; }
+@media (max-width: 767px) {
+  .rich-host { max-width: none; }
+  .rich-host .milkdown .ProseMirror, .source-host .cm-editor { font-size: max(16px, var(--editor-font-size, 16px)); }
+  .topbar-actions { gap: 0; }
+  .topbar-actions > button[aria-label="上传附件"] { display: none; }
+  .brand { gap: 6px; }
+}
+
+@media (max-width: 359px) { .topbar .brand > span:nth-child(2) { display: none; } }
+
+.appearance-options label > span { text-align: center; white-space: nowrap; }

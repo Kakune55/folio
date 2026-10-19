@@ -1,3 +1,6 @@
+import { AppearanceDialog } from '../features/appearance/AppearanceDialog'
+import { useAppearance } from '../stores/appearance'
+import type { CSSProperties } from 'react'
 import { useLocation } from 'react-router'
 import { TabMenu } from '../features/tabs/TabMenu'
 import type { CloseTabsAction } from '../features/tabs/TabMenu'
@@ -7,7 +10,7 @@ import { Component, Suspense, useMemo, useCallback, useEffect, useRef, useState,
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowDownToLine, BookOpen, Braces, Camera, ChevronRight, FilePlus2, FileText, FolderPlus, History, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, PanelRight, RefreshCw, Save, Search, Sun, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDownToLine, BookOpen, Braces, Camera, ChevronRight, FilePlus2, FileText, FolderPlus, History, Info, Keyboard, LogOut, Monitor, Moon, PanelLeft, PanelRight, RefreshCw, Save, Search, SlidersHorizontal, Sun, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { api, downloadDraft, uploadFile, fileURL } from '../services/api'
 import { AccountControls } from '../features/auth/AccountControls'
@@ -48,6 +51,8 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   useSyncExternalStore(workspace.subscribe, workspace.snapshot)
   const client = useQueryClient()
   const { activePath, sidebar, theme, open, toggleSidebar, setSidebar, setTheme } = useUI()
+  const { width, fontSize } = useAppearance()
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const mobile = useMobile()
   const route = useLocation()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
@@ -286,18 +291,19 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     catch (error) { setNotice(error instanceof Error ? error.message : '重新加载失败，当前正文仍保留') }
   }
 
-  return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
+  return <div style={{ '--editor-width': `${width}px`, '--editor-font-size': `${fontSize}px` } as CSSProperties} className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
+    <AppearanceDialog open={appearanceOpen} onOpenChange={setAppearanceOpen} />
     <header className="topbar"><div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
       <input ref={uploadInput} className="visually-hidden" tabIndex={-1} aria-hidden="true" type="file" multiple aria-label="上传附件文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []))} />
       <input ref={cameraInput} className="visually-hidden" tabIndex={-1} aria-hidden="true" type="file" accept="image/*" capture="environment" aria-label="拍照上传文件" onChange={(event) => void uploadAttachments(Array.from(event.target.files ?? []).map((file) => new File([file], `photo-${crypto.randomUUID().slice(0, 12)}-${file.name}`, { type: file.type, lastModified: file.lastModified })))} />
       <div className="topbar-actions"><Button className="quick-open-trigger" aria-label={mobile ? '搜索' : '搜索 Ctrl P'} aria-keyshortcuts="Control+p Meta+p Control+Shift+f Meta+Shift+f" title="搜索（Ctrl/Cmd+P）" onClick={() => setSearchOpen(true)}><Search size={16} /><span>搜索</span><kbd aria-hidden="true">Ctrl P</kbd></Button><Button size="icon" aria-label="打开回收站" title="回收站" onClick={() => setTrashOpen(true)}><Trash2 size={17} /></Button><Button size="icon" aria-label="上传附件" title={`上传到：${directory || '工作区根目录'}`} disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={17} /></Button><Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
-        <Button size="icon" aria-label={navigationOpen ? '收起大纲与缩略图' : '展开大纲与缩略图'} title="大纲 / 文本缩略图" aria-pressed={navigationOpen} onClick={() => setNavigationOpen((value) => !value)}><PanelRight size={17} /></Button><Button size="icon" aria-label="查看快捷键" title="快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></Button><Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
+        <Button size="icon" aria-label={navigationOpen ? '收起大纲与缩略图' : '展开大纲与缩略图'} title="大纲 / 文本缩略图" aria-pressed={navigationOpen} onClick={() => setNavigationOpen((value) => !value)}><PanelRight size={17} /></Button><Button size="icon" aria-label="个性化" title="个性化" onClick={() => setAppearanceOpen(true)}><SlidersHorizontal size={17} /></Button><Button size="icon" aria-label="查看快捷键" title="快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></Button><Button size="icon" aria-label="退出登录" title="保存全部文件并退出登录" disabled={uploading} onClick={async () => {
           if (uploadQueue.snapshot().length) { setNotice('还有待确认的附件，请先重试上传或下载原件并移除待上传记录。'); return }
           for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
           try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
         }}><LogOut size={17} /></Button></div>
     </header>
-    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={route.pathname !== '/system-setting' && sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || shortcutsOpen || recoveryOpen || !!searchOpen || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
+    <div className="workspace-body"><ExplorerPanel mobile={mobile} open={route.pathname !== '/system-setting' && sidebar && !(mobile && (createKind !== null || !!comparison || trashOpen || appearanceOpen || shortcutsOpen || recoveryOpen || !!searchOpen || !!discardUpload || operations.dialogOpen))} onOpenChange={setSidebar}>
       <div className="explorer-heading"><span>文件</span><div className="explorer-tools">{mobile && <Button size="icon" aria-label="关闭文件列表" onClick={() => setSidebar(false)}><X size={17} /></Button>}<Button size="icon" aria-label="新建笔记" title="新建笔记" onClick={() => startCreate('file')}><FilePlus2 size={15} /></Button><Button size="icon" aria-label="新建文件夹" title="新建文件夹" onClick={() => startCreate('directory')}><FolderPlus size={15} /></Button><Button size="icon" aria-label="刷新文件列表" title="刷新文件列表" disabled={external.checking} onClick={() => void external.check()}><RefreshCw size={14} /></Button></div></div>
       {mobile && <div className="drawer-upload-row"><Button className="drawer-upload" variant="outline" disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={16} />上传到{directory ? `「${directory}」` : '工作区'}</Button><Button size="icon" variant="outline" disabled={uploading} aria-label="拍照上传" title="拍照上传到当前目录" onClick={() => cameraInput.current?.click()}><Camera size={17} /></Button></div>}
       {mobile && notice && <p className="tree-message" role="status">{notice}</p>}
