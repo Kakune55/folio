@@ -1,3 +1,6 @@
+import { EditorView as CodeMirrorView } from '@codemirror/view'
+import { languages } from '@codemirror/language-data'
+import { createMermaidPreview, mermaidLanguage } from './mermaid-preview'
 import { dropIndicatorPlugin } from '@milkdown/kit/plugin/cursor'
 import { safeDropIndicator } from './drop-indicator'
 import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
@@ -30,6 +33,7 @@ export function equivalentSource(source: string, serialized: string) {
 
 export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: (message?: string) => void, bridge?: CrepeBridge) {
   let tabReleaseUntil = 0
+  const mermaidPreview = createMermaidPreview(root)
   const crepe = new Crepe({
     root, defaultValue: source,
     features: { [Crepe.Feature.AI]: false, [Crepe.Feature.TopBar]: false, [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.Latex]: false },
@@ -37,7 +41,7 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
       [Crepe.Feature.Placeholder]: { text: '写下想法，或输入 / 插入内容…' },
       [Crepe.Feature.Toolbar]: { boldLabel: '加粗', italicLabel: '斜体', codeLabel: '行内代码', linkLabel: '链接', strikethroughLabel: '删除线' },
       [Crepe.Feature.LinkTooltip]: { inputPlaceholder: '输入链接地址' },
-      [Crepe.Feature.CodeMirror]: { theme: codeTheme, copyText: '复制', previewLabel: '预览', previewLoading: '正在加载…', searchPlaceholder: '搜索语言', noResultText: '没有匹配的语言', previewToggleText: (preview) => preview ? '编辑代码' : '预览代码' },
+      [Crepe.Feature.CodeMirror]: { languages: [...languages, mermaidLanguage], renderPreview: mermaidPreview.render, extensions: [CodeMirrorView.contentAttributes.of({ 'aria-label': '代码块源码' })], theme: codeTheme, copyText: '复制', previewLabel: '预览', previewLoading: '正在加载…', searchPlaceholder: '搜索语言', noResultText: '没有匹配的语言', previewToggleText: (preview) => preview ? '编辑代码' : '预览代码' },
       [Crepe.Feature.BlockEdit]: {
         textGroup: { label: '文本', text: { label: '正文' }, h1: { label: '一级标题' }, h2: { label: '二级标题' }, h3: { label: '三级标题' }, h4: { label: '四级标题' }, h5: { label: '五级标题' }, h6: { label: '六级标题' }, quote: { label: '引用' }, divider: { label: '分隔线' } },
         listGroup: { label: '列表', bulletList: { label: '无序列表' }, orderedList: { label: '有序列表' }, taskList: { label: '任务列表' } },
@@ -47,6 +51,7 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
   })
   void crepe.editor.remove(dropIndicatorPlugin)
   crepe.editor.use(safeDropIndicator)
+  crepe.editor.use($prose(() => new Plugin({ view: () => ({ destroy: mermaidPreview.destroy }) })))
   const uploads = new PluginKey<Map<symbol, number>>('folio-image-uploads')
   const handleFiles = (view: EditorView, event: ClipboardEvent | DragEvent, files: FileList | undefined) => {
     if (!bridge || !files?.length) return false

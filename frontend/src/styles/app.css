@@ -480,3 +480,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .diff-insert { color: var(--diff-insert-fg); background: var(--diff-insert-bg); }
 .diff-equal { color: var(--muted-foreground); }
 .diff-gap, .diff-empty { padding: 4px 12px; color: var(--muted-foreground); background: var(--sidebar); }
+
+.mermaid-preview { min-height: 64px; max-width: 100%; overflow: auto; padding: 16px; font: 13px/1.7 var(--font-ui); color: var(--muted-foreground); }
+.mermaid-preview img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.mermaid-preview[data-state='error'] { color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.rich-host .milkdown .milkdown-code-block .preview-panel .preview-label { color: var(--muted-foreground); }
+
+.mermaid-status { display: block; min-height: 1.7em; margin-top: 8px; font-size: 12px; }

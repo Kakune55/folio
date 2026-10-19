@@ -290,3 +290,35 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 限制：侧栏一次拖入一个文件，目录不插入引用；仅 Markdown 编辑器，支持 PNG/JPEG/WebP/GIF 扩展名的图片引用，其他扩展名为文字链接，实际预览继续由服务端校验。无批量拖拽、触屏长按或真实手机拖拽专项验收。拖入只执行原生编辑事务，不改变 ETag、恢复和内容安全边界；移动文件后不自动重写引用。无后端源码变更，未重跑 Go 单测、容器或其他浏览器。
 
 最终版本复跑：frontend 下 npx playwright test tests/browser/attachments.spec.ts tests/browser/sidebar-references.spec.ts tests/browser/workbench.spec.ts，14 项全部通过（31.0s），包含既有图片粘贴切换用例、侧栏原生拖拽及指示器卸载后回调检查；无 Milkdown 上下文异常。上述单次创建后无标签的超时仍作为偶发未定位问题保留记录。
+
+
+## Mermaid 代码块（2026-10-19）
+
+涉及 package.json/lock（新增固定 mermaid 12.2.0）、milkdown/{engine,mermaid-preview,mermaid-preview.test}、app.css、tests/browser/mermaid.spec.ts 与 tests/qa/mermaid.spec.ts；同步 README、SPEC、DESIGN、ARCHITECTURE、ROADMAP。
+
+本次实际执行：
+
+- npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 通过，9 文件、28 项；构建保留大分块提示，并新增 Mermaid 按需布局分块（ELK 约 1.46 MB），不是初始加载全部执行。
+- 开发环境 npx playwright test tests/browser/mermaid.spec.ts 最终 2 项通过（13.4s，尚未加入语言选择用例时），验证流程图/时序图、修改后刷新、源码切换、渲染不写正文、过期结果过滤、错误修复、活动资源拒绝、明暗 × 1440/1024/390 全页 axe 与无外壳溢出。
+- 增加图表自然宽度及语言菜单选择后，python scripts/copy-dist.py 通过；npx playwright test -c playwright.qa.config.ts tests/qa/mermaid.spec.ts：生产嵌入资源与原有 CSP 下 3 项通过（14.3s）。测试 API 启动时实际构建 Go 临时二进制，测试目录独立，不启动／重启日常服务器。
+- git diff --check 通过。最终截图保存在 artifacts/mermaid/；初次人工查看浅色桌面发现小图放大，已从 SVG viewBox 设置自然显示宽度并加入小图宽度 <600px 断言，手机按可用宽度缩小。
+
+早期检查发现代码块源码缺少辅助名称、预览区域重复 landmark 名称及预览标签对比度不足，已分别通过 CodeMirror contentAttributes、具名 group、较高选择器优先级的主题颜色修复，未排除 axe 规则。首次安装命令误在仓库根目录执行，已中止并在 frontend 安装，未新增根 package.json 或 package-lock.json；未清理既有根 node_modules。一次截图读取在下一轮测试清空 test-results 后失败，已将截图目录调整为独立 artifacts/mermaid。
+
+范围与限制：富文本显示 Mermaid 图表与源码，源码模式仍为原始 Markdown；支持普通 Mermaid 图表，拒绝配置/frontmatter、HTML、外部图片／图标属性、自定义 style/classDef/linkStyle 和 click；无图内链接、导出、缩放／平移或专用 Mermaid 语法高亮。单图 50000 字符与 Mermaid 500 边配置不是 CPU 时间上限，没有新增跨设备性能压测。SVG 作为图片显示，源码仍可读；axe 检查覆盖 UI 语义／对比度，不证明图中文字的视觉对比度或真实读屏器体验。没有改变正文序列化、ETag、恢复、后端鉴权和 CSP，没有新增远程渲染或内容执行入口。未重跑 Go 单元测试（无后端源码变化）、容器、真实手机或其他浏览器。
+
+最终回归：frontend 下 npx playwright test tests/browser/workbench.spec.ts tests/browser/files.spec.ts tests/browser/line-endings.spec.ts，15 项全部通过（34.7s），覆盖正文保存、陈旧 ETag、转换确认／取消、异步切换和混合换行恢复。将截图改存 artifacts 后，生产 Mermaid 流程图/时序图专项再次通过（1 项，8.1s），已人工查看最终浅色桌面与深色手机截图，小图自然宽度和移动布局正常。git diff --check 最终通过。
+
+
+## Mermaid 渲染防抖（2026-10-19）
+
+本轮在上一节修改之上，涉及 mermaid-preview.ts、app.css、tests/browser/mermaid.spec.ts 与 SPEC/DESIGN/ARCHITECTURE/ROADMAP。将原先随 DOM 变化重新创建加载占位的 120ms 刷新，改为每块独立 600ms 输入防抖；按块缓存已加载图片，在 MutationObserver 阶段恢复到 Crepe 克隆的新节点，等待新图 decode 完成才替换。等待、错误与主题更新保留旧图并明确标注；提示行预留高度。版本与块身份过滤过期任务，卸载清理调度和观察器。
+
+本次实际执行（不沿用上一节计数）：
+
+- npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 全部通过（9 文件、28 项），构建仍有既有大分块提示。
+- 开发环境 npx playwright test tests/browser/mermaid.spec.ts：4 项通过（24.8s）。
+- 加入提示行高度及预览切换验证后的最终生产嵌入版本：python scripts/copy-dist.py 通过；npx playwright test -c playwright.qa.config.ts tests/qa/mermaid.spec.ts，4 项通过（23.5s）。前三项覆盖明暗三视口全页 axe、原文／保存保护、错误修复、活动资源限制和语言菜单；新增用例真实连续输入四次、每次间隔 180ms，总时长超过 600ms，核对期间 Mermaid 临时渲染容器创建数为 0、两块最终各渲染一次、逐帧图片数始终为 2、等待期间 src 与预览高度不变，以及预览按钮切换、错误保留旧图。渲染计数来自真实 Mermaid 创建的临时 DOM，未用空渲染 mock 替代。
+- git diff --check 通过。测试使用独立临时工作区，未修改用户正文、未重启日常服务。
+
+限制：持续输入时图表保持上次成功结果并显示待更新，停顿后才与代码一致；无法中断已经进入 Mermaid 的同步布局计算，但过期任务不会覆盖新图。600ms 防抖不是复杂图表执行时间上限。保存、ETag、恢复及已有安全限制不变；无后端源码变化，未重跑 Go 单元／容器或新增真实设备性能测试。

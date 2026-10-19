@@ -121,3 +121,13 @@ SourceEditor 在 Ctrl/Cmd+鼠标主键按下时调用 codemirror/links.ts，使�
 ## 侧栏拖入引用（2026-10-19）
 
 features/explorer/entry-transfer.ts 共享本页面活动拖拽条目与随机手势令牌；DataTransfer 只携带令牌，不信任外部路径。dragover 仅识别活动手势，drop 校验令牌后经 CrepeBridge.reference 检查类型与路径锁定，生成相对引用，使用原生编辑事务插入。drop/dragend/侧栏卸载清理活动手势，effectAllowed 为 copyMove，目录目标仍用 move。Milkdown 的默认 dropIndicatorPlugin 替换为保持原有 API 的生命周期包装：销毁后延迟回调不再写上下文。将既有间接依赖 prosemirror-drop-indicator 0.1.4 声明为固定直接依赖，不升级 Milkdown 或替换编辑器。
+
+
+## Mermaid 代码块（2026-10-19）
+
+milkdown/mermaid-preview.ts 提供按编辑器实例创建的预览管理器，通过 Crepe 当前版本 renderPreview 返回的 HTMLElement 占位符接入；组件会清洗并克隆节点，因此以实例 root 范围的 data-mermaid-preview 随机标识定位实际预览。MutationObserver 监听预览挂载与主题，以代码块 DOM 为身份保留已解码图片；每个块独立等待输入停顿 600ms，主题变化合并 120ms，互不重置等待时间；局部记录与版本过滤过期结果，卸载断开观察器并使异步任务失效，不进入 React 正文状态。
+
+Mermaid 使用动态 import 本地分块，全局串行渲染队列避免 initialize/theme 的共享配置竞争；加载失败后下一次编辑可重试。输入先做长度及配置／活动资源限制，严格模式、htmlLabels=false、maxEdges=500；输出通过 data:image/svg+xml 的 img 展示，不注入活动 SVG 或绑定图内回调。图像尺寸从 viewBox 提取，临时容器按随机 ID 清理。不改变后端 CSP 或任何 API；代码选择菜单加入 mermaid 与已安装 CodeMirror 语言列表，Mermaid 代码区暂按纯文本编辑，无专用语法高亮。
+
+
+Mermaid 防抖期间，Crepe 返回节点被克隆后，在 MutationObserver 阶段将同一块上次成功图片移入新占位符，避免绘制空帧；新图 decode 完成且版本仍有效才原子替换。提示行预留高度，减少正文跳动；错误保留旧图并标明上次结果。卸载／块删除使等待与队列任务失效。

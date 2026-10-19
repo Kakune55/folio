@@ -32,6 +32,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
+    "mermaid": "12.2.0",
     "pdfjs-dist": "^6.4.299",
     "prosemirror-drop-indicator": "0.1.4",
     "react": "^19.2.8",
