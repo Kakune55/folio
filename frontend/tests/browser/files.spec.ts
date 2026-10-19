@@ -61,6 +61,8 @@ test('陈旧版本冲突可比较并另存本地副本，原磁盘版本不覆�
   await page.getByRole('button', { name: '比较版本' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('磁盘版本')).toHaveValue('# 其他编辑器的新内容\n')
+  await expect(dialog.locator('.diff-delete')).toContainText(['磁盘版本', '# 其他编辑器的新内容'])
+  await expect(dialog.locator('.diff-insert')).toContainText(['本地草稿', '我的本地草稿'])
   await dialog.getByRole('button', { name: '保留本地副本并加载磁盘版本' }).click()
   await expect(dialog).not.toBeVisible()
   await expect(source).toContainText('我的本地草稿')

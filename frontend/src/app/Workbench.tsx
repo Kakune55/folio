@@ -1,3 +1,4 @@
+import { DiffView } from '../components/diff/DiffView'
 import { AppearanceDialog } from '../features/appearance/AppearanceDialog'
 import { useAppearance } from '../stores/appearance'
 import type { CSSProperties } from 'react'
@@ -364,6 +365,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
 
     <Dialog.Root open={!!comparison} onOpenChange={(value) => { if (!value) closeComparison() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content conflict-dialog"><Dialog.Title>文件版本发生冲突</Dialog.Title><Dialog.Description>本地草稿与磁盘版本均已保留。关闭窗口不会覆盖任意版本。{comparison?.path}</Dialog.Description>
       <div className="compare-columns"><div><label htmlFor="comparison-local">本地草稿</label><textarea id="comparison-local" readOnly value={comparison?.session.source ?? ''} /></div><div><label htmlFor="comparison-remote">磁盘版本</label><textarea id="comparison-remote" readOnly value={remote?.content ?? (comparisonLoading ? '正在读取磁盘版本…' : '磁盘正文不可读；仍可另存本地草稿。')} /></div></div>
+      {comparison && remote && <DiffView original={remote.content} modified={comparison.session.source} beforeLabel="磁盘版本" afterLabel="本地草稿" label="版本差异" />}
       {comparisonError && <p className="form-error" role="alert">{comparisonError}</p>}
       <label htmlFor="copy-path">副本路径</label><input id="copy-path" value={copyPath} onChange={(event) => setCopyPath(event.target.value)} disabled={busy} /><p className="small-label">输入工作区相对路径。原目录已不存在时，请选择仍存在的目录；已有同名文件不会被覆盖。</p>
       <div className="dialog-actions"><Button onClick={() => comparison && downloadDraft(comparison.path, comparison.session.source)}>下载本地草稿</Button><Button variant="outline" disabled={comparisonLoading || busy || !copyPath.trim()} onClick={() => void handleKeepSeparate()}>{busy ? '正在保存副本…' : remote ? '保留本地副本并加载磁盘版本' : '另存本地副本'}</Button><Button onClick={closeComparison} disabled={busy}>稍后处理</Button></div>

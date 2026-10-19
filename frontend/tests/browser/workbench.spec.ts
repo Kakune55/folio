@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import fixtures from '../fixtures/markdown.json' with { type: 'json' }
 import { readFile } from 'node:fs/promises'
 
@@ -61,6 +62,22 @@ test('有损转换保留原文，下载导出完整草稿', async ({ page }) => 
   await expect(dialog.getByRole('button', { name: '保留原文，使用源码' })).toBeFocused()
   await dialog.getByText('查看 Diff（- 原文 / + 转换后）', { exact: true }).click()
   await expect(dialog.getByLabel('转换差异')).toContainText('- --- [LF]')
+  for (const theme of ['light', 'dark']) {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(dialog.locator('.diff-line.diff-delete').first()).toBeVisible()
+      const colors = await dialog.evaluate(el => {
+        const removed = el.querySelector('.diff-delete')!, added = el.querySelector('.diff-insert')!
+        return [getComputedStyle(removed).backgroundColor, getComputedStyle(added).backgroundColor]
+      })
+      expect(colors[0]).not.toBe(colors[1])
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
+      await page.screenshot({ path: `test-results/diff-${theme}-${width}.png` })
+    }
+  }
   const originalDownload = page.waitForEvent('download')
   await dialog.getByRole('button', { name: '下载转换前原文' }).click()
   expect(await readFile((await (await originalDownload).path())!, 'utf8')).toBe(original)

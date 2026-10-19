@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 
 :root {
+  --diff-delete-bg: #fce8e6; --diff-delete-fg: #8b2530; --diff-insert-bg: #e6f4e9; --diff-insert-fg: #216337;
   color-scheme: light;
   --background: #fff; --sidebar: #f7f7f8; --surface-hover: #eeeef0; --border: #e7e7e9;
   --foreground: #202124; --muted-foreground: #646971; --accent: #5365b8;
@@ -13,6 +14,7 @@
   font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
 }
 :root[data-theme='dark'] {
+  --diff-delete-bg: #462a30; --diff-delete-fg: #ffb3ba; --diff-insert-bg: #243d30; --diff-insert-fg: #a0deb1;
   color-scheme: dark;
   --background: #202124; --sidebar: #191a1c; --surface-hover: #303135; --border: #35363a;
   --foreground: #eee; --muted-foreground: #a1a1a8; --accent: #94a8ff;
@@ -465,3 +467,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 359px) { .topbar .brand > span:nth-child(2) { display: none; } }
 
 .appearance-options label > span { text-align: center; white-space: nowrap; }
+
+.diff-view { margin-top: 16px; min-width: 0; }
+.diff-legend { display: flex; gap: 8px 16px; flex-wrap: wrap; font-size: 12px; }
+.diff-legend > span { padding: 2px 6px; border-radius: 3px; }
+.diff-view .diff-help { font-size: 12px; margin: 8px 0; }
+.diff-scroll { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--background); font: 12px/1.8 var(--font-code); }
+.diff-line { display: flex; width: max-content; min-width: 100%; white-space: pre; }
+.diff-line code { font: inherit; padding: 0 12px 0 8px; }
+.diff-number { flex: 0 0 6ch; text-align: right; padding-right: 8px; border-right: 1px solid var(--border); user-select: none; font-variant-numeric: tabular-nums; }
+.diff-delete { color: var(--diff-delete-fg); background: var(--diff-delete-bg); }
+.diff-insert { color: var(--diff-insert-fg); background: var(--diff-insert-bg); }
+.diff-equal { color: var(--muted-foreground); }
+.diff-gap, .diff-empty { padding: 4px 12px; color: var(--muted-foreground); background: var(--sidebar); }

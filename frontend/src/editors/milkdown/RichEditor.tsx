@@ -10,7 +10,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { DialogContent } from '../../components/ui/dialog-content'
 import { Button } from '../../components/ui/button'
 import { downloadDraft } from '../../services/api'
-import { conversionDiff } from './conversion-diff'
+import { DiffView } from '../../components/diff/DiffView'
 
 export default function RichEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: {
   navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked: (reason: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated
@@ -19,7 +19,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
   const host = useRef<HTMLDivElement>(null)
   const [navigationEditor, setNavigationEditor] = useState<Crepe>()
   const [ready, setReady] = useState(false)
-  const [conversion, setConversion] = useState<{ original: string; converted: string; diff: string; accept: () => void }>()
+  const [conversion, setConversion] = useState<{ original: string; converted: string; accept: () => void }>()
   useEffect(() => {
     const original = session.source
     const root = document.createElement('div')
@@ -42,7 +42,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
       }
       const converted = editor.getMarkdown()
       if (!equivalentSource(original, converted)) {
-        setConversion({ original, converted, diff: conversionDiff(original, converted), accept: () => {
+        setConversion({ original, converted, accept: () => {
           if (disposed) return
           if (session.source !== original || session.locked || !sessions.has(session.path) || sessions.get(session.path) !== session) {
             onBlocked('预览期间原文或文件状态已变化，请重新检查转换。当前原文已保留。')
@@ -94,7 +94,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
       <Dialog.Title>富文本转换预览</Dialog.Title>
       <Dialog.Description>此文档转换后会发生变化，部分语法或内容可能丢失。预览不会修改原文；确认后会替换当前正文，并按现有规则自动保存。请先检查差异，必要时下载原文。切换模式会重置撤销历史。</Dialog.Description>
       <div className="compare-columns"><div><label htmlFor="conversion-original">转换前原文</label><textarea id="conversion-original" readOnly value={conversion?.original ?? ''} /></div><div><label htmlFor="conversion-result">转换后 Markdown</label><textarea id="conversion-result" readOnly value={conversion?.converted ?? ''} /></div></div>
-      <details><summary>查看 Diff（- 原文 / + 转换后）</summary><p>展示首尾相同区域之间的完整替换区间，可能包含未变化的中间行。LF / CRLF / CR 为换行类型，EOF 表示末行无换行。</p><pre className="conversion-diff" tabIndex={0} aria-label="转换差异">{conversion?.diff}</pre></details>
+      <details><summary>查看 Diff（- 原文 / + 转换后）</summary>{conversion && <DiffView original={conversion.original} modified={conversion.converted} beforeLabel="原文" afterLabel="转换后" label="转换差异" />}</details>
       <div className="dialog-actions"><Button onClick={() => conversion && downloadDraft(session.path, conversion.original)}>下载转换前原文</Button><Button id="cancel-conversion" variant="outline" onClick={cancel}>保留原文，使用源码</Button><Button variant="outline" onClick={() => conversion?.accept()}>确认转换并编辑</Button></div>
     </DialogContent></Dialog.Portal></Dialog.Root>
   </>

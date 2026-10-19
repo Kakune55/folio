@@ -248,3 +248,14 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 
 
 2026-10-19 个性化界面简化：AppearanceDialog.tsx 移除简介及宽度/字号说明，app.css 缩小弹窗至 400px、去除分组分隔线并收紧间距。保留设置选项、恢复默认与存储错误提示。本次 npm run build、npm run lint、appearance.spec.ts（1 项，7.3s，含明暗 axe 与移动端）、python scripts/copy-dist.py、git diff --check 通过。无正文或权限逻辑变化，不新增内容丢失或安全入口；本机偏好不跨设备同步的限制保持。
+
+
+## 彩色差异视图（2026-10-19）
+
+变更涉及 components/diff/{line-diff,DiffView}、RichEditor.tsx、Workbench.tsx、app.css，新增 line-diff.test.ts 并扩展 files.spec.ts、workbench.spec.ts。本次实际执行：
+
+- frontend：npm run build、npm run lint、npm test 通过（7 文件、24 项）；构建仍有既有大分块提示。
+- npx playwright test tests/browser/workbench.spec.ts tests/browser/files.spec.ts：13 项通过（25.6s），覆盖转换确认/取消/下载、陈旧预览拒绝、ETag 冲突与不覆盖副本；冲突测试新增红绿差异内容断言。
+- 随后扩展转换预览主题/布局检查，单独运行 npx playwright test tests/browser/workbench.spec.ts -g '有损转换保留原文'：1 项通过（5.8s），覆盖明暗 × 1440/1024/390、增删背景不同、外壳无横向溢出、弹窗 axe 无违规；截图 frontend/test-results/diff-*.png，人工查看深色手机截图。
+
+仅改变差异呈现，不修改正文、ETag、恢复和服务端鉴权。匹配超预算时可能把相同行计入替换，明确提示；超 2000 行只呈现前 2000 行，完整正文保留。没有自动合并、逐字高亮、逐块采纳或折叠区展开；可直接核对上方完整正文。测试用独立临时工作区，未修改日常用户文件，未重启日常服务器。无后端源码变化，未重跑 Go 单测、容器、其他浏览器、真实手机与读屏器验收。
