@@ -161,3 +161,8 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 - GET /api/v1/admin/disk：显式扫描 workspace/appData，分别返回 bytes、files、directories（包括根目录）、total、available（所在卷）；volumeError 表示卷容量不可用。扫描失败 503 disk_unavailable，并发扫描 409 operation_in_progress。逻辑文件大小不等于实际磁盘占块或用户配额；appData 含数据库、索引、回收站。
 
 保存设置覆盖持久化值，重启继续使用；环境变量仅为未保存系统设置时的初始值。降低限制不清理文件；超过新文本上限的已有文件可能无法继续编辑，仍可下载，管理员可恢复上限。
+
+
+## 本机标签恢复（2026-10-22）
+
+本功能不新增接口。复用带工作区身份校验的 GET /files/metadata 与 GET /files/content，恢复不提交正文；后续编辑继续使用 If-Match 条件保存。浏览器路径记录不构成授权，服务端继续验证身份及路径边界。

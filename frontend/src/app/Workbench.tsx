@@ -3,6 +3,7 @@ import { AppearanceDialog } from '../features/appearance/AppearanceDialog'
 import { useAppearance } from '../stores/appearance'
 import type { CSSProperties } from 'react'
 import { useLocation } from 'react-router'
+import { useTabRestore } from '../features/tabs/useTabRestore'
 import { TabMenu } from '../features/tabs/TabMenu'
 import type { CloseTabsAction } from '../features/tabs/TabMenu'
 import type { SearchTarget, SearchLocated } from '../features/search/location'
@@ -50,6 +51,7 @@ class EditorBoundary extends Component<{ children: ReactNode; retry: () => void 
 
 export default function Workbench({ onLogout, workspaceId, principal }: { onLogout: () => void; workspaceId: string; principal: Principal }) {
   useSyncExternalStore(workspace.subscribe, workspace.snapshot)
+  const tabRestore = useTabRestore(workspaceId, principal.id)
   const client = useQueryClient()
   const { activePath, sidebar, theme, open, toggleSidebar, setSidebar, setTheme } = useUI()
   const { width, fontSize } = useAppearance()
@@ -347,6 +349,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       </div></div>}
       <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
+      {tabRestore.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{tabRestore.warning}</span><Button onClick={tabRestore.retry}>重试标签记录</Button><Button onClick={tabRestore.reset}>仅记住当前标签</Button></div>}
       {recovery.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{recovery.warning}</span><Button onClick={() => void manager.retry().catch(() => {})}>重试本地存储</Button></div>}
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}

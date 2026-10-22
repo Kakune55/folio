@@ -68,6 +68,9 @@ test('带混合换行的失败保存草稿经下载、刷新与显式恢复后�
   await page.getByRole('button', { name: '下载当前草稿' }).click()
   expect(await readFile(await (await download).path()!)).toEqual(Buffer.from(expected))
   await page.reload()
+  // 自动恢复的是磁盘标签；先关闭，保留恢复稿显式打开的保护。
+  await expect(page.getByRole('tab', { name, exact: true })).toBeVisible()
+  await page.getByRole('tab', { name, exact: true }).press('Delete')
   await page.getByRole('button', { name: '查看浏览器恢复稿' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button').filter({ hasText: name }).click()

@@ -322,3 +322,23 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 - git diff --check 通过。测试使用独立临时工作区，未修改用户正文、未重启日常服务。
 
 限制：持续输入时图表保持上次成功结果并显示待更新，停顿后才与代码一致；无法中断已经进入 Mermaid 的同步布局计算，但过期任务不会覆盖新图。600ms 防抖不是复杂图表执行时间上限。保存、ETag、恢复及已有安全限制不变；无后端源码变化，未重跑 Go 单元／容器或新增真实设备性能测试。
+
+## 本机标签恢复（2026-10-22）
+
+新增 features/tabs/useTabRestore.ts 并接入 Workbench；新增 tab-restore.spec.ts，调整 recovery、line-endings、mobile 中刷新后的显式恢复流程：自动打开的磁盘标签须先关闭，已有标签拒绝被草稿替换的保护保留并新增断言。同步 README、SPEC、DESIGN、ARCHITECTURE、API、ROADMAP。
+
+本轮覆盖刷新后的标签顺序／当前项、关闭同步、读取服务器最新正文、跨命名空间记录不打开、缺失文件失败保留与重试、损坏／拒绝存储提示及重置、恢复期间主动选择与继续编辑、明暗三视口错误提示及 axe。正文不写入 localStorage；未保存内容仍从现有 IndexedDB 恢复稿显式打开。重置标签记录不删除草稿。恢复读请求单文件共用 10 秒超时，卸载中止请求并拒绝迟到结果。
+
+验证过程：初次构建因本地缺少锁文件已有依赖失败，npm ci 后构建通过，未修改依赖清单或锁文件。一次浏览器测试在依赖重装期间中止；一轮 15 项中 14 项通过，原恢复用例因新增磁盘标签触发既有拒绝覆盖保护而失败，已加入保护断言并先关闭标签；随后两项恢复流程误点仅焦点可见的关闭按钮超时，已分别改用标签 Delete 与手机标签内关闭标记。一次 npx 错从仓库根执行导致测试框架实例错误，改在 frontend 运行。最终结果另列，不把这些失败轮次记为全部通过。
+
+限制：记录仅在当前浏览器同源保存，不同步设备；同账号多个页面以最后成功保存记录为准，无实时合并。失败路径保留于末尾，重试恢复追加到现有标签末尾；原当前项失败则选择首个可用标签。编辑模式、光标、滚动位置不恢复。清除浏览器数据会丢失标签记录；本功能不是正文备份。所有恢复请求仍经既有鉴权、工作区身份及路径验证，未修改 ETag、正文保存、转换确认或草稿保护。测试使用临时工作区，未启动／重启日常服务或修改用户正文；无后端逻辑变化，不重跑 Go 单元／容器／真实手机及其他浏览器验收。
+
+补充：最后一轮组合中，混合换行与手机 5 项全部通过，异步恢复继续编辑通过。标签专项增加全页 axe 后，源码页面触发既有 page-has-heading-one 最佳实践提示；本次沿用生产 accessibility.spec.ts 的 WCAG 2 A/AA 与 2.1 A/AA 规则集合进行验证，未改动源码页面结构，不声称通过全部 axe 最佳实践规则。
+
+最终本次结果：
+
+- npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test：通过（9 文件、28 项单元测试），构建保留既有大分块提示。python3 scripts/copy-dist.py 与 git diff --check 通过。
+- frontend 下 ./node_modules/.bin/playwright test tests/browser/tab-restore.spec.ts：最终 3 项全部通过（23.3s），包括失败路径手动打开后关闭不会复活的回归。最终错误提示全页 WCAG 明暗 × 1440/1024/390 检查通过；截图 artifacts/tab-restore-mobile.png，已人工查看正文错误提示可见、手机换行正常。测试显式等待手机抽屉完成布局后关闭，避免截图被抽屉遮挡。
+- recovery.spec.ts 调整后本次 5 项通过；line-endings.spec.ts 与 mobile.spec.ts 修正关闭入口后本次 5 项通过；workbench.spec.ts 本次 9 项通过。以上为各专项在本轮不同执行中的结果，不描述为一次完整套件通过。
+- ./node_modules/.bin/playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：生产嵌入界面明暗桌面／手机 4 项通过（27.7s）；该检查在最后补齐待恢复路径清理逻辑前执行，之后 UI 未变，最终清理逻辑由上列 3 项浏览器专项验证。
+- 没有执行 make test 全套或更新／重启日常二进制服务。前端生产资源已构建并复制到嵌入目录，运行中的旧二进制需重新构建启动才能应用。

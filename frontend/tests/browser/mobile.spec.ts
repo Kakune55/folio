@@ -112,6 +112,9 @@ test('触屏保存失败后刷新，恢复入口和手动保存均可操作', as
     request.onsuccess = () => { const db = request.result, transaction = db.transaction('drafts', 'readonly'), query = transaction.objectStore('drafts').getAll(); transaction.oncomplete = () => { db.close(); resolve(query.result.find((draft: { path: string }) => draft.path === path)?.source) } }
   }), name)).toBe('手机未保存的最后正文')
   await page.reload()
+  // 自动恢复的是磁盘标签；先关闭，保留恢复稿显式打开的保护。
+  await expect(page.getByRole('tab', { name, exact: true })).toBeVisible()
+  await page.getByRole('tab', { name, exact: true }).locator('.tab-close-target').tap()
   await page.getByRole('button', { name: '查看浏览器恢复稿' }).tap()
   const dialog = page.getByRole('dialog', { name: '浏览器恢复稿', exact: true })
   await dialog.getByRole('button').filter({ hasText: name }).tap()
