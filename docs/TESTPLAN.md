@@ -342,3 +342,7 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 - recovery.spec.ts 调整后本次 5 项通过；line-endings.spec.ts 与 mobile.spec.ts 修正关闭入口后本次 5 项通过；workbench.spec.ts 本次 9 项通过。以上为各专项在本轮不同执行中的结果，不描述为一次完整套件通过。
 - ./node_modules/.bin/playwright test -c playwright.qa.config.ts tests/qa/accessibility.spec.ts：生产嵌入界面明暗桌面／手机 4 项通过（27.7s）；该检查在最后补齐待恢复路径清理逻辑前执行，之后 UI 未变，最终清理逻辑由上列 3 项浏览器专项验证。
 - 没有执行 make test 全套或更新／重启日常二进制服务。前端生产资源已构建并复制到嵌入目录，运行中的旧二进制需重新构建启动才能应用。
+
+## 浏览器图标（2026-10-22）
+
+新增 frontend/public/favicon.svg，在 frontend/index.html 声明 SVG favicon，并同步 DESIGN.md。沿用深灰底与浅色斜体 f，纯路径、无字体或外部请求依赖。本次 npm --prefix frontend run build、python3 scripts/copy-dist.py、git diff --check 通过；构建保留既有大分块提示。Chromium 实际解码并渲染生产 dist 中的 SVG，确认生产 HTML 图标引用存在，人工查看 256px 渲染图通过。无正文／会话／鉴权逻辑变化，未新增内容丢失或权限入口；不重跑业务测试，未验证其他浏览器。未重启日常二进制服务，重新构建启动后应用。
