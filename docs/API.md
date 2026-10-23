@@ -169,6 +169,8 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 
 ## 分享接口（2026-10-22）
 
+新建分享 ID 为 16 字符 Base64URL（A–Z、a–z、0–9、下划线及连字符，区分大小写）；公开页面 /s/{id} 与全部分享 API 兼容原 48 字符小写十六进制 ID。旧记录和 URL 不迁移；附件 ID、访客令牌、版本长度不变。
+
 管理与转存接口沿用账号 Cookie、来源、CSRF 和工作区身份保护。公开接口使用独立分享资格，不接受用户路径选择其他资源。全部 API no-store，公开页与公开接口 noindex/nofollow/noarchive；Referrer-Policy no-referrer。文件原件仅下载，位图／PDF 才允许隔离预览。HEAD 不计次，进入只能 POST。
 
 | 方法 | 路由 | 行为 |

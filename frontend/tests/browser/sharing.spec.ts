@@ -58,6 +58,7 @@ test('快照附件分享、匿名密码访问、刷新计数、独立转存及�
  await expect(dialog).not.toBeVisible()
  const link = await page.getByLabel('分享链接').inputValue()
  const id = link.split('/').at(-1)!
+ expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/)
  const saved = (await (await page.request.get('/api/v1/shares')).json()).entries.find((r: { id: string }) => r.id === id)
  const current = await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(`${dir}/docs/main.md`)}`)).json()
  expect((await page.request.put(`/api/v1/files/content?path=${encodeURIComponent(`${dir}/docs/main.md`)}`, { headers: { ...headers, 'If-Match': `"${current.revision}"` }, data: { content: '# 后来的标题\n', encoding: 'utf-8' } })).ok()).toBe(true)
@@ -317,4 +318,15 @@ test('文件工具栏直接创建、限制开关及已有密码保留', async ({
  const cleared=page.waitForResponse(r=>r.url().endsWith(`/api/v1/shares/${record.id}`) && r.request().method()==='PUT')
  await edit.getByRole('button',{name:'保存访问设置'}).click()
  expect((await cleared).request().postDataJSON().password).toBe('')
+})
+
+
+test('旧分享链接格式继续进入公开页面，非法长度仍拒绝', async ({page}) => {
+ await page.goto(`/s/${'a'.repeat(48)}`)
+ await expect(page.getByRole('heading',{name:'打开分享',exact:true})).toBeVisible()
+ await expect(page.getByRole('alert')).toContainText('分享不存在或已失效')
+ await page.goto('/s/_-Ab0123456789xy')
+ await expect(page.getByRole('heading',{name:'打开分享',exact:true})).toBeVisible()
+ await page.goto(`/s/${'a'.repeat(17)}`)
+ await expect(page.getByRole('heading',{name:'分享链接无效',exact:true})).toBeVisible()
 })

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -101,6 +102,25 @@ func random() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// 仅公开分享 ID 缩短；访客令牌、文件 ID 与版本仍保留原随机强度。
+func newShareID() string {
+	var value [12]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(value[:])
+}
+func validShareID(value string) bool {
+	if validToken(value) {
+		return true
+	}
+	if len(value) != 16 {
+		return false
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
+	return err == nil && len(decoded) == 12
 }
 func tokenHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
@@ -278,7 +298,7 @@ func (s *Service) Usage(owner int64) (int64, error) {
 	return fileio.TreeBytes(s.root, s.ownerDir(owner), true)
 }
 func (s *Service) load(id string) (*Record, error) {
-	if !validToken(id) {
+	if !validShareID(id) {
 		return nil, problem(404, "分享不存在或已失效")
 	}
 	var r Record
@@ -302,6 +322,30 @@ func (s *Service) save(r *Record) error {
 	}
 	_, err = s.db.Exec("INSERT INTO shares(id,owner,record,payload,salt,hash) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET record=excluded.record,payload=excluded.payload,salt=excluded.salt,hash=excluded.hash", r.ID, r.Owner, string(raw), r.Payload, r.Salt, r.Hash)
 	return err
+}
+
+// 新建必须使用 INSERT，不能通过 UPSERT 覆盖同 ID 的已有分享。
+// 调用方持有 s.mu；载荷路径是独立存储位置，重试 ID 不改写或移动载荷。
+func (s *Service) insertNew(record *Record, nextID func() string) error {
+	for range 8 {
+		raw, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec("INSERT INTO shares(id,owner,record,payload,salt,hash) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING", record.ID, record.Owner, string(raw), record.Payload, record.Salt, record.Hash)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count == 1 {
+			return nil
+		}
+		record.ID = nextID()
+	}
+	return problem(503, "无法生成分享链接，请重试")
 }
 func (s *Service) List(owner int64, offset, limit int) ([]Record, int, error) {
 	s.mu.Lock()
@@ -438,7 +482,7 @@ func (s *Service) Save(owner int64, id string, input Input) (*Record, error) {
 		if count >= 1000 {
 			return nil, problem(413, "每个账号最多保留 1000 条分享，请删除不再使用的分享")
 		}
-		record = &Record{ID: random(), Owner: owner, Root: input.Root, Mode: input.Mode, CreatedAt: time.Now().Unix(), Files: []File{}}
+		record = &Record{ID: newShareID(), Owner: owner, Root: input.Root, Mode: input.Mode, CreatedAt: time.Now().Unix(), Files: []File{}}
 		if input.Files == nil {
 			return nil, problem(400, "请先分析并确认分享文件清单")
 		}
@@ -513,7 +557,12 @@ func (s *Service) Save(owner int64, id string, input Input) (*Record, error) {
 			record.Hash = argon2.IDKey([]byte(*input.Password), record.Salt, 3, 64*1024, 1, 32)
 		}
 	}
-	commit := func() error { return s.save(record) }
+	commit := func() error {
+		if id == "" {
+			return s.insertNew(record, newShareID)
+		}
+		return s.save(record)
+	}
 	if bundle != nil && input.Mode == "snapshot" {
 		name := s.ownerDir(owner) + "/" + record.ID + "-" + record.Version
 		var size int64

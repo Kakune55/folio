@@ -440,3 +440,11 @@ ShareManager.tsx 将单向“撤销”改为按 disabled 状态显示“暂停�
 用户否定铺满表单的分段样式后，实际查阅 Radix Themes 官方 Segmented Control 文档与源 CSS（https://www.radix-ui.com/themes/docs/components/segmented-control、https://github.com/radix-ui/themes/blob/main/packages/radix-ui-themes/src/components/segmented-control.css），参考 inline-grid、等宽项目、独立滑块、短过渡实现，未引入整套主题依赖。ShareDialog.tsx 将标签与控件分置左右；app.css 控件宽 150px、桌面高 36px／手机高 40px，深色选中层改为较亮表面色，120ms 滑动。截图检查发现全局表单 label 的 margin 与 display 干扰内部布局，已通过控件作用域覆盖修复。原生 radio、禁用规则、键盘焦点和减少动画适配保留。
 
 本轮 build／lint、单测 9 文件 28 项、copy-dist.py、git diff --check 通过，保留既有大分块提示。生产分享完整 4 项通过（32.3s），新增实测控件不超过 160px×40px 和方向键切换断言；修正 label 样式后重新构建并执行“单文件实时／文件工具栏”2 项通过（12.7s），包含明暗三视口 axe 和手机截图。最终 create-mobile.png 已人工查看。未修改正文、后端或访问策略，未重启日常服务；真实移动设备及其他浏览器未本次复测。
+
+### 16 字符分享链接（2026-10-23）
+
+按用户确认将新分享 ID 改为 12 字节 crypto/rand、无填充 Base64URL 编码的 16 字符（96 位）；修改 sharing/service.go、RootPage.tsx，新增 ids_test.go，更新 sharing.spec.ts 与 SPEC／ARCHITECTURE／API。新建使用独立 INSERT ... ON CONFLICT(id) DO NOTHING，冲突重新生成，最多 8 次；不使用已有记录 UPSERT，避免极低概率冲突覆盖正文或访问设置。重试仅改变公开 ID，已准备载荷的位置由记录显式保存，不猜测迁移。访客令牌、附件 ID、版本及私有暂存随机数仍为原 192 位。保留所有旧 48 字符十六进制链接，未迁移或重命名已有记录／载荷。
+
+本轮 go -C backend test ./internal/sharing ./internal/httpapi 通过（1.255s／4.812s），go -C backend test -race ./internal/sharing 通过（4.780s），go -C backend vet ./internal/sharing ./internal/httpapi 通过。新增真实短 ID 格式、内部令牌长度保留、旧 ID 进入并读取原快照、非法字符拒绝、注入 ID 碰撞后重试且原记录未改写、持续冲突有界失败测试。npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py 和 git diff --check 通过，保留既有大分块提示。生产分享专项完整 5 项通过（35.1s），新建短链接完成原密码／附件／预览／转存／暂停继续闭环；新增旧格式进入公开路由及非法长度拒绝验证。旧 ID 实际快照读取由上述 Go 测试验证，浏览器旧格式用不存在 ID 验证路由兼容。
+
+未修改原文件、既有链接或鉴权与到期策略，未重启日常服务。新 ID 随机强度降为用户确认的 96 位；碰撞通过唯一约束处理，无密码分享仍须保密其链接。未重复全量后端／备份演练或其他浏览器验证。
