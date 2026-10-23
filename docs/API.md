@@ -166,3 +166,29 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 ## 本机标签恢复（2026-10-22）
 
 本功能不新增接口。复用带工作区身份校验的 GET /files/metadata 与 GET /files/content，恢复不提交正文；后续编辑继续使用 If-Match 条件保存。浏览器路径记录不构成授权，服务端继续验证身份及路径边界。
+
+## 分享接口（2026-10-22）
+
+管理与转存接口沿用账号 Cookie、来源、CSRF 和工作区身份保护。公开接口使用独立分享资格，不接受用户路径选择其他资源。全部 API no-store，公开页与公开接口 noindex/nofollow/noarchive；Referrer-Policy no-referrer。文件原件仅下载，位图／PDF 才允许隔离预览。HEAD 不计次，进入只能 POST。
+
+| 方法 | 路由 | 行为 |
+| --- | --- | --- |
+| GET | /shares | 当前分享者记录列表，最多 1000 条 |
+| POST | /shares/analyze | {root,include}，递归分析候选 files 与 warnings；include=false 仅主文件 |
+| POST | /shares | 创建确认清单与访问限制，返回 201 分享记录 |
+| PUT | /shares/{id} | 更新本人的分享，必须提供最新 version，保留已用次数 |
+| DELETE | /shares/{id} | 先暂停、再清理快照和记录；失败保留可重试管理记录 |
+| POST | /shares/{id}/import | {file, directory}，file 为包内 ID，directory 为接收工作区新目录，返回 201 {path} |
+| GET | /public/shares/{id} | 返回 {protected}，不返回标题／正文／清单 |
+| POST | /public/shares/{id}/enter | {password}，验证并扣一次进入次数；已有资格复用，不重复扣；设置访客 Cookie |
+| GET | /public/shares/{id}/manifest | 有效资格下返回确认清单与公开记录 |
+| GET | /public/shares/{id}/files/{file}/metadata | 当前安全类型与文件元数据 |
+| GET | /public/shares/{id}/files/{file}/content | 仅文本，返回 {metadata,content,html}，Markdown HTML 为只读派生展示 |
+| GET | /public/shares/{id}/files/{file}/preview | 仅安全位图／PDF，支持 Range，不计次 |
+| GET | /public/shares/{id}/files/{file}/download | 原件下载，支持 Range，不计次 |
+
+创建／更新字段：root、title、mode（snapshot/live）、files（{path,revision} 数组）、expiresAt（Unix 秒，0 永久）、maxVisits（0 不限，最多 1000000）、password（可选六位数字，空字符串移除，省略保留）、disabled（true 暂停，false 继续）；更新另传 version。不允许新设过去时间，不重置已用次数；已到期记录自动删除，陈旧更新返回 404 或 410，不允许续期恢复。files 省略只修改访问设置，提供则重新验证来源递归可达清单并创建新快照；不能省略主文件，不能改变已有分享 root 或 mode。live 的 files 必须只有主文件，快照／实时转型须创建新链接。新清单和访问设置更新会使旧访客资格失效。
+
+公开资源 ID 和分享标识不可充当账号权限；访客不能管理分享。常见错误：400 非法模式／实时含附件／密码格式，403 无访问资格／密码错误，404 分享不存在／清单外文件，409 管理版本陈旧，410 暂停／过期／次数用完／来源工作区变化，412 文件确认版本变化，413 配额／包或文件限制，429 验证／载荷繁忙，500 明确操作失败。转存失败响应不等于所有文件系统故障都尚未提交，durability_uncertain 仍须核对结果目录。Cookie 内资格令牌不进入 URL 或 localStorage。
+
+分享列表支持 offset、limit，默认每页 20 条、最多 50 条，返回 {entries,total,offset,limit}。公开访客有效授权最多保留 10000 条，容量满时 429，过期授权在新进入事务中清理；不会因容量失败扣减访问次数。

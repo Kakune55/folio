@@ -39,7 +39,7 @@ func New(assets fs.FS, options Options) http.Handler {
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
-		if r.URL.Path == "/system-setting" {
+		if r.URL.Path == "/system-setting" || r.URL.Path == "/shares" || strings.HasPrefix(r.URL.Path, "/s/") {
 			clone := r.Clone(r.Context())
 			url := *r.URL
 			url.Path = "/"
@@ -51,6 +51,9 @@ func New(assets fs.FS, options Options) http.Handler {
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if strings.HasPrefix(r.URL.Path, "/s/") || strings.HasPrefix(r.URL.Path, "/api/v1/public/") {
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+		}
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		if strings.HasPrefix(r.URL.Path, "/api/") {

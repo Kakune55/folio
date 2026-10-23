@@ -28,6 +28,13 @@ func (s *Store) usageLocked() (Usage, error) {
 		}
 		used += n
 	}
+	if s.extraUsage != nil {
+		n, e := s.extraUsage()
+		if e != nil {
+			return Usage{}, e
+		}
+		used += n
+	}
 	return Usage{Used: used, Quota: q}, nil
 }
 func (s *Store) Usage() (Usage, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.usageLocked() }

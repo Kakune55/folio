@@ -15,10 +15,12 @@ import (
 
 	"folio/internal/auth"
 	"folio/internal/search"
+	"folio/internal/sharing"
 	"folio/internal/storage"
 )
 
 type Options struct {
+	Shares       *sharing.Service
 	System       *Accounts
 	OwnerID      int64
 	WorkspaceFor func(int64) (string, error)
@@ -163,6 +165,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerSharing(mux)
 	a.registerUsers(mux)
 	a.registerSystem(mux)
 	a.registerAttachments(mux)

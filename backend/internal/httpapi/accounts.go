@@ -17,6 +17,7 @@ import (
 	"folio/internal/config"
 	"folio/internal/fileio"
 	"folio/internal/search"
+	"folio/internal/sharing"
 	"folio/internal/storage"
 	"folio/internal/trash"
 )
@@ -29,6 +30,7 @@ type accountWorkspace struct {
 	id      string
 }
 type Accounts struct {
+	shares  *sharing.Service
 	started time.Time
 	diskMu  sync.Mutex
 	mu      sync.Mutex
@@ -71,11 +73,27 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		cfg.IndexLimit = saved.IndexLimit
 	}
 	a := &Accounts{started: time.Now(), cfg: cfg, auth: accounts, assets: assets, roots: roots, data: data, entries: map[int64]*accountWorkspace{}}
+	a.shares, err = sharing.Open(cfg.AppData, func(id int64) (*storage.Store, bool, error) {
+		user, e := a.auth.User(id)
+		if e != nil {
+			return nil, false, e
+		}
+		entry, e := a.get(id)
+		if e != nil {
+			return nil, false, e
+		}
+		return entry.store, user.Enabled, nil
+	})
+	if err != nil {
+		roots.Close()
+		data.Close()
+		return nil, err
+	}
 	a.base = New(assets, a.options())
 	return a, nil
 }
 func (a *Accounts) options() Options {
-	return Options{System: a, Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
+	return Options{Shares: a.shares, System: a, Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
 		entry, err := a.get(id)
 		if err != nil {
 			return "", err
@@ -131,6 +149,12 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 		return nil, err
 	}
 	store.SetTrash(recovery)
+	if err = a.shares.EnsureOwner(id); err != nil {
+		recovery.Close()
+		store.Close()
+		return nil, err
+	}
+	store.SetExtraUsage(func() (int64, error) { return a.shares.Usage(id) })
 	store.SetQuota(func() (int64, error) { u, err := a.auth.User(id); return u.Quota, err })
 	index, err := search.Open(filepath.Join(a.cfg.AppData, name), store, a.cfg.IndexLimit)
 	if err != nil {
@@ -156,7 +180,7 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 }
 func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 登录与静态文件使用公共路由；所有业务资源按服务端会话分派。
-	if strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz" {
+	if !strings.HasPrefix(r.URL.Path, "/api/v1/public/") && strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz" {
 		p, err := a.auth.Authenticate(sessionToken(r))
 		if err == nil {
 			entry, err := a.get(p.ID)
@@ -179,5 +203,5 @@ func (a *Accounts) Close() error {
 	for _, e := range a.entries {
 		err = errors.Join(err, e.index.Close(), e.trash.Close(), e.store.Close())
 	}
-	return errors.Join(err, a.roots.Close(), a.data.Close())
+	return errors.Join(err, a.shares.Close(), a.roots.Close(), a.data.Close())
 }

@@ -30,12 +30,13 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
-	quota   func() (int64, error)
-	root    *os.Root
-	mu      sync.Mutex
-	limits  Limits
-	trash   *trash.Repository
-	uploads map[string]int
+	extraUsage func() (int64, error)
+	quota      func() (int64, error)
+	root       *os.Root
+	mu         sync.Mutex
+	limits     Limits
+	trash      *trash.Repository
+	uploads    map[string]int
 }
 type Entry struct {
 	Name string `json:"name"`

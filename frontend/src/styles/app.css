@@ -488,3 +488,115 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .rich-host .milkdown .milkdown-code-block .preview-panel .preview-label { color: var(--muted-foreground); }
 
 .mermaid-status { display: block; min-height: 1.7em; margin-top: 8px; font-size: 12px; }
+
+/* 分享管理与只读阅读：正文优先，复用现有主题和表单。 */
+.share-manager, .public-share { height: 100dvh; overflow: auto; padding: 24px clamp(16px, 4vw, 56px); }
+.share-manager { max-width: 1500px; margin: auto; }
+.share-page-header { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; min-height: 44px; margin-bottom: 24px; }
+.share-page-header h1 { font-size: 20px; margin: 0; flex: 1; }
+.share-brand { display: flex; align-items: center; gap: 7px; font-weight: 650; text-decoration: none; color: var(--foreground); }
+.share-header-actions { margin-left: auto; }
+.share-copy { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
+.share-copy input { min-width: 0; flex: 1 1 240px; padding: 8px; background: var(--background); border: 1px solid var(--border); border-radius: 6px; }
+.share-table-scroll { overflow-x: auto; }
+.share-table-scroll td small { display: block; color: var(--muted-foreground); max-width: 320px; overflow-wrap: anywhere; }
+.share-dialog { width: min(640px, calc(100vw - 24px)); }
+.share-dialog form > label { display: block; margin-top: 14px; }
+.share-dialog form > input, .share-dialog form > select { width: 100%; }
+.share-dialog .share-checkbox, .share-file-list label { display: flex; align-items: center; gap: 8px; }
+.share-checkbox input, .share-file-list input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; }
+.share-password-row { display: flex; gap: 8px; }
+.share-password-row input { min-width: 0; flex: 1; }
+.share-file-list { border: 1px solid var(--border); border-radius: 6px; margin: 16px 0 0; padding: 12px; max-height: 220px; overflow: auto; }
+.share-file-list label { padding: 5px 0; font-size: 12px; }.share-file-list span { flex: 1; overflow-wrap: anywhere; min-width: 0; }.share-file-list small { white-space: nowrap; color: var(--muted-foreground); }
+.share-warnings { padding: 8px 12px; border-left: 2px solid var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.share-entry { max-width: 440px; margin: 12vh auto 0; }.share-entry h1 { font-size: 24px; }.share-entry form { display: grid; gap: 12px; }.share-entry p { color: var(--muted-foreground); font-size: 13px; line-height: 1.7; }
+.share-entry input, .share-dialog input:not([type="checkbox"]), .share-dialog select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); }
+.share-content-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.share-content-heading h1 { font-size: 24px; margin: 0 0 8px; overflow-wrap: anywhere; }.share-content-heading p { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.share-content-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-reader-layout { display: flex; gap: 32px; align-items: flex-start; padding-top: 20px; }
+.share-files { flex: 0 0 220px; position: sticky; top: 0; max-height: 70vh; overflow: auto; }.share-files button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px; border-radius: 6px; overflow-wrap: anywhere; font-size: 13px; color: var(--foreground); }.share-files button[aria-current] { background: var(--surface-hover); }
+.share-reader { min-width: 0; flex: 1; }.share-file-heading { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }.share-file-heading > span { flex: 1; overflow-wrap: anywhere; }
+.shared-markdown { max-width: 1000px; margin: 32px auto; font-size: 16px; line-height: 1.8; overflow-wrap: anywhere; }.shared-markdown h1, .shared-markdown h2, .shared-markdown h3 { line-height: 1.4; }.shared-markdown img { max-width: 100%; height: auto; }.shared-markdown pre, .shared-source { padding: 16px; overflow: auto; background: var(--sidebar); border-radius: 6px; font: 14px/1.8 ui-monospace, monospace; }.shared-source { white-space: pre; }.shared-markdown blockquote { margin-left: 0; padding-left: 20px; border-left: 3px solid var(--border); }.shared-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }.shared-markdown td, .shared-markdown th { border: 1px solid var(--border); padding: 6px 12px; }.shared-markdown a { color: var(--accent); text-decoration: underline; }.shared-markdown > .folio-mermaid-preview { margin: 12px 0; }
+.shared-image { padding: 24px 0; text-align: center; }.shared-image img { max-width: 100%; max-height: 75vh; object-fit: contain; }
+.share-inline-notice { padding: 12px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 6px; overflow-wrap: anywhere; }.share-login-back { position: absolute; top: 16px; left: 16px; }
+@media (max-width: 767px) { .share-manager, .public-share { padding: 16px; }.share-reader-layout { flex-direction: column; gap: 16px; }.share-files { position: static; flex: auto; width: 100%; max-height: 180px; border-bottom: 1px solid var(--border); }.share-reader { width: 100%; }.share-page-header { gap: 8px; }.share-content-heading h1 { font-size: 20px; }.share-content-actions .button { min-height: 40px; }.shared-markdown { margin-top: 20px; } }
+@media (max-width: 767px) { .topbar-actions { min-width: 0; overflow-x: auto; flex-shrink: 1; }.topbar-actions > .button { flex-shrink: 0; } }
+@media (max-width: 430px) { .topbar .brand > span:nth-child(2) { display: none; } }
+.shared-markdown h1 { font-size: 2em; font-weight: 650; margin: 1em 0 .65em; }.shared-markdown h2 { font-size: 1.5em; font-weight: 650; margin: 1.4em 0 .6em; }.shared-markdown h3 { font-size: 1.25em; font-weight: 600; margin: 1.2em 0 .5em; }.shared-markdown h4, .shared-markdown h5, .shared-markdown h6 { font-weight: 600; margin: 1em 0 .5em; }.shared-markdown p { margin: .9em 0; }.shared-markdown ul { list-style: disc; padding-left: 1.5em; }.shared-markdown ol { list-style: decimal; padding-left: 1.5em; }.shared-markdown li > p { margin: .3em 0; }
+
+/* 创建分享：文件身份在前，访问限制按开关展开。 */
+.share-dialog { width: min(680px, calc(100vw - 24px)); padding: 28px 30px; }
+.share-create-file { display: flex; align-items: center; gap: 16px; margin: 28px 0; min-width: 0; }
+.share-create-file strong { font-size: 17px; overflow-wrap: anywhere; line-height: 1.5; }
+.share-file-symbol { display: grid; place-items: center; width: 40px; height: 44px; flex-shrink: 0; border-radius: 7px; color: white; background: #0878e5; }
+.share-access-settings { margin-top: 24px; padding: 6px 20px; border-radius: 14px; background: var(--sidebar); }
+.share-setting { padding: 13px 0; }
+.share-setting-heading { display: flex; gap: 10px; align-items: center; min-height: 32px; font-size: 15px; }
+.share-setting-heading > small { margin-left: auto; color: var(--muted-foreground); font-size: 12px; }
+.share-setting-heading > .share-switch { margin-left: auto; }
+.share-required { color: #c84242; }
+.share-dialog input.share-switch { appearance: none; width: 44px; height: 26px; padding: 3px; flex-shrink: 0; border: 0; border-radius: 20px; background: #707077; cursor: pointer; transition: background .15s; }
+.share-dialog input.share-switch::before { content: ''; display: block; width: 20px; height: 20px; border-radius: 50%; background: white; transition: transform .15s; }
+.share-dialog input.share-switch:checked { background: #0869ed; }
+.share-dialog input.share-switch:checked::before { transform: translateX(18px); }
+.share-dialog input.share-switch:disabled { opacity: .5; cursor: wait; }
+.share-setting > input, .share-setting > .share-password-row { margin-top: 12px; width: 100%; }
+.share-dialog .share-password-row { border: 1px solid var(--border); border-radius: 7px; gap: 0; background: var(--background); }
+.share-dialog .share-password-row input { flex: 1; width: 0; min-width: 0; border: 0; background: transparent; }
+.share-password-row .button { color: var(--accent); font-size: 12px; flex-shrink: 0; }
+.share-dialog .dialog-actions { margin-top: 28px; gap: 12px; }
+.share-dialog .dialog-actions > .button { min-width: 96px; min-height: 40px; border: 1px solid var(--border); border-radius: 8px; }
+.share-dialog .dialog-actions > .share-confirm { background: #0864e8; color: white; border-color: #0864e8; }
+.share-dialog .dialog-actions > .share-confirm:hover { background: #0758cb; }
+.share-created > input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); }
+@media (max-width: 520px) {
+ .share-dialog { padding: 22px 18px; }
+ .share-create-file { margin: 22px 0; gap: 12px; }
+ .share-create-file strong { font-size: 15px; }
+ .share-access-settings { padding: 6px 14px; }
+ .share-setting-heading { flex-wrap: wrap; }
+ .share-setting-heading > small { order: 3; flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .share-dialog input.share-switch, .share-dialog input.share-switch::before { transition: none; } }
+
+.share-attachment-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.share-attachment-summary > div { display: flex; flex-direction: column; gap: 2px; }
+.share-attachment-summary small, .share-attachment-root { color: var(--muted-foreground); font-size: 12px; }
+.share-attachment-root { overflow-wrap: anywhere; }
+.share-attachments-overlay { z-index: 32; }
+.share-attachments-dialog { z-index: 33; }
+.share-attachments-dialog .share-file-list { max-height: 44dvh; }
+
+.share-password-code { position: relative; width: min(100%, 356px); margin: 8px auto 12px; }
+.share-password-cells { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: clamp(6px, 2vw, 12px); }
+.share-password-cell { display: grid; place-items: center; height: 60px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 26px; line-height: 1; }
+.share-password-cell.active { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+.share-password-code[data-invalid] .share-password-cell { border-color: #bc4444; }
+.share-password-code[data-disabled] { opacity: .6; }
+.share-entry input.share-password-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; padding: 0; border: 0; cursor: text; font-size: 20px; }
+@media (max-width: 380px) { .share-password-cell { height: 52px; } }
+
+.share-state { display: inline-block; width: 2em; white-space: nowrap; }
+.share-manager .share-toggle { min-width: 48px; }
+.share-manager .users-table td:nth-child(4), .share-manager .users-table td:nth-child(5) { font-variant-numeric: tabular-nums; }
+
+
+/* 参考 Radix Themes Segmented Control：内容宽度、独立滑块与短过渡。 */
+.share-type { border: 0; padding: 0; margin: 18px 0 0; min-width: 0; }
+.share-type-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.share-type-options { position: relative; isolation: isolate; display: inline-grid; grid-template-columns: repeat(2, 72px); flex-shrink: 0; padding: 3px; height: 36px; border-radius: 7px; background: var(--sidebar); box-shadow: inset 0 0 0 1px var(--border); }
+.share-type-thumb { position: absolute; z-index: -1; inset: 3px auto 3px 3px; width: 72px; border-radius: 4px; background: var(--background); box-shadow: 0 0 0 1px var(--border), 0 1px 2px #00000012; transition: transform 120ms cubic-bezier(.445,.05,.55,.95); pointer-events: none; }
+:root[data-theme='dark'] .share-type-thumb { background: var(--surface-hover); }
+.share-type-options[data-mode='live'] .share-type-thumb { transform: translateX(100%); }
+.share-dialog .share-type-options label { margin: 0; position: relative; display: flex; align-items: stretch; min-width: 0; cursor: pointer; user-select: none; }
+.share-dialog .share-type-options input { position: absolute; opacity: 0; width: 100%; height: 100%; inset: 0; padding: 0; margin: 0; border: 0; cursor: pointer; }
+.share-type-options label > span { display: grid; flex: 1; place-items: center; padding: 0 14px; border-radius: 4px; color: var(--muted-foreground); font-size: 13px; line-height: 1; transition: color 100ms; }
+.share-type-options input:checked + span { color: var(--foreground); font-weight: 500; }
+.share-type-options input:not(:checked):not(:disabled):hover + span { color: var(--foreground); }
+.share-type-options input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.share-type-options input:disabled { cursor: default; }
+.share-type-options input:disabled + span { opacity: .5; }
+@media (max-width: 767px) { .share-type-options { height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .share-type-thumb, .share-type-options label > span { transition: none; } }

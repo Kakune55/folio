@@ -346,3 +346,97 @@ Go 嵌入生产页面的 accessibility.spec.ts 明暗桌面/手机 4 项通过�
 ## 浏览器图标（2026-10-22）
 
 新增 frontend/public/favicon.svg，在 frontend/index.html 声明 SVG favicon，并同步 DESIGN.md。沿用深灰底与浅色斜体 f，纯路径、无字体或外部请求依赖。本次 npm --prefix frontend run build、python3 scripts/copy-dist.py、git diff --check 通过；构建保留既有大分块提示。Chromium 实际解码并渲染生产 dist 中的 SVG，确认生产 HTML 图标引用存在，人工查看 256px 渲染图通过。无正文／会话／鉴权逻辑变化，未新增内容丢失或权限入口；不重跑业务测试，未验证其他浏览器。未重启日常二进制服务，重新构建启动后应用。
+
+## M5 受控分享（2026-10-22）
+
+本轮新增 sharing 服务、storage/bundle.go、httpapi/sharing.go 及配额／账号分派接入；前端新增 RootPage、features/sharing、生产分享专项配置，PDF 查看器允许受控资源 URL；修改离线备份及演练，同步 README、SPEC、DESIGN、ARCHITECTURE、API、ROADMAP。新引入固定 Go 依赖 goldmark 1.8.6，查阅已安装解析器／AST／Reader 接口后使用，不替换 Crepe 或 CodeMirror。最终范围遵循用户收紧决定：含附件只能快照，实时只允许主文件；不加入协作功能。
+
+### 本次实际执行
+
+- npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 通过，单元 9 文件 28 项。最新前端生产构建及 python3 scripts/copy-dist.py 通过，保留既有大分块提示；git diff --check 通过。
+- npm --prefix frontend run test:e2e：全量 75 项通过（6.3 分钟），覆盖原编辑／ETag／冲突／草稿／换行／搜索／拖拽／移动／账号／标签恢复与新分享 3 项。全量执行后收敛了列表分页、中文网络错误、阅读标题样式、无效链接错误页及精确链接定位；没有重复跑整轮 75 项，最终源码另由下列后端和生产专项验证。
+- ./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts：最终生产嵌入资源、真实 Go API 和原 CSP 下 3 项通过（22.1s）。覆盖六位前导零密码／错误密码／匿名内容拒绝，递归清单和实时禁用，多模式正文与附件原始字节，修改原件不改变快照，刷新／PDF／下载不扣次数，Mermaid 隔离图片，单文件实时重读，独立账号转存和同名拒绝、撤销后旧资格拒绝，PDF 真实画布、二进制原件及 HTML 不执行。包含公开阅读全页和管理模态框的 WCAG 2 A/AA、2.1 A/AA 明暗 × 1440/1024/390 检查，无外壳横向溢出；未排除具体 WCAG 规则。截图 artifacts/sharing/public-mobile.png、manage-mobile.png 已人工查看，修正标题层级排版。分享管理保留工作区挂载，原 users/appearance 回归通过。
+- ./frontend/node_modules/.bin/playwright test -c frontend/playwright.qa.config.ts frontend/tests/qa/accessibility.spec.ts：本轮生产工作区明暗桌面／手机 4 项通过（26.6s）。执行后仅增加了无效分享链接错误页，原工作区 UI 不变；最终分享公开页面和模态框已在上列生产专项重新检查。
+- go -C backend test ./...、go -C backend vet ./...：最终通过，未变化的部分包命中 Go 缓存；不是声称重新执行每个历史测试。新增 sharing 9 项测试及 HTTP 边界测试，覆盖快照字节／损坏摘要拒绝、递归／循环／代码伪引用／HTML 拒绝、六位密码和限速、跨账号管理拒绝、CSRF／越界转存／不覆盖、配额与版本冲突、最后一次访问 20 并发只成功一次、重启资格／次数、禁用／撤销／过期、访客令牌跨链接复用、来源工作区变化使实时失效、分页和 10000 条授权容量满时事务回滚不扣次数。
+- go -C backend test -race ./internal/sharing ./internal/httpapi ./internal/storage：本轮通过（sharing 4.291s、httpapi 10.714s；storage 命中本轮先前 race 缓存）。该轮包含最终精确链接定位与容量回滚测试；随后仅补了删除载荷后的父目录同步，最终 go test ./... 和生产分享专项再次通过。
+- python3 scripts/backup-test.py：本轮完整离线双卷恢复演练通过，包含 SIGKILL 后分享库 WAL 合并、快照及次数保留、源数据不变、恢复清空旧访客资格、恢复后原链接仍可读取快照及后续计数，原账号／正文／附件／回收／搜索／后续条件保存继续通过。报告 artifacts/backup/；仅操作隔离测试目录。
+
+### 失败与修正
+
+初版 RootPage 未接入 JSX 导致 TypeScript 未使用符号错误，接入独立组件后构建通过。首次 PDF／二进制／HTML 生产专项中 PDF 通过、二进制失败：新 ReadBundle 读取字节后未将游标复位，后续元数据读取误把空缓冲识别为文本。已在元数据检测前 Seek(0)，新增二进制类型及字节回归，最终三项通过。初版根引用改写采用候选正则，审查发现可能误改转义示例，已改为包装 Goldmark 链接解析器记录精确源区间、委托 CloseBlock 生命周期，并覆盖 CRLF、转义文字、代码及引用定义原字节；无法安全转换会明确失败，不发布副本。一次 Go 测试误从仓库根执行失败，已使用 go -C backend 正确执行。早期从仓库根启动 Playwright 使截图落到相邻目录，已将截图路径改为 import.meta.url 推导的绝对项目路径并整理本轮生成文件，不保留根 test-results 噪声。
+
+### 边界与未验证范围
+
+全部测试使用临时工作区、账号与浏览器配置，没有修改日常用户正文、没有启动／重启日常服务，未更新运行中的二进制。生产资源已复制到嵌入目录，日常进程须重新构建启动才生效。未重新跑 Docker／外部 HTTPS 代理／真实 Windows 或 ARM／真实手机 IME／其他浏览器及读屏器；headless Chromium 的视口与触屏检查不能代替这些环境。未执行新的跨设备容量、CPU 或大包性能基准；包上限与有限并发不是严格 CPU 时间上限。
+
+单包最多 256 文件、128 MiB，快照计入分享者配额，新旧包切换需要额外完整新包空间；每账号最多 1000 记录，列表 20 条分页（上限 50），全站最多 10000 条有效访客资格。过期／撤销保留快照直到显式删除。已有内容和已转存副本无法收回；配置／内容更新保留已用次数但需要重新进入。禁用分享者拒绝后续读取；已经开始的响应可能完成。实时绑定创建时的根身份和原路径，路径复用显示新内容，根身份改变失效；恢复到新根时快照可继续使用，实时链接需重新创建。只做本地引用，目录／HTML 内资源／远程图片不打包；高级 Markdown 语法不承诺与编辑器完全同版，支持源码／下载核对。极复杂根引用无法安全定位时拒绝转存，可先改相对路径后重新创建或下载原件。文件系统持久性失败、旧快照清理失败等明确报告并保留原件或管理记录，空间异常仍需部署者检查 app-data，不提供强制覆盖或静默降级。
+
+## 创建分享入口与弹窗（2026-10-23）
+
+本次涉及 Workbench.tsx、复用的 features/sharing/ShareDialog.tsx、ShareManager.tsx、app.css、sharing.spec.ts 及 SPEC／DESIGN。当前文件保存／下载旁新增“创建分享”，自动保存并分析主文件，保留编辑器挂载；Markdown 可递归分析后逐项确认附件。弹窗使用文件图标／名称、分享方式、分组限制开关、取消／确定布局；关闭开关提交无该项限制，密码仅支持六位数字并可随机生成。已有保护密码输入留空保留，关闭密码开关移除。成功视图在同一个 Radix 对话框内提供可手动选择的链接和复制失败提示。
+
+本次 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test 通过（9 文件 28 项）；保留既有大分块构建提示。python3 scripts/copy-dist.py 和 git diff --check 通过。后端未修改，本轮不重复宣称运行 Go 全量、race 或备份演练；前节记录属于历史验证。
+
+首次新增入口测试误用 treeitem 定位实际 button，已修正。截图检查修正了文件身份区与公开阅读页同名样式冲突；成功状态改为原弹窗内切换，避免交替模态框造成焦点／可访问性状态风险。多视口检查后恢复桌面进行管理操作，避免手机文件抽屉遮挡顶栏。未重启日常服务；测试使用隔离账号与目录。仍遵循含附件只能快照、实时单文件及既有公开链接边界，不加入协作功能。
+
+最终生产验证：./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 中原有 3 项分别通过（9.9s／5.5s／4.4s）；新增入口测试在手机尺寸检查后未恢复桌面，关闭弹窗恢复原文件抽屉，使顶栏无法定位，已修正测试视口顺序。最终 -g 文件工具栏 单独通过（5.5s，合计 7.5s），覆盖自动分析、随机六位密码、到期／次数关闭后的请求值、原正文保留、已有密码保留与显式清除；不是声称早期失败的整轮 4 项已全部通过。模态框明暗 × 1440／1024／390 的 WCAG 2 A/AA、2.1 A/AA 检查零违规。artifacts/sharing/create-desktop.png、create-mobile.png 已人工查看。限制项及当前部署环境边界与前节相同。
+
+### 公开入口文案精简（2026-10-23）
+
+按用户要求移除 SharePage.tsx 入口的访问计数／30 分钟刷新说明，仅调整展示文案，后端计数规则保留。此次 npm --prefix frontend run build、python3 scripts/copy-dist.py、git diff --check 通过；构建保留既有大分块提示，未重复执行浏览器／后端测试。未修改正文与鉴权，未重启日常服务。额外模态框的具体范围待用户确认后再调整。
+
+### Markdown 附件二级模态框（2026-10-23）
+
+按用户确认将完整清单移入“选择附件”第二层 Radix Dialog。涉及 ShareDialog.tsx、新增 ShareAttachmentsDialog.tsx、app.css、sharing.spec.ts、SPEC／DESIGN。主窗口只展示是否包含附件及数量，子窗口负责递归分析、勾选、失败引用提示和确认；取消不应用临时选择，关闭后返回入口焦点。重新打开按原白名单勾选，新增引用不自动选中；含附件仍强制快照，提交前继续携带已确认文件版本。分析错误保留重试入口，主文件不能取消，子窗口不会自行创建链接。
+
+本轮实际执行 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）及 python3 scripts/copy-dist.py 均通过，保留既有大分块提示。./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 完整 4 项通过（29.8s），覆盖二级窗口确认／取消／重开／焦点返回、主窗口不含内联清单、实时禁用、快照及公开读取／转存／撤销、入口和访问设置回归。新增子窗口在 1440／1024／390 × 明暗主题下执行 WCAG 2 A/AA、2.1 A/AA 检查零违规；artifacts/sharing/attachments-desktop.png、attachments-mobile.png 已人工查看。git diff --check 通过。
+
+仅调整前端交互，未修改后端、正文或已创建的分享记录；测试使用隔离目录和账号。未重跑后端、备份、其他浏览器或真实读屏器验证，未重启日常服务；日常部署须重新构建启动。
+
+### 分享密码六格输入（2026-10-23）
+
+SharePage.tsx 接入新增 SharePasswordInput.tsx，app.css 添加六格样式，DESIGN 同步说明。用一个原生 password 输入框负责键盘／选区／整段粘贴，六格仅作视觉呈现，保留前导零、数字键盘与显式提交；输入数字显示圆点，错误用关联提示与边框标示，验证中禁用输入并防止重复提交。未新增依赖，未改后端鉴权、计数或工作区正文。
+
+本轮 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py、git diff --check 通过；构建保留既有大分块提示。./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 完整 4 项通过（31.5s），新增真实连续输入／方向键退格／剪贴板粘贴及前导零验证，错误密码提示和最终正确密码访问通过。密码入口在 1440／1024／390 × 明暗主题下 WCAG 2 A/AA、2.1 A/AA 零违规；artifacts/sharing/password-desktop.png、password-mobile.png 已人工查看。其余分享附件／转存／撤销及管理入口回归通过。
+
+测试采用隔离账号与目录，未重启日常服务；未重跑后端或真实手机键盘／读屏器／其他浏览器验证，Chromium 数字键盘声明与视口检查不代替真实设备验收。
+
+### 满六位自动验证与明文显示（2026-10-23）
+
+按用户调整 SharePasswordInput.tsx、SharePage.tsx 和 DESIGN：六格明文显示数字，输入或粘贴满六位时直接用本次输入值验证，不等待 React 状态更新；同步请求锁防止自动验证与手动提交重复请求。未满六位不自动发送，验证中禁用输入，错误后恢复输入并聚焦选中，保留按钮用于重试。未修改后端密码策略、限速、访问计数或正文。
+
+本次 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py 与 git diff --check 通过。生产 ./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 完整 4 项通过（31.7s）；确认五位及退格不发请求、键入错误六位自动请求一次、明文六格和错误关联、粘贴含前导零的正确密码自动进入且总请求数恰为两次，已登录访问同样无需点击。原多视口明暗无障碍及其他分享回归通过；password-mobile.png 已人工查看。构建保留既有大分块提示，未验证真实手机键盘／其他浏览器，未重启日常服务。
+
+### 分享暂停／继续（2026-10-23）
+
+ShareManager.tsx 将单向“撤销”改为按 disabled 状态显示“暂停／继续”，请求期间禁用状态按钮，成功后刷新列表，状态显示“已暂停”；ShareDialog／SharePage 和服务端失效文案同步。沿用 disabled 协议与 version 条件更新，不更换链接、不重置密码、快照、期限或次数。service.go 修正更新校验：允许原样保留已过期的 expiresAt，仍拒绝新建或改设过去时间；不再像旧撤销操作那样清空到期时间。SPEC／DESIGN／API／ARCHITECTURE／ROADMAP 同步当前语义，历史验收中的“撤销”保留作为历史记录。
+
+本轮 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py 与 git diff --check 通过，保留既有大分块提示。go -C backend test ./internal/sharing ./internal/httpapi 通过（1.137s／4.139s），新增暂停后拒绝旧资格、继续后能重新进入、ID／载荷／有效期／次数保留、已过期暂停与继续均不重开、新建／改设过去时间拒绝的服务测试。./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 完整 4 项通过（33.2s），新增暂停／继续按钮切换、同链接保留密码和已用次数、次数已用完时继续仍无法进入的真实接口验证。
+
+暂停不收回已下载或已转存副本，继续后旧访问资格不恢复，访客需重新进入；过期或次数用完需另行在管理中调整限制。未修改工作区正文、未清理快照、未重启日常服务；本次未重复后端全量／race／备份或真实移动设备验证。
+
+### 到期自动删除（2026-10-23）
+
+用户明确授权将到期分享视为可丢弃记录：新增 sharing/expiration.go，service.go 复用删除流程，启动及每 30 秒后台回收，到期记录／访客资格／快照一起删除并释放配额；列表读取立即清理当前账号到期记录，前端 ShareManager 每 30 秒刷新。每轮最多 1000 条，积压随后续轮次处理；失败明确记录日志，列表清理失败返回可重试错误，记录保留供下轮重试，不先丢失载荷定位。关闭先等待后台退出。Save 拒绝旧窗口恢复已到期分享，并尝试回收，原工作区文件不动。暂停／次数用完本身不回收。SPEC／DESIGN／API／ARCHITECTURE／ROADMAP 同步，覆盖前节“过期可再调整限制”的历史规则。
+
+本轮 go -C backend test ./internal/sharing ./internal/httpapi 最终通过（1.174s／4.571s）；go -C backend test -race ./internal/sharing 通过（4.439s），go -C backend vet ./internal/sharing ./internal/httpapi 通过。新增 expiration_test.go 覆盖到期暂停记录删除、载荷／授权／配额释放、原文件保留、永久暂停及次数用完不误删、列表清理、重启回收、失败保留记录后重试；更新暂停测试覆盖旧页面不能续期恢复到期记录。测试直接设置记录到期，不依赖 30 秒睡眠。npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py 和 git diff --check 通过，保留既有大分块提示。生产分享专项 4 项通过（31.7s）；该轮之后仅收紧了过期记录 Save 分支并更新对应 Go 测试，最终后端专项及 race 已重新通过。
+
+仅删除用户授权的到期分享快照与元数据，已有转存副本和工作区正文保留。未重新运行全量后端／备份演练／其他浏览器；未重启日常服务。停服期间到期的记录下次启动清理，已开始传输的响应可能完成；磁盘或数据库故障时回收延迟并报告，不承诺纳秒级准时删除。
+
+### 分享管理文案与对齐（2026-10-23）
+
+按用户反馈修改 ShareManager.tsx、app.css、sharing.spec.ts 和 DESIGN：移除暂停／继续操作的成功提示段落，只通过行内状态反馈；失败使用独立 alert 显示，不静默隐藏错误。状态改为“有效／暂停／到期／用尽”两字文案并保留两字宽度，按钮请求中保留原两字文字，禁用并标记 aria-busy，避免“正在更新…”拉宽布局；次数与日期使用 tabular-nums。未改验证、正文、分享期限或删除策略。
+
+本轮 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py、git diff --check 通过，保留既有大分块提示。生产分享专项完整 4 项通过，新增确认暂停／继续后无额外成功提示及两字状态文案；既有分享、密码、附件、转存、明暗三视口无障碍检查通过。未重启日常服务，未重复后端或真实设备测试。
+
+### 分享方式按钮单选（2026-10-23）
+
+按用户要求移除 ShareDialog.tsx 的实时模式长说明，下拉框改为“快照／实时”两个等宽按钮式原生 radio，app.css 添加滑动选中背景、键盘焦点和 reduced-motion 适配；已有分享模式锁定和含附件禁用实时规则保留。更新 DESIGN 与 sharing.spec.ts 的单选定位和说明移除断言。不改协议、正文、快照和实时读取行为。
+
+本次 npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py、git diff --check 通过，保留既有大分块提示。./frontend/node_modules/.bin/playwright test -c frontend/playwright.sharing.config.ts 完整 4 项通过（32.7s），验证实时 radio 选择与后端实时读取、附件下实时禁用、长说明不存在，既有明暗三视口无障碍和分享流程回归通过。create-mobile.png 已人工查看。未重跑后端／真实手机／其他浏览器，未重启日常服务。
+
+### 紧凑分享方式控件（2026-10-23）
+
+用户否定铺满表单的分段样式后，实际查阅 Radix Themes 官方 Segmented Control 文档与源 CSS（https://www.radix-ui.com/themes/docs/components/segmented-control、https://github.com/radix-ui/themes/blob/main/packages/radix-ui-themes/src/components/segmented-control.css），参考 inline-grid、等宽项目、独立滑块、短过渡实现，未引入整套主题依赖。ShareDialog.tsx 将标签与控件分置左右；app.css 控件宽 150px、桌面高 36px／手机高 40px，深色选中层改为较亮表面色，120ms 滑动。截图检查发现全局表单 label 的 margin 与 display 干扰内部布局，已通过控件作用域覆盖修复。原生 radio、禁用规则、键盘焦点和减少动画适配保留。
+
+本轮 build／lint、单测 9 文件 28 项、copy-dist.py、git diff --check 通过，保留既有大分块提示。生产分享完整 4 项通过（32.3s），新增实测控件不超过 160px×40px 和方向键切换断言；修正 label 样式后重新构建并执行“单文件实时／文件工具栏”2 项通过（12.7s），包含明暗三视口 axe 和手机截图。最终 create-mobile.png 已人工查看。未修改正文、后端或访问策略，未重启日常服务；真实移动设备及其他浏览器未本次复测。

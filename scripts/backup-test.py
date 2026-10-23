@@ -160,12 +160,16 @@ def main():
             attachment = (ROOT / 'frontend/tests/fixtures/preview.png').read_bytes()
             (workspace / '1/中文目录/图片.png').write_bytes(attachment)
             snapshot = base / 'snapshot'
+            selection = server.call('POST', '/shares/analyze', {'root': note, 'include': False})
+            shared = server.call('POST', '/shares', {'root': note, 'title': '备份分享快照', 'mode': 'snapshot', 'files': [{'path': entry['path'], 'revision': entry['revision']} for entry in selection['files']], 'expiresAt': 0, 'maxVisits': 10, 'disabled': False}, expect=201)
+            server.call('POST', '/public/shares/' + shared['id'] + '/enter', {'password': ''})
             assert '仍在运行' in cli('backup', '--workspace', workspace, '--app-data', data, '--output', snapshot, ok=False)
             assert not snapshot.exists()
             report['checks'].append('运行中的实例锁拒绝备份')
         finally:
             server.stop(kill=True)
         assert (data / 'app.db-wal').stat().st_size > 0
+        assert (data / 'shares/shares.db-wal').stat().st_size > 0
         # 重建缓存不应成为正文恢复前提，即使旧缓存已损坏。
         (data / '1/search.db').write_bytes(b'broken cache')
         original_database_bytes = {name: hashlib.sha256((data / name).read_bytes()).hexdigest() for name in ('app.db', 'app.db-wal')}
@@ -173,6 +177,11 @@ def main():
         assert {name: hashlib.sha256((data / name).read_bytes()).hexdigest() for name in original_database_bytes} == original_database_bytes
         cli('verify', '--backup', snapshot)
         assert not (snapshot / 'app-data/app.db-wal').exists()
+        assert not (snapshot / 'app-data/shares/shares.db-wal').exists()
+        with closing(sqlite3.connect(f'file:{snapshot}/app-data/shares/shares.db?immutable=1', uri=True)) as database:
+            assert database.execute('PRAGMA integrity_check').fetchone() == ('ok',)
+            assert database.execute('SELECT count(*) FROM shares').fetchone() == (1,)
+            assert database.execute('SELECT count(*) FROM grants').fetchone() == (1,)
         assert not (snapshot / 'app-data/1/search.db').exists()
         assert (snapshot / 'workspace/1' / note).read_bytes() == content.encode()
         with closing(sqlite3.connect(f'file:{snapshot}/app-data/app.db?immutable=1', uri=True)) as database:
@@ -216,10 +225,17 @@ def main():
         assert (restored / 'workspace/1/中文目录/图片.png').read_bytes() == attachment
         with closing(sqlite3.connect(f'file:{restored}/app-data/app.db?immutable=1', uri=True)) as database:
             assert database.execute('SELECT count(*) FROM sessions').fetchone() == (0,)
+        with closing(sqlite3.connect(f'file:{restored}/app-data/shares/shares.db?immutable=1', uri=True)) as database:
+            assert database.execute('SELECT count(*) FROM grants').fetchone() == (0,)
+        report['checks'].append('分享快照及分享库 WAL 完整备份，恢复保留链接／次数并清理旧访客授权')
         server = factory(binary, restored / 'workspace', restored / 'app-data')
         try:
             server.call('GET', '/auth/me', expect=401, cookie=cookie)
             assert server.login() != original_id
+            server.call('POST', '/public/shares/' + shared['id'] + '/enter', {'password': ''})
+            shared_content = server.call('GET', '/public/shares/' + shared['id'] + '/files/' + shared['files'][0]['id'] + '/content')
+            assert shared_content['content'] == content
+            assert server.call('GET', '/shares')['entries'][0]['visits'] == 2
             result = server.call('GET', '/files/content?path=' + urllib.parse.quote(note))
             assert result['content'] == content
             assert server.call('GET', '/files/download?path=' + urllib.parse.quote('中文目录/图片.png')) == attachment

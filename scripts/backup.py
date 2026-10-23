@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Linux 离线双卷备份：普通目录、SHA-256 清单与不覆盖恢复，不解压任意归档。"""
+from contextlib import closing
 import argparse
 import ctypes
 import datetime
@@ -149,6 +150,47 @@ def apply_metadata(destination, entries):
         finally:
             os.close(fd)
 
+
+
+def consolidate_shares(directory, clear_grants=False):
+    """分享库与账号库一样，只在私有复制件上合并 WAL、校验并清理授权。"""
+    folder = directory / 'shares'
+    database = folder / 'shares.db'
+    if not database.exists():
+        return
+    (folder / 'shares.db-shm').unlink(missing_ok=True)
+    temporary = folder / ('.backup-db-' + uuid.uuid4().hex)
+    with open(temporary, 'xb'):
+        pass
+    os.chmod(temporary, 0o600)
+    try:
+        with closing(sqlite3.connect(database)) as source, closing(sqlite3.connect(temporary)) as target:
+            source.execute('PRAGMA trusted_schema=OFF')
+            if source.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
+                raise BackupError('分享数据库完整性检查失败')
+            if source.execute("SELECT 1 FROM sqlite_schema WHERE type='trigger' LIMIT 1").fetchone():
+                raise BackupError('分享数据库含未知触发器')
+            source.execute('SELECT id,owner,record,payload,salt,hash FROM shares LIMIT 0')
+            source.execute('SELECT token,share_id,version,expires FROM grants LIMIT 0')
+            source.backup(target)
+            if clear_grants:
+                target.execute('DELETE FROM grants')
+                target.commit()
+            if target.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
+                raise BackupError('分享数据库备份完整性检查失败')
+        with open(temporary, 'rb') as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, database)
+        os.chmod(database, 0o600)
+        for suffix in ('-wal', '-shm', '-journal'):
+            (folder / ('shares.db' + suffix)).unlink(missing_ok=True)
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 def consolidate_database(directory, clear_sessions=False):
     database = directory / 'app.db'
@@ -329,7 +371,8 @@ def backup(workspace, app_data, output):
                 raise BackupError('源目录在备份期间变化，未发布备份')
             apply_metadata(stage, before)
             consolidate_database(stage / 'app-data')
-            manifest = {'format': 'folio-backup', 'version': 1, 'createdAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'sqlite': 'app.db 已合并已提交 WAL 并通过 integrity_check', 'excluded': sorted(excluded), 'entries': scan_pair(stage_fd)}
+            consolidate_shares(stage / 'app-data')
+            manifest = {'format': 'folio-backup', 'version': 1, 'createdAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'sqlite': '账号库和存在的分享库已合并已提交 WAL 并通过 integrity_check', 'excluded': sorted(excluded), 'entries': scan_pair(stage_fd)}
             write_json(stage / 'manifest.json', manifest)
             os.fsync(stage_fd)
             publish(parent, name, Path(output).name)
@@ -413,6 +456,7 @@ def restore(source, output):
                 raise BackupError('备份在恢复期间发生变化')
             apply_metadata(stage, entries)
             consolidate_database(stage / 'app-data', clear_sessions=True)
+            consolidate_shares(stage / 'app-data', clear_grants=True)
             write_json(stage / 'restore.json', {'version': 1, 'restoredAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'sessionsCleared': True, 'search': '启动后从真实文件重建'})
             os.fsync(stage_fd); publish(parent, name, Path(output).name)
             return {'path': os.path.abspath(output), 'sessionsCleared': True, 'verified': True}

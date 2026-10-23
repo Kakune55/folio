@@ -24,7 +24,7 @@ else
     API_ENV := FOLIO_WORKSPACE="$${FOLIO_WORKSPACE:-../workspace}" FOLIO_APP_DATA="$${FOLIO_APP_DATA:-../app-data}" FOLIO_SECURE_COOKIE=false
     RUN_ENV := FOLIO_SECURE_COOKIE=false
 
-    RUN_BIN := ./$(BIN)
+    RUN_BIN = ./$(BIN)
 
     SH := sh
 endif
