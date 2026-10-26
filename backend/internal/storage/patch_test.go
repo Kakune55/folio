@@ -28,6 +28,7 @@ func TestUnifiedPatchFormatsAndPreservation(t *testing.T) {
 		{"多个块新旧坐标", "a\nb\nc\nd\n", "@@ -1 +1,2 @@\n-a\n+A\n+extra\n@@ -4 +5 @@\n-d\n+D\n", "A\nextra\nb\nc\nD\n", 3, 2},
 		{"可选文件头和 CRLF framing", "a\r\n", "--- a/note.txt\told\r\n+++ b/note.txt\tnew\r\n@@ -1 +1 @@ section\r\n-a\r\n+b\r\n", "b\r\n", 1, 1},
 		{"BOM 文件清空保留 BOM", "\ufeffa\n", "@@ -1 +0,0 @@\n-a\n", "\ufeff", 0, 1},
+		{"纯上下文", "a\nb\n", "@@ -1,2 +1,2 @@\n a\n b\n", "a\nb\n", 0, 0},
 		{"相同内容不改换行", "a\r\n", "@@ -1 +1 @@\n-a\n+a\n", "a\r\n", 1, 1},
 	}
 	for _, tt := range cases {
@@ -43,7 +44,6 @@ func TestUnifiedPatchRejectsMismatchAndUnsafeSyntax(t *testing.T) {
 	cases := []struct{ diff, code string }{
 		{"", "invalid_patch"},
 		{"@@ -1,2 +1 @@\n-a\n+b\n", "invalid_patch"},
-		{"@@ -1 +1 @@\n a\n", "invalid_patch"},
 		{"@@ -1 +1 @@\n-wrong\n+b\n", "patch_mismatch"},
 		{"@@ -4 +4 @@\n-a\n+b\n", "patch_mismatch"},
 		{"@@ -1 +2 @@\n-a\n+b\n", "invalid_patch"},
@@ -189,4 +189,30 @@ func FuzzUnifiedPatchNoPanic(f *testing.F) {
 		}
 		_, _, _, _ = applyUnifiedPatch("note.txt", source, diff, 8192)
 	})
+}
+
+func TestPatchNoopPreservesFile(t *testing.T) {
+	store, root := testStore(t)
+	revision, err := store.Write("note.txt", "a\r\nb\n", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(filepath.Join(root, "note.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dryRun := range []bool{true, false} {
+		for _, diff := range []string{"@@ -1 +1 @@\n-a\n+a\n", "@@ -1,2 +1,2 @@\n a\n b\n"} {
+			result, err := store.Patch("note.txt", diff, revision, dryRun)
+			if err != nil || result.Changed || result.Revision != revision || result.AddedLines != 0 || result.DeletedLines != 0 {
+				t.Fatalf("%+v %v", result, err)
+			}
+		}
+	}
+	after, err := os.Stat(filepath.Join(root, "note.txt"))
+	if err != nil || !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("无变化补丁重新落盘", err)
+	}
+	_, err = store.Patch("note.txt", "@@ -1 +1 @@\n wrong\n", revision, false)
+	code(t, err, "patch_mismatch")
 }

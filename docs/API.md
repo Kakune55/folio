@@ -283,3 +283,5 @@ source 的实际契约为可选 {name}，仅包含认证 Access Token 名称，�
 ## API 输入与错误分类修正（2026-10-26）
 
 POST /files 与 PUT /files/content 的 content 必须显式提供字符串；缺失或 null 返回 400 invalid_request，空字符串合法且表示空正文。拒绝请求不创建或修改文件。workspace/tree 的 path 指向普通文件返回 400 not_a_directory，不存在返回 404 not_found。恢复不存在或已清理的回收记录返回 404 trash_not_found；记录目录存在但清单或副本损坏仍返回 422 trash_damaged。成功恢复通常清除记录，未保留用于区分已恢复与从未存在的历史。无凭据返回明确的缺少令牌／会话提示；失效 Cookie 保留浏览器重新登录提示。
+
+纯上下文 unified diff 与相同内容替换均会验证位置、上下文和末尾换行，匹配则返回 200；最终字节未变时 changed=false、addedLines=deletedLines=0，不重新落盘。changed=true 时计数描述补丁中的增删操作，不保证是最小差异。空补丁或没有操作行的块仍返回 400 invalid_patch。

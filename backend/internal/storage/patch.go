@@ -53,6 +53,9 @@ func (s *Store) Patch(name, diff, revision string, dryRun bool) (*PatchResult, e
 		return nil, err
 	}
 	result := &PatchResult{Path: name, Revision: revision, DryRun: dryRun, Changed: candidate != current.Content, AddedLines: added, DeletedLines: deleted, Size: len(candidate)}
+	if !result.Changed {
+		result.AddedLines, result.DeletedLines = 0, 0
+	}
 	if !dryRun && result.Changed {
 		result.Revision, err = s.Write(name, candidate, revision, false)
 		if err != nil {
@@ -89,7 +92,7 @@ func parseUnifiedPatch(name, diff string) ([]patchHunk, error) {
 		lines = lines[2:]
 	}
 	hunks := []patchHunk{}
-	operations, changes := 0, 0
+	operations := 0
 	for _, line := range lines {
 		if strings.HasPrefix(line, "@@") {
 			match := hunkHeader.FindStringSubmatch(line)
@@ -136,11 +139,8 @@ func parseUnifiedPatch(name, diff string) ([]patchHunk, error) {
 			return nil, fail("patch_too_large")
 		}
 		h.lines = append(h.lines, patchLine{text: line[1:], kind: line[0]})
-		if line[0] != ' ' {
-			changes++
-		}
 	}
-	if len(hunks) == 0 || changes == 0 {
+	if len(hunks) == 0 || operations == 0 {
 		return nil, fail("invalid_patch")
 	}
 	for _, h := range hunks {

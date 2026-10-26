@@ -642,3 +642,7 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 ### API 问题清单修复：输入与错误分类（2026-10-26）
 
 本次定向执行 `go test ./internal/httpapi ./internal/storage -run 'TestAuthenticatedFileFlow|TestTrashRestoreAndCollision'` 通过。覆盖 POST／PUT 缺失或 null content 拒绝且不改变正文／ETag、显式空文件创建、tree 文件／不存在路径、未知及重复恢复记录。无凭据明确提示令牌／会话并提供 Bearer challenge，失效 Cookie 提示保留。P3-3 末尾换行不匹配的 409 语义不变。完整回归另记。
+
+### API 问题清单修复：补丁无变化语义（2026-10-26）
+
+定向命令 `go test ./internal/storage ./internal/httpapi -run 'TestUnifiedPatch|TestPatch'`，结果见本轮执行。新增纯上下文、相同替换的预检／保存回归，验证计数归零、版本／mtime／文件身份不变及错误上下文拒绝。P3-3 保持 409。
