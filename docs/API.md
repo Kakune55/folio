@@ -284,6 +284,8 @@ source 的实际契约为可选 {name}，仅包含认证 Access Token 名称，�
 
 POST /files 与 PUT /files/content 的 content 必须显式提供字符串；缺失或 null 返回 400 invalid_request，空字符串合法且表示空正文。拒绝请求不创建或修改文件。workspace/tree 的 path 指向普通文件返回 400 not_a_directory，不存在返回 404 not_found。恢复不存在或已清理的回收记录返回 404 trash_not_found；记录目录存在但清单或副本损坏仍返回 422 trash_damaged。成功恢复通常清除记录，未保留用于区分已恢复与从未存在的历史。无凭据返回明确的缺少令牌／会话提示；失效 Cookie 保留浏览器重新登录提示。
 
-纯上下文 unified diff 与相同内容替换均会验证位置、上下文和末尾换行，匹配则返回 200；最终字节未变时 changed=false、addedLines=deletedLines=0，不重新落盘。changed=true 时计数描述补丁中的增删操作，不保证是最小差异。空补丁或没有操作行的块仍返回 400 invalid_patch。
+纯上下文 unified diff 与相同内容替换均会验证位置、上下文和末尾换行，匹配则返回 200；最终字节未变时 changed=false、addedLines=deletedLines=0，不重新落盘。changed=true 时计数描述补丁中的增删操作，不保证是最小差异。空补丁或没有操作行的补丁仍返回 400 invalid_patch。
 
 Markdown 元数据返回 mediaType=text/markdown、viewer=markdown。通过 UTF-8 检查的 SVG／HTML 源码仍返回 text/plain、viewer=text；mediaType 表示应用安全处理类型，不承诺按扩展名提供原始 MIME。下载始终 application/octet-stream + attachment；活动预览仍拒绝。下载／预览成功响应提供 Last-Modified，If-Range 可复用该日期配合 Range，匹配返回 206，不匹配返回 200 全文；不提供文件流 ETag。日期仅秒级精度，不能作为条件写入或强内容一致性保证。
+
+恢复操作若仍能读取到 state=restored 的遗留记录，返回 409 already_restored；通常成功恢复后记录已清理，此时返回 404 trash_not_found。两者都不代表数据损坏，应刷新列表并核对原路径。

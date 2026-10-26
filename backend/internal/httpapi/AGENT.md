@@ -45,7 +45,7 @@ curl --fail-with-body --silent --show-error \
 - 跨段读取使用首段 ETag 作为后续请求 If-Match；变化时 412，保留候选修改，重新读取同一版本的上下文，不混合拼接不同版本。内容不加行号，按 startLine 计算完整文件坐标；LF／CRLF／CR 分行，末尾分隔符不产生虚构空行，空文件／仅 BOM 为 0 行，BOM 只在起始为 1 的区间保留。
 - **禁止将片段 content 直接 PUT 覆盖整篇文件。** 局部修改优先读取目标行及上下文，再提交带全文件行号的 PATCH diff；要全量 PUT 时必须先取得同一版本的完整正文。按行读取仍受全文文本上限，单行也可能很长；超限用下载，不通过窗口绕过限制。
 - 二进制或超限文本：先读 `/files/metadata`，再通过 `/files/download` 获取原始字节，不要用文本接口解码后重编码。预览仅支持安全位图／PDF，HTML／SVG 不活动执行。
-- 路径使用工作区相对路径；查询参数进行 URL 编码，JSON 内的路径不预编码。拒绝绝对路径、越根、链接或特殊文件时，不尝试替换编码绕过。
+- 路径使用工作区相对路径；根目录用空字符串，不允许尾斜杠、空路径段、`.` 或 `..` 段；查询参数进行 URL 编码，JSON 内的路径不预编码。拒绝绝对路径、越根、链接或特殊文件时，不尝试替换编码绕过。
 
 ## 4. 修改正文：必须使用原版本
 
@@ -57,7 +57,7 @@ curl --fail-with-body --silent --show-error \
 4. 记录成功返回的新 revision；同一路径的后续写入串行执行并使用正确基准版本。若需核验结果，重新读取正文比较，不能仅凭“请求已发送”宣称保存成功。
 5. 遇到 412，保留候选正文，重新读取并比较，由用户任务决定合并或另存。不允许直接拿新版本重发旧候选正文，不使用 `If-Match: *`，不自行生成版本。
 
-创建文本用 `POST /files`，父目录须存在，同名返回 409；不覆盖已有文件。新建目录用 `POST /directories`，不递归创建缺失父目录。没有批量事务或自动合并。
+创建文本用 `POST /files`，content 必须显式提供字符串，空字符串合法，缺失或 null 返回 400；PUT 同样要求 content，拒绝时不改原文。父目录须存在，同名返回 409；不覆盖已有文件。新建目录用 `POST /directories`，不递归创建缺失父目录。没有批量事务或自动合并。
 
 ### 局部修改优先使用 diff
 
@@ -71,15 +71,16 @@ curl --fail-with-body --silent --show-error \
 - 上下文行以空格开头，删除以 - 开头，新增以 + 开头。必须在指定位置精确匹配，不会搜索其他重复段落或模糊套用。可以省略文件头；提供时仅接受与请求 path 一致的 --- path／+++ path，或 a/、b/ 前缀，不接受 Git 的 diff --git／index 前导行。
 - 源文件以 LF／CRLF／CR 分行，补丁自身用 LF 或 CRLF。BOM 自动保留，不把 BOM 写入补丁首行正文；未修改行原样保留。替换块新增行按顺序继承对应被删行的非空换行，额外新增行使用源文件第一个换行，无则 LF。
 - 源或新增末行没有换行时，在对应补丁行后写标准 `\ No newline at end of file`。缺少或错误标记会拒绝，不猜测末尾换行。此接口不用于统一换行格式或移除 BOM。
-- 返回 path、revision、dryRun、changed、addedLines、deletedLines、size；dryRun 的 revision／ETag 仍为原版本，size 是候选字节数。实际修改成功另有 savedAt；无变化不重新落盘。核对 changed 与 dryRun，不能把预检当保存。
+- 返回 path、revision、dryRun、changed、addedLines、deletedLines、size；dryRun 的 revision／ETag 仍为原版本，size 是候选字节数。实际修改成功另有 savedAt；无变化不重新落盘。核对 changed 与 dryRun，不能把预检当保存。纯上下文补丁也验证位置与原文；最终字节未变时 changed=false、addedLines=deletedLines=0。changed=true 时计数描述补丁操作，不保证最小差异。
 - 400 invalid_patch 表示格式、计数、顺序或文件头错误；409 patch_mismatch 表示原位置不匹配，两者均未保存补丁。保留候选并重新核对原文，不能删除上下文、换版本或转用无条件整篇覆盖来绕过失败。
 - 上限：补丁 1 MiB、20000 操作行、256 个块；源和结果最多 200000 行，结果仍受文本与配额限制。任一块失败整份拒绝；不支持跨文件、二进制补丁、通过补丁新建／删除／改名文件。
 
 ## 5. 移动、回收与恢复
 
-- 移动／重命名：先用 `GET /entries/revision?path=...` 获取文件或完整子树版本，再 `PATCH /entries/move`，正文 `{from,to}`，携带原版本 If-Match。不覆盖目标，不自动改写 Markdown 链接；目录操作前核对用户授权的影响范围。
+- 移动／重命名：先用 `GET /entries/revision?path=...` 获取文件或完整子树版本，保存响应头 ETag（含双引号），再 `PATCH /entries/move`，正文 `{from,to}`，将该 ETag 原样作为 If-Match。不覆盖目标，不自动改写 Markdown 链接；目录操作前核对用户授权的影响范围。
+- JSON 的 revision 不含双引号，不能直接作为 If-Match；优先复用响应头 ETag（含双引号），或将完整 revision 用一对双引号包裹。`/files/revision` 同样遵守此规则，不能使用弱 ETag、多值或星号。
 - 回收：`DELETE /entries?path=...` 携带原版本 If-Match，记录返回的回收 ID。回收不释放配额。
-- 恢复：`GET /trash` 分页查找记录，`POST /trash/{id}/restore` 恢复到原路径，无需正文。父目录须存在，不能覆盖同名文件。
+- 恢复：`GET /trash` 分页查找记录，`POST /trash/{id}/restore` 恢复到原路径，无需正文。父目录须存在，不能覆盖同名文件。恢复操作若仍能读取到 state=restored 的遗留记录，返回 409 already_restored；通常成功恢复后记录已清理，此时返回 404 trash_not_found。两者都不代表数据损坏，应刷新列表并核对原路径。
 - 损坏或未完成的回收记录保留供检查，不删除恢复原件。不将回收站当作版本历史或备份。
 
 ## 6. 上传、下载与索引
@@ -87,6 +88,8 @@ curl --fail-with-body --silent --show-error \
 - 上传前可以查询 `GET /settings` 和 `GET /workspace/usage`；quota=0 为零额度，不是无限。服务端仍执行最终限额与配额校验。
 - `POST /uploads?directory=...` 必须使用 multipart/form-data，且只有一个名为 file 的文件 part；filename 是纯文件名。同名不覆盖。需要位图验证时使用 image=true。
 - 多文件分请求，每个文件独立提交；失败不代表之前成功文件也被回滚。保留待上传原件。
+- Markdown 元数据为 text/markdown；UTF-8 SVG／HTML 以 text/plain 安全文本分类，不活动执行。下载仍以 application/octet-stream 附件返回。
+- 下载／预览成功响应提供 Last-Modified；配合 Range 将该日期原样作为 If-Range，匹配返回 206，不匹配返回 200 全文。目前不提供文件流 ETag；日期只有秒级精度，不能代替正文条件写入的强 ETag。
 - 下载支持 Range／206；HEAD 与 GET 使用同一读取权限且不返回正文。先检查状态与 Content-Type，不能将原始字节当 JSON。416 或底层文件服务错误可能为 text/plain。
 - API 保存后异步更新索引；检查 `/search/status` 的 indexing 和 warning，不能把陈旧摘要当作当前正文。需要重建时 `POST /search/rebuild` 返回 202 仅表示已接受，设置有限等待，不无限轮询。宿主工具直接修改不自动进入搜索。
 
@@ -98,7 +101,9 @@ JSON 错误通常为 `{error:{code,message,details}}`；代理和文件流错误
 | --- | --- |
 | 401 | 令牌过期、撤销或账号状态不符；停止认证重试，报告需检查凭据 |
 | 403 | 缺少权限；说明需要的权限，不自动提升或索取账号密码 |
-| 404 | 核对路径／回收记录；外部重命名不会自动追踪 |
+| 400 not_a_directory | tree 路径指向文件，改用父目录浏览或文件读取接口 |
+| 404、trash_not_found | 核对路径／刷新回收记录；记录可能已恢复或清理，不能据此判断损坏；外部重命名不会自动追踪 |
+| 422 trash_damaged | 记录或副本损坏，保留记录与原件并检查应用数据目录，不盲目重试或删除 |
 | 409 target_exists | 核对既有目标，必要时按任务另选路径，不覆盖 |
 | 409 workspace_changed | 停止旧工作区写入，核对部署并重新申请令牌；不自动改绑身份 |
 | 412／428 | 保留候选内容，比较版本／携带原始条件，禁止盲重试 |

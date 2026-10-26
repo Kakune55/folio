@@ -57,44 +57,20 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         }
       }
@@ -103,7 +79,7 @@
       "get": {
         "operationId": "listDirectory",
         "summary": "列出目录直接子项",
-        "description": "只列直接子项，不是递归树。不安全条目不列出；宿主外部变动期间不保证分页一致快照。",
+        "description": "只列直接子项，不是递归树。不安全条目不列出；宿主外部变动期间不保证分页一致快照。 path 指向文件返回 400 not_a_directory。",
         "tags": [
           "文件"
         ],
@@ -137,29 +113,14 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
           "415": {
             "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -222,44 +183,20 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         }
       }
@@ -287,44 +224,20 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         }
       }
@@ -352,44 +265,20 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         }
       }
@@ -432,29 +321,17 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -524,9 +401,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
           "428": {
             "$ref": "#/components/responses/428"
           },
@@ -535,9 +409,6 @@
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -577,7 +448,7 @@
             "name": "If-Match",
             "in": "header",
             "required": false,
-            "description": "可选完整文件的单个强 ETag（含引号）；与当前正文不符返回 412，全文和按行模式都适用。",
+            "description": "读取响应头 ETag 原样传入（含一对双引号）的单个强 ETag；JSON revision 不含引号，使用它时须自行加双引号。不接受裸 revision、弱 ETag、多值或星号。版本不符返回 412。读取时可选。",
             "schema": {
               "type": "string"
             }
@@ -587,7 +458,7 @@
       "put": {
         "operationId": "updateContent",
         "summary": "条件更新已有正文",
-        "description": "必须先读取并携带版本；412 停止盲重试，保留候选正文后读取比较。超时或 durability_uncertain 可能已经提交，先核对结果。不得无意丢失 BOM、换行或未修改的 Markdown 内容。",
+        "description": "必须先读取并携带版本；412 停止盲重试，保留候选正文后读取比较。超时或 durability_uncertain 可能已经提交，先核对结果。不得无意丢失 BOM、换行或未修改的 Markdown 内容。 content 必须显式为字符串，空字符串合法；缺失或 null 返回 400 invalid_request，且不改正文。",
         "tags": [
           "文件"
         ],
@@ -648,9 +519,6 @@
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -667,7 +535,7 @@
             "name": "If-Match",
             "in": "header",
             "required": true,
-            "description": "原样携带读取响应的单个强 ETag（含双引号）。禁止 *、列表或盲目采用新版本重试。",
+            "description": "读取响应头 ETag 原样传入（含一对双引号）的单个强 ETag；JSON revision 不含引号，使用它时须自行加双引号。不接受裸 revision、弱 ETag、多值或星号。版本不符返回 412。缺失返回 428。",
             "schema": {
               "type": "string"
             }
@@ -756,9 +624,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
           "428": {
             "$ref": "#/components/responses/428"
           },
@@ -767,9 +632,6 @@
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -786,7 +648,7 @@
             "name": "If-Match",
             "in": "header",
             "required": true,
-            "description": "原样携带读取响应的单个强 ETag（含双引号）。禁止 *、列表或盲目采用新版本重试。",
+            "description": "读取响应头 ETag 原样传入（含一对双引号）的单个强 ETag；JSON revision 不含引号，使用它时须自行加双引号。不接受裸 revision、弱 ETag、多值或星号。版本不符返回 412。缺失返回 428。",
             "schema": {
               "type": "string"
             }
@@ -869,29 +731,17 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -952,29 +802,14 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
           "415": {
             "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -994,7 +829,7 @@
       "post": {
         "operationId": "createFile",
         "summary": "不覆盖地新建文本",
-        "description": "父目录须存在，同名返回 409，永不覆盖。不需要 If-None-Match；成功后异步通知搜索索引。",
+        "description": "父目录须存在，同名返回 409，永不覆盖。不需要 If-None-Match；成功后异步通知搜索索引。 content 必须显式为字符串，空字符串合法；缺失或 null 返回 400 invalid_request，且不改正文。",
         "tags": [
           "文件"
         ],
@@ -1035,9 +870,6 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
@@ -1047,17 +879,11 @@
           "422": {
             "$ref": "#/components/responses/422"
           },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "requestBody": {
@@ -1134,29 +960,17 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "requestBody": {
@@ -1230,9 +1044,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
           "428": {
             "$ref": "#/components/responses/428"
           },
@@ -1241,9 +1052,6 @@
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -1251,7 +1059,7 @@
             "name": "If-Match",
             "in": "header",
             "required": true,
-            "description": "原样携带读取响应的单个强 ETag（含双引号）。禁止 *、列表或盲目采用新版本重试。",
+            "description": "读取响应头 ETag 原样传入（含一对双引号）的单个强 ETag；JSON revision 不含引号，使用它时须自行加双引号。不接受裸 revision、弱 ETag、多值或星号。版本不符返回 412。缺失返回 428。",
             "schema": {
               "type": "string"
             }
@@ -1334,9 +1142,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
           "428": {
             "$ref": "#/components/responses/428"
           },
@@ -1364,7 +1169,7 @@
             "name": "If-Match",
             "in": "header",
             "required": true,
-            "description": "原样携带读取响应的单个强 ETag（含双引号）。禁止 *、列表或盲目采用新版本重试。",
+            "description": "读取响应头 ETag 原样传入（含一对双引号）的单个强 ETag；JSON revision 不含引号，使用它时须自行加双引号。不接受裸 revision、弱 ETag、多值或星号。版本不符返回 412。缺失返回 428。",
             "schema": {
               "type": "string"
             }
@@ -1404,26 +1209,8 @@
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1466,7 +1253,7 @@
       "post": {
         "operationId": "restoreEntry",
         "summary": "不覆盖地恢复回收文件",
-        "description": "恢复到原路径，原父目录须存在，不覆盖同名目标。异常记录保留供检查；应用令牌不能永久删除回收载荷。",
+        "description": "恢复到原路径，原父目录须存在，不覆盖同名目标。异常记录保留供检查；应用令牌不能永久删除回收载荷。 不存在或已恢复清理的记录返回 404 trash_not_found；记录或副本损坏返回 422 trash_damaged，不保留历史墓碑。 若保留了 state=restored 的遗留记录则返回 409 already_restored。",
         "tags": [
           "回收站"
         ],
@@ -1501,20 +1288,11 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
           "415": {
             "$ref": "#/components/responses/415"
           },
           "422": {
             "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1571,26 +1349,8 @@
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1665,35 +1425,14 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1745,20 +1484,11 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
           "415": {
             "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1816,35 +1546,14 @@
             },
             "headers": {}
           },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
           "401": {
             "$ref": "#/components/responses/401"
           },
           "403": {
             "$ref": "#/components/responses/403"
           },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
           "409": {
             "$ref": "#/components/responses/409"
-          },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
-          "413": {
-            "$ref": "#/components/responses/413"
-          },
-          "415": {
-            "$ref": "#/components/responses/415"
-          },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
           },
           "429": {
             "$ref": "#/components/responses/429"
@@ -1896,29 +1605,17 @@
           "409": {
             "$ref": "#/components/responses/409"
           },
-          "412": {
-            "$ref": "#/components/responses/412"
-          },
           "413": {
             "$ref": "#/components/responses/413"
           },
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
           "500": {
             "$ref": "#/components/responses/500"
-          },
-          "503": {
-            "$ref": "#/components/responses/503"
           }
         },
         "parameters": [
@@ -1991,6 +1688,7 @@
                 }
               },
               "Last-Modified": {
+                "description": "文件修改日期，供日期形式 If-Range 使用；不代替正文强 ETag",
                 "schema": {
                   "type": "string"
                 }
@@ -2029,12 +1727,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
@@ -2053,9 +1745,6 @@
               }
             }
           },
-          "503": {
-            "$ref": "#/components/responses/503"
-          },
           "206": {
             "description": "请求范围的原始字节",
             "headers": {
@@ -2070,6 +1759,7 @@
                 }
               },
               "Last-Modified": {
+                "description": "文件修改日期，供日期形式 If-Range 使用；不代替正文强 ETag",
                 "schema": {
                   "type": "string"
                 }
@@ -2126,7 +1816,7 @@
             "name": "If-Range",
             "in": "header",
             "required": false,
-            "description": "与服务器返回的验证器匹配时请求范围；否则返回完整文件。",
+            "description": "与 Range 配合使用：原样复用下载／预览响应头 Last-Modified 日期，匹配返回 206，不匹配返回 200 全文；目前不提供文件流 ETag。日期精度为秒，不能代替正文强版本条件写入。",
             "schema": {
               "type": "string"
             }
@@ -2160,6 +1850,7 @@
                 }
               },
               "Last-Modified": {
+                "description": "文件修改日期，供日期形式 If-Range 使用；不代替正文强 ETag",
                 "schema": {
                   "type": "string"
                 }
@@ -2222,12 +1913,6 @@
           "415": {
             "$ref": "#/components/responses/415"
           },
-          "422": {
-            "$ref": "#/components/responses/422"
-          },
-          "428": {
-            "$ref": "#/components/responses/428"
-          },
           "429": {
             "$ref": "#/components/responses/429"
           },
@@ -2246,9 +1931,6 @@
               }
             }
           },
-          "503": {
-            "$ref": "#/components/responses/503"
-          },
           "206": {
             "description": "请求范围的原始字节",
             "headers": {
@@ -2263,6 +1945,7 @@
                 }
               },
               "Last-Modified": {
+                "description": "文件修改日期，供日期形式 If-Range 使用；不代替正文强 ETag",
                 "schema": {
                   "type": "string"
                 }
@@ -2343,7 +2026,7 @@
             "name": "If-Range",
             "in": "header",
             "required": false,
-            "description": "与服务器返回的验证器匹配时请求范围；否则返回完整文件。",
+            "description": "与 Range 配合使用：原样复用下载／预览响应头 Last-Modified 日期，匹配返回 206，不匹配返回 200 全文；目前不提供文件流 ETag。日期精度为秒，不能代替正文强版本条件写入。",
             "schema": {
               "type": "string"
             }
@@ -2751,7 +2434,8 @@
             "minimum": 0
           },
           "mediaType": {
-            "type": "string"
+            "type": "string",
+            "description": "安全处理类型：Markdown 为 text/markdown；UTF-8 SVG／HTML 源码为 text/plain，不表示允许活动预览。"
           },
           "viewer": {
             "type": "string",
@@ -3110,15 +2794,18 @@
             "type": "boolean"
           },
           "changed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "候选与原文字节是否不同；false 时不重新落盘，增删计数均为 0。纯上下文补丁匹配后可返回 false。"
           },
           "addedLines": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "changed=false 时为 0；否则为补丁中的对应增删操作行数，不承诺最小差异。"
           },
           "deletedLines": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "changed=false 时为 0；否则为补丁中的对应增删操作行数，不承诺最小差异。"
           },
           "size": {
             "type": "integer",

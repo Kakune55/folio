@@ -645,8 +645,36 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 
 ### API 问题清单修复：补丁无变化语义（2026-10-26）
 
-定向命令 `go test ./internal/storage ./internal/httpapi -run 'TestUnifiedPatch|TestPatch'`，结果见本轮执行。新增纯上下文、相同替换的预检／保存回归，验证计数归零、版本／mtime／文件身份不变及错误上下文拒绝。P3-3 保持 409。
+定向命令 `go test ./internal/storage ./internal/httpapi -run 'TestUnifiedPatch|TestPatch'`，本次通过。新增纯上下文、相同替换的预检／保存回归，验证计数归零、版本／mtime／文件身份不变及错误上下文拒绝。P3-3 保持 409。
 
 ### API 问题清单修复：元数据与文件流（2026-10-26）
 
 `go test ./internal/httpapi -run TestAttachmentBoundary` 验证 Markdown 两种扩展名的 mediaType／viewer；下载和预览均验证 Last-Modified 非空、日期 If-Range 匹配返回 206 且字节正确、不匹配返回 200 全文。SVG／HTML 保留安全文本分类和预览隔离，不新增活动 MIME 预览。
+
+### API 问题清单修复：接入文档与契约（2026-10-26）
+
+补充 revision 与带引号 ETag 的区别、严格路径、422 损坏处理、Markdown／活动源码的安全类型及日期 If-Range。OpenAPI 错误响应按操作收窄，保留认证／工作区变化／底层失败边界。`PYTHONUTF8=1 <临时虚拟环境 Python> scripts/application-api-test.py` 最后一次 26 操作／102 请求通过（此前一次为 103 请求，差异来自异步索引状态轮询），含真实 Bearer、JSON Schema、匿名提示、缺失／null 正文不落盘、tree 类型错误、严格路径、no-op、重复恢复及下载／预览的匹配／不匹配 If-Range。依赖安装于系统临时目录的独立虚拟环境，未增加生产依赖。恢复分类另加遗留 restored 记录的 409 及已存在目录缺清单仍报损坏的存储回归。
+
+Linux 专用备份工具在 Windows 执行 `python scripts/backup.py --help` 因 `ModuleNotFoundError: fcntl` 失败，未执行备份恢复实测，WSL 未安装发行版。未重启日常 8080 服务，所有写入验证均使用隔离临时目录。
+
+
+### API 问题清单修复：本轮最终完整回归（2026-10-26）
+
+以下为本轮实际执行，不能与前面的 M10／M11 历史记录混用。
+
+| 命令（按所在目录执行） | 本次结果 |
+| --- | --- |
+| backend：`go test ./...`、`go vet ./...` | 最终均通过，部分未变包命中缓存 |
+| frontend：`npm run lint`、`npm test` | 通过；14 个文件、148 项单元测试通过 |
+| frontend：`npm run build -- --logLevel warn` | 通过，保留既有大分块提示 |
+| 根目录：`python scripts/copy-dist.py` | 通过，供独立生产 QA 使用；未重启日常服务 |
+| frontend：`npx playwright test --reporter=line` | **125 项全部通过（7.3m）**，本次单次完整运行，没有忽略或跳过失败 |
+| 根目录：`PYTHONUTF8=1 <临时虚拟环境 Python> scripts/application-api-test.py` | 最后一次 26 操作、102 请求通过；OpenAPI 与响应 JSON Schema、纯 Bearer 及新增问题回归 |
+| frontend：`npx playwright test -c playwright.qa.config.ts --reporter=line` | **8 项通过，1 项搜索性能失败（53.1s）** |
+| 根目录：`python scripts/backup.py --help` | Windows 无 fcntl，导入失败；未执行 Linux 双卷备份恢复验收 |
+
+浏览器两轮均设置 `CHROME_BIN=C:\Program Files\Google\Chrome\Application\chrome.exe`、`PYTHONUTF8=1`，使用脚本创建的隔离临时目录与 18081 测试服务，结束后监听已释放；未触碰日常 8080 服务。原始日志为 `artifacts/api-fixes-browser.log`、`artifacts/api-fixes-qa.log`，契约记录为 `artifacts/application-api/contract-report.json`。
+
+生产 QA 的明暗主题 × 手机／桌面无障碍及四项 Mermaid 流程通过。性能样本 1202 文件，全文搜索三次约 171.13／167.65／167.60ms，超过既有 100ms 门槛；名称搜索约 2.72–3.42ms。与此前 M11 已记录的同类门槛失败分别记录，不宣称修复或完整 QA 全绿，未调整门槛或搜索实现。编辑器较大正文保存字节精确检查通过；三次输入样本不是统计 p95。原始数据为 `artifacts/qa/performance.json`。
+
+P3-3 按用户决定不修改，末尾换行与原文不匹配继续返回 409 patch_mismatch。If-Range 无运行时缺陷，本次补充 Cookie 与真实 Bearer 的日期条件验证和文档，不新增文件流 ETag；秒级修改日期不提供强内容一致性，条件写仍必须使用原强 ETag。SVG／HTML 不放开活动预览。未验证 Linux／容器备份、真实 HTTPS 代理、其他浏览器或真实移动设备；没有将这些环境限制改为通过。modelrouter 不属于本轮范围。

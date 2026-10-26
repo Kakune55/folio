@@ -35,7 +35,7 @@ Bearer 请求无需 Cookie、Origin 或 CSRF。无效令牌返回 `401 unauthent
 
 ## 路径、目录与新建
 
-路径为 UTF-8 工作区相对路径，根目录用空字符串；拒绝绝对路径、`..`、反斜线、链接和特殊文件。查询参数用 URL 编码；JSON 中不预先 URL 编码路径。目录列表只返回直接子项，默认 200、最多 1000 项，以 offset/limit 分页；不能假设宿主变动期间是快照。
+路径为 UTF-8 工作区相对路径，根目录用空字符串；拒绝绝对路径、尾斜杠、空路径段、`.`／`..` 段、反斜线、链接和特殊文件。查询参数用 URL 编码；JSON 中不预先 URL 编码路径。目录列表只返回直接子项，默认 200、最多 1000 项，以 offset/limit 分页；不能假设宿主变动期间是快照。
 
 ```sh
 curl --fail-with-body --silent --show-error --get \
@@ -209,3 +209,16 @@ Content-Type: application/json
 通过 API 成功提交文件变更后，服务端向同账号的浏览器发送 SSE 提示。浏览器重新读取并核对版本：干净正文自动更新，修改／新增／删除位置分别短暂显示黄色、绿色和红色三角；有本地草稿时保留草稿并暂停自动保存，用户手动保存时进入差异确认。Agent 继续使用原有 If-Match 条件写入，无需订阅通知。
 
 GET /api/v1/workspace/events 是浏览器 Cookie 专用接口，不属于应用令牌的 OpenAPI 能力。SSE 不代替并发控制，也不保证宿主直接修改文件时即时通知；浏览器保留 10 秒、焦点恢复及重连后的版本检查。
+
+
+## 输入与响应补充（2026-10-26）
+
+创建／保存必须显式提供字符串 content，缺失或 null 返回 400，空字符串合法。读取版本时优先保存响应头 ETag 并原样用于 If-Match；JSON revision 本身不含引号，需自行用一对双引号包裹。移动／回收同样适用，不接受裸 revision、弱 ETag 或星号。
+
+纯上下文补丁验证匹配后返回 200；最终正文不变时 changed=false、增删计数归零，不落盘。changed=true 时计数描述补丁操作，不承诺最小差异。末尾换行与原文不匹配仍为 409 patch_mismatch。
+
+Markdown 元数据返回 text/markdown；UTF-8 SVG／HTML 安全分类为 text/plain，不活动预览。下载／预览提供 Last-Modified，日期 If-Range 配合 Range 可获取 206，日期不匹配返回 200 全文；不提供文件流 ETag，秒级时间不能代替正文版本保护。
+
+tree 指向文件返回 400 not_a_directory；不存在或已清理的回收记录返回 404 trash_not_found，刷新列表核对；真正损坏才返回 422 trash_damaged，保留记录和副本检查。不保留已恢复记录用于区分历史状态。OpenAPI 错误响应按操作列出，仍包含认证、工作区变化及底层故障边界，不承诺每一种故障均已注入验证。
+
+恢复操作若仍能读取到 state=restored 的遗留记录，返回 409 already_restored；通常成功恢复后记录已清理，此时返回 404 trash_not_found。两者都不代表数据损坏，应刷新列表并核对原路径。

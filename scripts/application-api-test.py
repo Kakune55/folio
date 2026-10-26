@@ -137,6 +137,8 @@ def main():
         assert headers.get_content_type() == 'text/markdown'
         empty, _ = call('HEAD', '/agent.md', token='invalid')
         assert empty == b'' 
+        anonymous, challenge = call('GET', '/workspace/usage', expected=401)
+        assert '缺少访问令牌' in anonymous['error']['message'] and 'Bearer' in challenge['WWW-Authenticate']
         call('GET', '/application', expected=401)
         call('GET', '/application', session=admin, expected=403)
         _, challenge = call('GET', '/application', token='invalid', session=admin, expected=401)
@@ -155,6 +157,22 @@ def main():
         path = '/files/content?path=' + urllib.parse.quote('资料/笔记.md')
         disk, disk_headers = call('GET', path, token=token)
         assert disk['content'] == original
+        for content in ({}, {'content': None}):
+            call('POST', '/files', token=token, data={'path': '资料/缺失.md', **content}, expected=400)
+            call('PUT', path, token=token, data=content, headers={'If-Match': disk_headers['ETag']}, expected=400)
+        call('GET', '/files/content?path=' + urllib.parse.quote('资料/缺失.md'), token=token, expected=404)
+        unchanged_input, _ = call('GET', path, token=token)
+        assert unchanged_input['content'] == original and unchanged_input['revision'] == disk['revision']
+        tree_error, _ = call('GET', '/workspace/tree?path=' + urllib.parse.quote('资料/笔记.md'), token=token, expected=400)
+        assert tree_error['error']['code'] == 'not_a_directory'
+        for strict_path in ['资料/尾斜杠/', '资料/./点段']:
+            call('POST', '/directories', token=token, data={'path': strict_path}, expected=400)
+        metadata, _ = call('GET', '/files/metadata?path=' + urllib.parse.quote('资料/笔记.md'), token=token)
+        assert metadata['mediaType'] == 'text/markdown' and metadata['viewer'] == 'markdown'
+        for noop in ['@@ -1 +1 @@\n # 原始正文\n', '@@ -1 +1 @@\n-# 原始正文\n+# 原始正文\n']:
+            result, noop_headers = call('PATCH', path, token=token, data={'diff': noop}, headers={'If-Match': disk_headers['ETag']})
+            assert not result['changed'] and result['addedLines'] == result['deletedLines'] == 0
+            assert noop_headers['ETag'] == disk_headers['ETag'] and 'savedAt' not in result
         selected, selected_headers = call('GET', path + '&startLine=2&lineCount=2', token=reader['token'], headers={'If-Match': disk_headers['ETag']})
         assert selected['content'] == '\r\n中文与 emoji 📝\n' and selected['totalLines'] == 4
         assert selected['startLine'] == 2 and selected['endLine'] == 3 and selected['nextLine'] == 4
@@ -250,6 +268,14 @@ def main():
         call('GET', '/files/download?path=' + urllib.parse.quote('资料/raw.bin'), token=token, headers={'Range': 'bytes=999999-'}, expected=416)
         preview, headers = call('GET', '/files/preview?path=' + urllib.parse.quote('资料/preview.png'), token=token)
         assert preview == image and 'sandbox' in headers['Content-Security-Policy']
+        for endpoint, name, payload in [('download', 'raw.bin', binary), ('preview', 'preview.png', image)]:
+            stream_path = '/files/' + endpoint + '?path=' + urllib.parse.quote('资料/' + name)
+            _, stream_headers = call('HEAD', stream_path, token=reader['token'])
+            assert stream_headers['Last-Modified']
+            part, _ = call('GET', stream_path, token=reader['token'], headers={'Range': 'bytes=0-3', 'If-Range': stream_headers['Last-Modified']}, expected=206)
+            assert part == payload[:4]
+            full, _ = call('GET', stream_path, token=reader['token'], headers={'Range': 'bytes=0-3', 'If-Range': 'Thu, 01 Jan 1970 00:00:00 GMT'})
+            assert full == payload
         call('GET', '/files/preview?path=' + urllib.parse.quote('资料/笔记.md'), token=token, expected=415)
         call('GET', '/files/download?path=../outside', token=token, expected=400)
 
@@ -265,6 +291,9 @@ def main():
         call('POST', '/trash/' + trashed['id'] + '/restore', token=token)
         restored, _ = call('GET', '/files/content?path=' + moved_path, token=token)
         assert restored['content'] == updated_source
+        for record_id in [trashed['id'], 'deadbeefdeadbeefdeadbeefdeadbeef']:
+            error, _ = call('POST', '/trash/' + record_id + '/restore', token=token, expected=404)
+            assert error['error']['code'] == 'trash_not_found'
         usage, _ = call('GET', '/workspace/usage', token=token)
         storage, _ = call('GET', '/workspace/storage', token=token)
         assert usage['used'] == storage['used'] == sum(item['bytes'] for item in storage['categories'])
