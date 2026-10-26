@@ -6,7 +6,7 @@ import { locateRichText } from './search-location'
 import { useEffect, useRef, useState } from 'react'
 import type { Session, WorkspaceSessions } from '../../sessions/workspace'
 import type { CrepeBridge } from './bridge'
-import { createCrepe, equivalentSource } from './engine'
+import { createCrepe, prepareRichSource } from './engine'
 import * as Dialog from '@radix-ui/react-dialog'
 import { DialogContent } from '../../components/ui/dialog-content'
 import { Button } from '../../components/ui/button'
@@ -49,9 +49,14 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
         return
       }
       const converted = editor.getMarkdown()
-      if (!equivalentSource(original, converted)) {
+      const compatibility = prepareRichSource(editor, original)
+      if (!compatibility.safe) {
         if (remoteUpdate) {
           onBlocked('外部更新的 Markdown 需要转换才能富文本编辑，已保留完整原文并切到源码；可手动切回富文本核对。')
+          sessions.setMode(session.path, 'source'); return
+        }
+        if (converted === original) {
+          onBlocked(`当前语法暂不能安全保源编辑，已保留原文并切到源码。${compatibility.reason ?? ''}`)
           sessions.setMode(session.path, 'source'); return
         }
         setConversion({ original, converted, accept: () => {
@@ -60,6 +65,12 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
             onBlocked('预览期间原文或文件状态已变化，请重新检查转换。当前原文已保留。')
             sessions.setMode(session.path, 'source')
             return
+          }
+          const convertedCompatibility = prepareRichSource(editor, converted)
+          if (!convertedCompatibility.safe) {
+            setConversion(undefined)
+            onBlocked(`转换结果仍不能安全编辑，原文已保留。${convertedCompatibility.reason ?? ''}`)
+            sessions.setMode(session.path, 'source'); return
           }
           sessions.update(session.path, converted)
           accepted = true

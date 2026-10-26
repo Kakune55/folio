@@ -1,11 +1,12 @@
 import { EditorView as CodeMirrorView } from '@codemirror/view'
+import { Transaction as CodeMirrorTransaction } from '@codemirror/state'
 import { languages } from '@codemirror/language-data'
 import { createMermaidPreview, mermaidLanguage } from './mermaid-preview'
 import { dropIndicatorPlugin } from '@milkdown/kit/plugin/cursor'
 import { safeDropIndicator } from './drop-indicator'
 import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
 import { Crepe } from '@milkdown/crepe'
-import { editorViewOptionsCtx, remarkCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { editorViewOptionsCtx, editorViewCtx, parserCtx, serializerCtx, remarkCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import { $view, $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
@@ -13,6 +14,9 @@ import { codeTheme } from '../theme'
 import { imageSchema } from '@milkdown/kit/preset/commonmark'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import type { CrepeBridge } from './bridge'
+import type { Node as ProseNode } from '@milkdown/kit/prose/model'
+import { createSourcePreserver } from './preserve-source'
+import { createMarkdownCodeInputPlugin } from './markdown-input'
 import '@milkdown/crepe/theme/common/prosemirror.css'
 import '@milkdown/crepe/theme/common/reset.css'
 import '@milkdown/crepe/theme/common/block-edit.css'
@@ -32,9 +36,21 @@ export function equivalentSource(source: string, serialized: string) {
 }
 
 type MarkdownNode = { type: string; position?: { start: { offset?: number } }; children?: MarkdownNode[] }
+type Preserver = NonNullable<ReturnType<typeof createSourcePreserver>['preserver']>
+const sourceAdapters = new WeakMap<Crepe, (source: string) => { safe: boolean; reason?: string }>()
+export function prepareRichSource(editor: Crepe, source: string) {
+  return sourceAdapters.get(editor)?.(source) ?? { safe: false, reason: '富文本保源检查尚未就绪。' }
+}
 
 export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: (message?: string) => void, bridge?: CrepeBridge) {
   let tabReleaseUntil = 0
+  const codeInput = createMarkdownCodeInputPlugin()
+  let preserver: Preserver | undefined, emittedSource = source
+  let prepared: { doc: ProseNode; result: ReturnType<Preserver['prepare']> } | undefined
+  const prepareDocument = (doc: ProseNode) => {
+    if (prepared?.doc !== doc) prepared = { doc, result: preserver!.prepare(doc) }
+    return prepared.result
+  }
   const mermaidPreview = createMermaidPreview(root)
   const crepe = new Crepe({
     root, defaultValue: source,
@@ -43,7 +59,32 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
       [Crepe.Feature.Placeholder]: { text: '写下想法，或输入 / 插入内容…' },
       [Crepe.Feature.Toolbar]: { boldLabel: '加粗', italicLabel: '斜体', codeLabel: '行内代码', linkLabel: '链接', strikethroughLabel: '删除线' },
       [Crepe.Feature.LinkTooltip]: { inputPlaceholder: '输入链接地址' },
-      [Crepe.Feature.CodeMirror]: { languages: [...languages, mermaidLanguage], renderPreview: mermaidPreview.render, extensions: [CodeMirrorView.contentAttributes.of({ 'aria-label': '代码块源码' })], theme: codeTheme, copyText: '复制', previewLabel: '预览', previewLoading: '正在加载…', searchPlaceholder: '搜索语言', noResultText: '没有匹配的语言', previewToggleText: (preview) => preview ? '编辑代码' : '预览代码' },
+      [Crepe.Feature.CodeMirror]: { languages: [...languages, mermaidLanguage], renderPreview: mermaidPreview.render, extensions: [
+        CodeMirrorView.contentAttributes.of({ 'aria-label': '代码块源码' }),
+        CodeMirrorView.updateListener.of(update => {
+          if (!update.docChanged || !preserver) return
+          // 库先改 CM 缓冲再提交 PM；若事务被拒绝，恢复可见代码，不能让界面假装已接纳。
+          queueMicrotask(() => {
+            if (!update.view.dom.isConnected) return
+            crepe.editor.action(ctx => {
+              const view = ctx.get(editorViewCtx), block = update.view.dom.closest('.milkdown-code-block')
+              if (view.isDestroyed || !block) return
+              let expected: string | undefined
+              view.state.doc.descendants((node, pos) => {
+                if (node.type.name === 'code_block' && view.nodeDOM(pos) === block) { expected = node.textContent; return false }
+              })
+              if (expected === undefined || update.view.state.doc.toString() === expected) return
+              // 库仅在 CM 有焦点时反向转发；恢复前临时失焦，避免把 B→A 差量应用到仍为 A 的 PM。
+              const focused = update.view.hasFocus
+              if (focused) update.view.contentDOM.blur()
+              try {
+                update.view.dispatch({ changes: { from: 0, to: update.view.state.doc.length, insert: expected }, selection: { anchor: Math.min(update.view.state.selection.main.head, expected.length) }, annotations: CodeMirrorTransaction.addToHistory.of(false) })
+              } finally { if (focused && update.view.dom.isConnected) update.view.focus() }
+              onUnsupported?.('代码块修改未被接纳，已恢复原代码；可切换源码编辑。')
+            })
+          })
+        }),
+      ], theme: codeTheme, copyText: '复制', previewLabel: '预览', previewLoading: '正在加载…', searchPlaceholder: '搜索语言', noResultText: '没有匹配的语言', previewToggleText: (preview) => preview ? '编辑代码' : '预览代码' },
       [Crepe.Feature.BlockEdit]: {
         textGroup: { label: '文本', text: { label: '正文' }, h1: { label: '一级标题' }, h2: { label: '二级标题' }, h3: { label: '三级标题' }, h4: { label: '四级标题' }, h5: { label: '五级标题' }, h6: { label: '六级标题' }, quote: { label: '引用' }, divider: { label: '分隔线' } },
         listGroup: { label: '列表', bulletList: { label: '无序列表' }, orderedList: { label: '有序列表' }, taskList: { label: '任务列表' } },
@@ -53,6 +94,14 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
   })
   void crepe.editor.remove(dropIndicatorPlugin)
   crepe.editor.use(safeDropIndicator)
+  sourceAdapters.set(crepe, original => crepe.editor.action(ctx => {
+    const result = createSourcePreserver(original, ctx.get(editorViewCtx).state.doc, {
+      parse: ctx.get(parserCtx), serialize: ctx.get(serializerCtx), ast: text => ctx.get(remarkCtx).parse(text),
+    })
+    if (!result.preserver) return { safe: false, reason: result.reason }
+    preserver = result.preserver; emittedSource = original; prepared = undefined
+    return { safe: true }
+  }))
   crepe.editor.use($prose(() => new Plugin({ view: () => ({ destroy: mermaidPreview.destroy }) })))
   const uploads = new PluginKey<Map<symbol, number>>('folio-image-uploads')
   const handleFiles = (view: EditorView, event: ClipboardEvent | DragEvent, files: FileList | undefined) => {
@@ -67,8 +116,11 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
         if (view.isDestroyed || (bridge.attached && !bridge.attached())) { bridge.detachedImage(url, file.name); return }
         const pos = uploads.getState(view.state)?.get(id)
         if (pos === undefined) { bridge.detachedImage(url, file.name); return }
-        try { view.dispatch(view.state.tr.replaceRangeWith(pos, pos, view.state.schema.nodes.image.create({ src: url, alt: file.name })).setMeta(uploads, { remove: id })) }
-        catch { bridge.detachedImage(url, file.name); onUnsupported?.('图片已上传，插入位置发生变化，已追加到原笔记末尾。') }
+        try {
+          view.dispatch(view.state.tr.replaceRangeWith(pos, pos, view.state.schema.nodes.image.create({ src: url, alt: file.name })).setMeta(uploads, { remove: id }))
+          if (uploads.getState(view.state)?.has(id)) throw new Error('图片插入事务被拒绝')
+        }
+        catch { bridge.detachedImage(url, file.name); onUnsupported?.('图片已上传，当前位置无法安全插入，已追加到原笔记末尾。') }
       }).catch((error: unknown) => onUnsupported?.(error instanceof Error ? error.message : '图片上传失败，原文保持不变'))
         .finally(() => {
           if (!view.isDestroyed && (!bridge.attached || bridge.attached())) view.dispatch(view.state.tr.setMeta(uploads, { remove: id }))
@@ -131,7 +183,9 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev,
       attributes: { 'aria-label': 'Markdown 富文本编辑器', role: 'textbox', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' },
       handleDOMEvents: {
-        keydown: (_view, event) => {
+        keydown: (view, event) => {
+          // DOM 阶段先处理围栏，避免默认 Enter 分段快捷键先消费事件。
+          if (codeInput.props.handleKeyDown?.call(codeInput, view, event)) { event.preventDefault(); return true }
           if (event.key === 'Escape') { tabReleaseUntil = Date.now() + 2000; return false }
           if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && Date.now() < tabReleaseUntil) {
             tabReleaseUntil = 0
@@ -173,9 +227,20 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     }))
   })
   // 库的 markdownUpdated 带防抖；同步捕获文档事务，避免快速切换时遗漏最后输入。
-  if (onChange) crepe.editor.use($prose(() => new Plugin({
+  crepe.editor.use($prose(() => new Plugin({
+    filterTransaction(transaction) {
+      if (!transaction.docChanged || !preserver) return true
+      const result = prepareDocument(transaction.doc)
+      if (!('error' in result)) return true
+      queueMicrotask(() => onUnsupported?.(`此操作无法安全保留 Markdown，已阻止：${result.error} 可切换源码编辑，原文未被替换。`))
+      return false
+    },
     view: () => ({ update: (view, prev) => {
-      if (!view.state.doc.eq(prev.doc)) onChange(crepe.getMarkdown())
+      if (!preserver || view.state.doc.eq(prev.doc)) return
+      const result = prepareDocument(view.state.doc)
+      if ('error' in result) { onUnsupported?.(`Markdown 保源核对失败，未保存：${result.error}`); return }
+      result.commit(); prepared = undefined
+      if (result.source !== emittedSource) { emittedSource = result.source; onChange?.(result.source) }
     } }),
   })))
   return crepe
@@ -189,7 +254,7 @@ export async function inspectRoundTrip(source: string) {
   try {
     await editor.create()
     const serialized = editor.getMarkdown()
-    return { serialized, safe: equivalentSource(source, serialized) }
+    return { serialized, safe: prepareRichSource(editor, source).safe }
   } finally {
     await editor.destroy()
     root.remove()

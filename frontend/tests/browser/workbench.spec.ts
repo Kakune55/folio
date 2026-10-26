@@ -16,8 +16,11 @@ test('Markdown 真实 Crepe 往返快照', async ({ page }) => {
   expect(JSON.stringify(results, null, 2)).toMatchSnapshot('markdown-roundtrip.json')
   expect(results.find((item) => item.name === 'Unicode')?.safe).toBe(true)
   expect(results.find((item) => item.name === '嵌套任务列表')?.safe).toBe(true)
+  expect(results.find((item) => item.name === '表格')?.safe).toBe(true)
+  expect(results.find((item) => item.name === '空白与换行')?.safe).toBe(true)
   expect(results.find((item) => item.name === 'frontmatter')?.safe).toBe(false)
   expect(results.find((item) => item.name === '引用式链接')?.safe).toBe(false)
+  expect(results.find((item) => item.name === '脚注未承诺支持')?.safe).toBe(false)
 })
 
 test('快速切换保留最后输入，实例销毁后无旧回调写入', async ({ page }) => {

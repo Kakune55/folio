@@ -9,7 +9,11 @@ async function prepare(page: Page, name: string, content: string) {
   expect((await page.request.post('/api/v1/files', { headers: { 'X-CSRF-Token': principal.csrfToken }, data: { path: name, content } })).status()).toBe(201)
   await page.getByRole('button', { name: '刷新文件列表' }).click()
   await page.getByRole('button', { name, exact: true }).click()
-  if (name.endsWith('.md')) await page.getByRole('dialog', { name: '富文本转换预览' }).getByRole('button', { name: '保留原文，使用源码' }).click()
+  if (name.endsWith('.md')) {
+    // BOM/CRLF 已可保源准入；先等待检查完成，再显式切到待验证的源码模式。
+    await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
+    await page.getByRole('button', { name: '源码', exact: true }).click()
+  }
   await expect(page.getByRole('textbox', { name: '源码编辑器' })).toBeVisible()
 }
 async function login(page: Page) {

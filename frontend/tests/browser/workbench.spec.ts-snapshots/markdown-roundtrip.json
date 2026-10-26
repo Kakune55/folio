@@ -27,7 +27,7 @@
     "name": "表格",
     "source": "| 名称 | 状态 |\n| --- | --- |\n| 笔记 | 完成 |\n",
     "serialized": "| 名称 | 状态 |\n| -- | -- |\n| 笔记 | 完成 |\n",
-    "safe": false
+    "safe": true
   },
   {
     "name": "frontmatter",
@@ -57,7 +57,7 @@
     "name": "转义",
     "source": "\\*不是斜体\\* 与 \\[方括号\\]，路径 C:\\\\notes。\n",
     "serialized": "\\*不是斜体\\* 与 \\[方括号]，路径 C:\\notes。\n",
-    "safe": false
+    "safe": true
   },
   {
     "name": "引用式链接",
@@ -69,13 +69,13 @@
     "name": "空白与换行",
     "source": "# 空白\n\n\n段落尾随空格  \n下一行\n\n\n",
     "serialized": "# 空白\n\n段落尾随空格\\\n下一行\n",
-    "safe": false
+    "safe": true
   },
   {
     "name": "脚注未承诺支持",
     "source": "正文[^1]\n\n[^1]: 需要保留的脚注\n",
     "serialized": "正文[^1]\n\n[^1]: 需要保留的脚注\n",
-    "safe": true
+    "safe": false
   },
   {
     "name": "Unicode",

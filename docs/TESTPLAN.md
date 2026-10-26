@@ -595,3 +595,45 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 按用户要求移除详情的“替换内容”等标题及可见“修改前／修改后”文字，红色旧内容、绿色新内容上下无缝拼接，“收起”浮于右上角，不另占标题行；保留内容区 aria-label、键盘操作、预算／截断与通知生命周期。涉及 `editors/changes/details.ts`、`app.css`、`sse.spec.ts` 和 DESIGN。
 
 仅执行定向验证：前端 `npm run build -- --logLevel warn`、`npx oxlint src/editors/changes/details.ts tests/browser/sse.spec.ts` 通过；`npx vitest run src/editors/changes/details.test.ts` 3 项通过；同步嵌入资源后 `npx playwright test -c playwright.sse.config.ts -g '内联详情支持'` 4 项通过（12.6s），覆盖源码／富文本 × 桌面／手机、标题移除及红绿区域几何间距为零，原展开／收起／键盘及正文无回写断言继续通过。人工查看手机富文本浅色截图确认紧凑效果。未重复完整浏览器套件或后端测试；无正文、安全协议及数据生命周期变化，未重启日常服务，未提交。
+
+### M11 常见输入与保源编辑（2026-10-26，本阶段实际记录）
+
+用户授权自主实现、测试后提交并推送，之后明确允许细致回归。以下均为本阶段实际执行，不把 M10 历史记录当作通过证据。
+
+**实现与范围**
+
+- 新增 `editors/milkdown/preserve-source.ts`：从实际 remark AST 的 UTF-16 offset 建立顶层 raw／gaps 与 PM 语义映射，`prepare` 纯预检、`commit` 推进快照；允许多空行、表格对齐、Setext、转义、混合顶层列表、既有 tilde／长 fence 等排版差异直接进入 rich。只读、刷新、选区及模式切换不写入，不改变 ETag。实际编辑只生成改变的顶层块，复用未改 raw 与原 gap，候选重新解析严格匹配后才放行，无全文 serialize fallback。
+- `semanticDoc` 只排除 heading 派生 `id` 与 serializer 不持久化的 list_item `label/listType`；后者避免 splitListItem 复制旧编号而在 append 更新前被误拒绝。父列表类型、起始序号、`checked`、语言、hardbreak、`spread`、marks 及其他属性仍比较。可验证的唯一或同 raw 块移动复用原片段；同语义不同 raw 的身份歧义拒绝。仅投影一个与源码解析严格对应的默认尾部空段，不吞显式空段；在虚拟尾段输入会补足必要分隔后成为真实块。
+- 新增 `markdown-input.ts`：半角同类三个以上反引号／波浪号围栏、`c++`／`c#`／`shell-session`／`json` 等语言及空格／Enter，通过同一 Crepe code_block 创建。DOM 阶段优先于默认分段快捷键；全角、混合围栏、非空选区、组合输入、修饰键和正文后缀不误触发。已有正常反引号能力保留。
+- `engine.ts`／`RichEditor.tsx` 接入原文适配器，安全打开不再以 serializer 输出替换原文；事务事前过滤，拒绝明确提示。已上传图片的插入用占位标记是否真正移除判断是否被接纳，拒绝后进入已有追加恢复。内嵌 CM 被 PM 拒绝时恢复可见原代码；恢复期间临时失焦，阻止库把 B→A 恢复差量再次转发给仍为 A 的 PM，保留焦点和历史。
+- `SourceEditor.tsx` 修复完整回归发现的搜索定位竞争：显式搜索导航取消尚未执行的旧滚动恢复帧，卸载也取消帧；不靠测试手工滚动绕过。新增及调整浏览器用例、往返快照和规范；显式声明测试使用的已有 unified／remark 开发依赖，未升级运行时依赖，未修改后端或 API。
+
+**最终通过结果**
+
+| 实际命令／运行范围 | 本阶段结果 |
+| --- | --- |
+| `npm run build -- --logLevel warn`、`npm run lint` | 最终通过；保留既有大分块提示 |
+| `npm test` | 最终 14 文件／148 项通过；含真实 PM split、150 次连续提交、历史滚动、8／16 MiB 缓存、BOM／CRLF、预算、语义变化、空段、移动与 undo |
+| `python3 scripts/copy-dist.py` 后 `npx playwright test -c playwright.sse.config.ts` | 最终生产实服务 **46 项通过（2.4m）**；包含 15 项保源与围栏、9 项列表及原 SSE／外部写入专项 |
+| 默认 `npx playwright test` 全量范围及补跑 | 当前 **125 项功能浏览器分批覆盖并最终通过**，不是一次命令 125 项全绿，具体批次与初轮失败见下文 |
+| `npx playwright test tests/browser/files.spec.ts tests/browser/line-endings.spec.ts tests/browser/search-location.spec.ts tests/browser/rich-drag.spec.ts tests/browser/editor-preservation.spec.ts tests/browser/editor-upload-guard.spec.ts` | 最终相关 **30 项全过（2.1m）**，包含真实 412、字节保真、搜索可见、拖拽、短／长拒绝 CM 恢复 |
+| `npx playwright test tests/browser/workbench.spec.ts -g 'Markdown 真实 Crepe 往返快照'` | 非更新模式通过；只审核更新表格、转义、空白准入及未承诺脚注拒绝的四个 `safe` 值，serialized 未改 |
+| `LC_ALL=C go test ./...`、`go vet ./...` | 通过，部分包命中缓存；未宣称执行新的 race 检查 |
+
+默认全量初始收集 122 项，单次执行因工具 600 秒上限在第 100 项后停止，前 100 项 94 过、6 失败；确认并停止本轮遗留的临时 `18081`／Vite `5173`，未触碰日常 `8080`。剩余 22 项单独运行，21 过、1 项预期快照差异，更新审核后用非更新模式通过。六个初轮失败包含两项冲突时序、换行测试旧准入预期、两项拖拽旧全文规范化预期及一个真实搜索滚动竞争；修复后对应 30 项重验全过。随后追加两项列表回车及一项长短拒绝代码分组，总收集 125 项；不是用缩小范围或忽略失败得到总通过数。
+
+功能验证覆盖：只读／焦点／刷新／模式往返无 PUT/PATCH、整份源码与 ETag 不变；编辑别段按完整字符串检查未改格式；undo 精确恢复初始源码、redo 条件保存；SSE 接纳格式差异不退回源码、不回写，接续新 ETag 可写而旧 ETag 仍 412；四种围栏输入生成真实代码块、录入并重开无误报；全角与混合符号不误触发；frontmatter／未使用引用定义／code meta 不静默准入；段落 split、无序／有序列表回车、真实鼠标拖拽和撤销；恢复、附件、分享、管理员／用户设置、手机、搜索、Mermaid、标签与工作流原回归继续覆盖。
+
+注入拒绝测试明确使用 dev 页面真实 Crepe，加额外 PM filter 拒绝指定事务，不伪造服务成功响应。图片成功上传但插入拒绝后 fallback 一次、pending 归零、原文不变。代码分别输入极短与 20000 字符长值，确认每次只有一个被拒 PM 正文事务，恢复无反向正文转发、无 pageerror／越界错误、尾段及 source 不变，焦点恢复，undoDepth／redoDepth 不增。这是异常路径测试，不冒称生产原生剪贴板验收。
+
+**未通过的性能门槛**
+
+执行 `npx playwright test -c playwright.qa.config.ts`：8 项通过、1 项性能失败；浅／深 × 手机／桌面真实 Chromium AX／axe／键盘焦点及四项 Mermaid 生产流程通过。独立重跑 `npx playwright test -c playwright.qa.config.ts tests/qa/performance.spec.ts` 仍失败，未提高既有门槛或删断言。1202 文件样本中全文搜索 API 三次约 315–322ms，超过 100ms 预算；发生在打开编辑器前，本阶段未改后端搜索，不能据此声称编辑器导致或已经修复。162508 字节 rich、1060800 字节源码的实际保存精确性通过，编辑器输入样本仍低于 300ms 预算；三样本不是统计 p95。实际报告在 `artifacts/qa/performance.json`，此项保留为既有性能目标待处理，**不声明完整 QA 全绿**。
+
+**已发现并修复的失败与边界**
+
+初轮用例揭示 Crepe 尾部派生空段造成代码重开误报、虚拟尾段输入缺分隔、有序列表派生 label 在 append 前误拒绝，以及正常块移动被保守规则拦截；均补对应单元／真实浏览器验证。完整回归中冲突测试改为请求已发出后真实远端条件提交，再放行旧请求，保留旧 If-Match／真实 412／磁盘正文不覆盖断言；没有把 SSE 已提前接纳的新版本伪装成陈旧版本。换行测试改为新保源准入后显式切源码，全部原字节断言保留。拖拽测试按实际 AST 检查 raw 仅重排且原空白不丢，再精确核对 undo 原文，不要求整篇被规范化。搜索滚动失败修改应用而非用例绕过。
+
+保源限制：输入单份最多 100 万 UTF-16 字符、少于 20000 换行，生成前后合计最多 100 万字符；AST 10 万节点、LCS 25 万单元。历史最多 50 快照、16 MiB 总记账、8 MiB 单快照，固定保留初始及当前，提交时滚动淘汰其他记录；不因缓存累计满阻止正常输入。已淘汰历史不保证所有原格式字节。修改的列表／表格／引用／代码等顶层容器可能规范化；不是节点内部的最小字节补丁器。额外连续空段、来源歧义及不能表达的结构可能明确拒绝，源码入口保留。围栏输入不承诺所有缩进／info string 变体；已有合法源码能解析也不等于每种输入快捷形式已覆盖。
+
+尚未验证：其他浏览器、真实手机／IME／读屏器、Windows／NTFS、真实 HTTPS 代理缓冲；未重跑应用 API 26 操作真实契约、备份／容器部署或源码外的所有方言语法。文件仍唯一权威，SQLite 及 ETag／If-Match、未保存草稿与恢复保护不变。本轮均使用隔离账号／目录／临时服务，未重启日常 8080 服务。提交及推送状态以最终 Git 交付说明为准。

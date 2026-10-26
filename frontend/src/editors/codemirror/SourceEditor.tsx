@@ -19,6 +19,7 @@ import { preserveLineEndings } from './line-endings'
 export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: { navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: CrepeBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
   const [navigationView, setNavigationView] = useState<EditorView | null>(null)
   const editorView = useRef<EditorView | null>(null)
+  const restoreFrame = useRef<number | null>(null)
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!session.externalUpdate) editorView.current?.dispatch({ effects: clearSourceChangeMarks.of() })
@@ -87,19 +88,22 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     if (session.sourceView) {
       const saved = session.sourceView
       view.dispatch({ selection: { anchor: Math.min(saved.anchor, view.state.doc.length), head: Math.min(saved.head, view.state.doc.length) } })
-      requestAnimationFrame(() => { if (!disposed) { view.scrollDOM.scrollTop = saved.scrollTop; view.scrollDOM.scrollLeft = saved.scrollLeft } })
+      restoreFrame.current = requestAnimationFrame(() => { restoreFrame.current = null; if (!disposed) { view.scrollDOM.scrollTop = saved.scrollTop; view.scrollDOM.scrollLeft = saved.scrollLeft } })
     }
     editorView.current = view
     setNavigationView(view)
     const description = LanguageDescription.matchFilename(languages, session.path)
     if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
-    return () => { disposed = true; session.sourceView = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }; editorView.current = null; view.destroy() }
+    return () => { disposed = true; if (restoreFrame.current !== null) cancelAnimationFrame(restoreFrame.current); restoreFrame.current = null; session.sourceView = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }; editorView.current = null; view.destroy() }
   }, [session, sessions, onBlocked, bridge])
   useEffect(() => {
     const view = editorView.current
     if (!view || !searchTarget || searchTarget.path !== session.path || session.locked) return
     const range = literalRange(view.state.doc.toString(), searchTarget.query)
     if (range) {
+      // 显式搜索导航优先，不能再被初始化的延迟滚动恢复覆盖。
+      if (restoreFrame.current !== null) cancelAnimationFrame(restoreFrame.current)
+      restoreFrame.current = null
       view.dispatch({ selection: { anchor: range.from, head: range.to }, effects: EditorView.scrollIntoView(range.from, { y: 'center' }) })
       view.focus()
     }

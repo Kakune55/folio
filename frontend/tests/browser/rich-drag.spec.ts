@@ -1,4 +1,20 @@
 import { test, expect } from '@playwright/test'
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+
+const markdown = unified().use(remarkParse)
+function sourceParts(source: string) {
+  const raw: string[] = [], gaps: string[] = []
+  let end = 0
+  for (const block of markdown.parse(source).children) {
+    const start = block.position!.start.offset!, stop = block.position!.end.offset!
+    gaps.push(source.slice(end, start))
+    raw.push(source.slice(start, stop))
+    end = stop
+  }
+  gaps.push(source.slice(end))
+  return { raw, gaps: gaps.join('') }
+}
 
 for (const blank of [false, true]) test(`富文本无整圈焦点框，手柄拖到${blank ? '末尾空白区' : '段落下沿'}移动、保存和撤销`, async ({ page }) => {
   await page.goto('/')
@@ -26,8 +42,12 @@ for (const blank of [false, true]) test(`富文本无整圈焦点框，手柄拖
   await page.mouse.move(target!.x + 30, target!.y + target!.height + (blank ? 80 : -1), { steps: 15 })
   await page.mouse.up()
   await expect(rich.locator('p')).toHaveText(['第一段', '第三段', '第二段'])
-  const moved = '# 标题\n\n第一段\n\n第三段\n\n第二段\n'
-  await expect.poll(async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(name)}`)).json()).content).toBe(moved)
+  const before = sourceParts(original)
+  // 此样例的 gaps 全为 LF；移动可补分隔，但原有 LF 不得丢失，raw 必须逐字保留且仅重排。
+  await expect.poll(async () => sourceParts((await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(name)}`)).json()).content)).toEqual({
+    raw: [before.raw[0], before.raw[1], before.raw[3], before.raw[2]],
+    gaps: expect.stringMatching(new RegExp(`^\\n{${before.gaps.length},}$`)),
+  })
   await rich.focus(); await page.keyboard.press('Control+z')
   await expect(rich.locator('p')).toHaveText(['第一段', '第二段', '第三段'])
   await expect.poll(async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(name)}`)).json()).content).toBe(original)

@@ -37,9 +37,17 @@ TanStack Query 管理远端元数据与失效刷新，Zustand 管理临时界面
 
 ## 编辑与序列化
 
-文件原文经 Crepe 解析、编辑、序列化后才可条件保存，渲染 DOM 不是正文权威。差异必须经用户预览确认或回到源码，图片仅保存标准相对路径。
+文件原文经 Crepe 解析、编辑并安全生成候选后才可条件保存，渲染 DOM 不是正文权威。字节差异诊断与保源兼容判定分开；兼容原文不因纯格式差异改写，不安全转换必须经用户预览确认或回到源码，图片仅保存标准相对路径。
 
-`editors/milkdown/engine.ts` 使用 Milkdown `remarkCtx.parse(source)` 的真实 AST，遍历 `listItem`，按其 `position.start.offset` 读取源码 bullet；不能以逐行正则将代码块等伪列表算入。所有无序项统一为 `-`、`*` 或 `+` 时设置 `remarkStringifyOptionsCtx` 的 `bullet` 保留原风格，无列表默认 `-`。混合风格或其他不可安全往返内容继续严格转换确认，外部接纳则明确回退源码；不放松 `equivalentSource`，不改变 ETag。实际浏览器验证及未覆盖范围见 TESTPLAN。
+`editors/milkdown/engine.ts` 使用 Milkdown `remarkCtx.parse(source)` 的真实 AST，遍历 `listItem`，按其 `position.start.offset` 读取源码 bullet；不能以逐行正则将代码块等伪列表算入。所有无序项统一为 `-`、`*` 或 `+` 时设置 `remarkStringifyOptionsCtx` 的 `bullet` 保留原风格，无列表默认 `-`。`equivalentSource` 等字节诊断不代替保源兼容判定，混合风格须由保源映射与语义检查决定，不安全内容继续严格转换确认，外部接纳则明确回退源码；不改变 ETag。历史浏览器验证及未覆盖范围见 TESTPLAN，不代表 M11 已通过。
+
+M11 新增 `editors/milkdown/preserve-source.ts`，以 raw AST 顶层 source ranges／gaps 与实际 ProseMirror 文档语义建立映射，允许表格对齐、多空行、Setext 等格式差异安全准入，未编辑原文不更新会话或保存。真正编辑只序列化变更顶层块并与未变源码及空白拼接；列表、表格、引用按整体容器处理，可能整体规范化，禁止全文序列化 fallback。`prepare` 纯预检、`commit` 才推进基线；唯一或同 raw 块移动复用原片段，同语义不同 raw 的身份歧义拒绝。
+
+候选重新解析后须匹配 actual PM 语义，通过 `filterTransaction` 在应用前阻止不安全改动，避免先污染编辑器再报错。仅忽略 heading 派生 `id`，以及已安装 serializer 不持久化的 list_item `label/listType`；父列表类型、起始序号、`checked`、代码语言、hardbreak 与 `spread` 均严格比较，避免在派生序号更新前误拒绝列表拆分。frontmatter、引用定义／reference、code meta 等 PM 不表达语法仍走转换确认／源码；结构歧义、映射失败或预算不足明确拒绝，不静默降级。合法半角 tilde／长反引号 fence、`c++` 等语言与空格／Enter 创建在 DOM 阶段先于默认分段快捷键处理，不改变原 ETag、草稿、恢复与生命周期。
+
+保源单份输入最多 100 万 UTF-16 字符、少于 20000 换行，候选前后正文合计最多 100 万字符；AST 最多 10 万节点，LCS 最多 25 万单元。滚动历史最多 50 快照、合计 16 MiB、单快照 8 MiB，按源码／语义／切片作保守 UTF-16 记账；始终保留初始及当前快照，提交时淘汰旧缓存，不能因累计快照数阻止正常输入。初始撤销精确恢复；已淘汰历史可重建但不承诺全部格式字节。仅当移除最后一个默认空 paragraph 后与原文解析严格一致，才把它视为 Crepe 尾部占位，不把真实显式空段当空白吞掉。
+
+内嵌 CodeMirror 先更新缓冲再提交 PM；若事务拒绝，微任务比对实际 PM 代码并恢复可见缓冲，恢复期间用公开 blur／focus 阻断库的反向转发，且不加入历史；避免把被拒的 B→A 恢复差量错误应用到仍为 A 的 PM。上传成功后用占位标记是否移除确认插入事务确实接纳，拒绝则沿用附件追加恢复入口。源码搜索命中会取消待执行的旧滚动恢复帧，使显式导航优先。实际结果与未达标性能门槛见 TESTPLAN。
 
 CodeMirror 内部 LF 文本与原始 UTF-8 会话字符串分离：新行采用原文首个分隔符，异常分隔符保存在不可变 RangeSet，随事务移动/删除，反向历史效果在撤销时恢复。序列化重建原分隔符后再更新会话、磁盘与恢复缓存；统一换行文件无需逐行标记。BOM 保留，异步图片追加沿用原格式，元数据不写入 Markdown。
 
