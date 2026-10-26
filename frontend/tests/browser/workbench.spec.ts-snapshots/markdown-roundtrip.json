@@ -20,8 +20,8 @@
   {
     "name": "嵌套任务列表",
     "source": "- [ ] 第一项\n  - [x] 嵌套完成\n",
-    "serialized": "* [ ] 第一项\n  * [x] 嵌套完成\n",
-    "safe": false
+    "serialized": "- [ ] 第一项\n  - [x] 嵌套完成\n",
+    "safe": true
   },
   {
     "name": "表格",

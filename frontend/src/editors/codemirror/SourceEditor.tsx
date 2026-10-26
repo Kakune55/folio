@@ -1,3 +1,4 @@
+import { clearSourceChangeMarks, sourceChangeMarks } from '../changes/source'
 import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
 import { markdownLinkAt } from './links'
 import { SourceNavigation } from '../navigation/SourceNavigation'
@@ -20,7 +21,11 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
   const editorView = useRef<EditorView | null>(null)
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (!session.externalUpdate) editorView.current?.dispatch({ effects: clearSourceChangeMarks.of() })
+  }, [session.externalUpdate])
+  useEffect(() => {
     let disposed = false
+    const generation = session.generation
     const lineEndings = preserveLineEndings(session.source)
     const language = new Compartment()
     const uploads = new Map<symbol, number>()
@@ -42,7 +47,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     }
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
-      extensions: [lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(),
+      extensions: [sourceChangeMarks(session.externalUpdate), lineNumbers(), highlightSpecialChars(), drawSelection(), history(), bracketMatching(),
         lineEndings.extension, codeTheme, keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' }),
         EditorView.domEventHandlers({
@@ -72,18 +77,23 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
           if (update.docChanged || update.viewportChanged || update.selectionSet) update.view.dom.dispatchEvent(new Event('folio-navigation'))
           if (update.docChanged) {
             for (const [id, position] of uploads) uploads.set(id, update.changes.mapPos(position))
-            sessions.update(session.path, lineEndings.serialize(update.state))
+            if (!disposed && session.generation === generation) sessions.update(session.path, lineEndings.serialize(update.state))
           }
         }),
       ],
     }) })
     view.scrollDOM.tabIndex = 0
     view.scrollDOM.setAttribute('aria-label', '源码滚动区域')
+    if (session.sourceView) {
+      const saved = session.sourceView
+      view.dispatch({ selection: { anchor: Math.min(saved.anchor, view.state.doc.length), head: Math.min(saved.head, view.state.doc.length) } })
+      requestAnimationFrame(() => { if (!disposed) { view.scrollDOM.scrollTop = saved.scrollTop; view.scrollDOM.scrollLeft = saved.scrollLeft } })
+    }
     editorView.current = view
     setNavigationView(view)
     const description = LanguageDescription.matchFilename(languages, session.path)
     if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
-    return () => { disposed = true; editorView.current = null; view.destroy() }
+    return () => { disposed = true; session.sourceView = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }; editorView.current = null; view.destroy() }
   }, [session, sessions, onBlocked, bridge])
   useEffect(() => {
     const view = editorView.current

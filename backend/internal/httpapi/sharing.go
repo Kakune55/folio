@@ -136,7 +136,7 @@ func (a *api) registerSharing(mux *http.ServeMux) {
 		}
 		p, _ := a.Auth.Authenticate(sessionToken(r))
 		result, err := a.Shares.Import(r.PathValue("id"), shareCookie(r, r.PathValue("id")), input.File, p.ID, input.Directory)
-		a.indexChange(err, result)
+		a.indexChange(r, err, result)
 		if err != nil {
 			shareError(w, err)
 			return

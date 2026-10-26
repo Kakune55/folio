@@ -254,3 +254,27 @@ GET /files/content 不传 startLine／lineCount 时保持原全文响应结构�
 片段保留原 Content 字段并增加 {startLine,endLine,lineCount,requestedLineCount,totalLines,returnedSize,hasMore,nextLine,isPartial}。content 是片段，size 是完整文件字节数，returnedSize 是片段字节数。lineCount 为实际返回行数，endLine 为实际末行，nextLine 是下一段起始；无返回行则 endLine=0，无后续则 nextLine=0。越过 EOF 返回 200 空片段；hasMore 只指后方还有行，isPartial 才说明不是全文。
 
 全文与按行模式都可携带可选 If-Match，必须为单个完整强 ETag；与已读取完整正文版本不符返回 412。分段需要同一快照时，将首段 ETag 用于每个后续请求。返回 revision／ETag 始终是完整文件版本，可直接用于 PATCH 条件修改；不要把片段作为完整 PUT 候选。按行模式不绕过文件类型或文本上限，仍安全读取整文件后做有界字节切片，节约传输／模型 token 而非承诺大文件流式读取。
+
+## 工作区 SSE 通知（2026-10-26）
+
+GET /api/v1/workspace/events?workspace=<当前工作区身份> 仅接受浏览器 Cookie 会话，拒绝 Bearer（即使同时有 Cookie），不进入面向应用令牌的 OpenAPI 白名单。GET 校验账号／工作区和来源，响应 text/event-stream; charset=utf-8、no-store、X-Accel-Buffering:no；HEAD 返回 405。当前账号最多同时 4 条流，超限 429 events_limit，缺少通知组件 503 events_unavailable。
+
+事件帧使用 `event: resync/change/auth` 与 JSON data，重连间隔提示 retry:2000（毫秒）：
+
+- resync：{reset:true}，每次连接必发；前端核对已打开会话和目录，不依赖历史事件重放。
+- change：{paths:[工作区相对路径],source?:{name:认证令牌名称}}，或 {reset:true}；正文新建／保存／diff、上传、目录新建、移动、回收、恢复提交后发出；移动包括旧、新路径。不传正文或版本、不允许选择其他账号。source 是可选元数据，只允许从成功鉴权的 Access Token 上下文生成，不含令牌值；没有可信来源时省略，前端显示“来源未确认”。结果可能已提交的不确定文件错误也发核对提示。
+- auth：{}，账号会话失效，结束流；客户端通过原 /auth/me 核对并进入既有登录保护。
+
+每 15 秒发送心跳注释，并在心跳和每个变更发送前重新认证；静默时撤销最迟到下次心跳停止。每条连接最多排队一个事件，慢连接合并成 reset，不积累路径；不提供 Last-Event-ID 重放或持久事件日志。重连必须完整核对。应用直接宿主文件写入不生成 SSE，仍靠可见页面的 10 秒版本检测和焦点核对。
+
+服务按连接清理读写截止时间，单次发送设置 10 秒写入上限，避免全局 120 秒 WriteTimeout 截断正常流；进程关闭主动结束流。代理仍需允许流式传输，X-Accel-Buffering 只是提示，不承诺所有代理配置自动正确。
+
+source 的实际契约为可选 {name}，仅包含认证 Access Token 名称，不携带版本。source 仅用于事件提示，不是审计或重新读取正文的精确版本作者；合并、reset、重连及轮询不能据此推断归因。
+
+最新授权允许点击黄色修改条、红色删除三角及绿色新增条，就地展开对应变更段的修改前／后内容，包括被替换和删除的原文。源码采用 CodeMirror 6 block widget，富文本采用 ProseMirror widget 展示对应顶层块的前后 Markdown；均为只读装饰，不写文档、历史或草稿，无独立 Diff 弹窗，支持再次点击／收起／Escape，且键盘可达。details 与原标记共享前后合计 100 万字符、任一文本 2 万行的输入预算；单次展开前后合计最多 200 行／20000 字符，超限明确省略或截断。该交互只使用页面内存中的前后内容，不扩展 SSE 载荷、不新增详情接口，也不改变通知和 If-Match 回滚协议。
+
+浏览器收到提示后重新读取版本及正文：干净且已打开的可读取文本立即加载，源码行／富文本块标记与展开 peek 和通知决策同生命周期，无图例或额外 Diff 弹窗。右下角按文件通知显示路径、“文件已被远程修改 +新增行 -删除行”、灰色小字认证令牌名称（不确定则“来源未确认”），提供接受（10s 倒计时自动保留）／等待／回滚。提前接受及 10 秒自动接受立即清除通知及其全部标记／peek，不调用写接口，展开不延迟清理。同文件连续变化保留本轮初始正文，合并统计并更新最新通知版本、重置 10 秒；等待后暂停并去掉等待按钮，后续变化保持暂停，无时限保留直到决策。有本地草稿则不覆盖，暂停倒计时和自动保存，沿用既有冲突／保留副本入口。本地编辑仍清除位置失效的标记／peek，但不代替通知决策。仅非通知重载可保留旧 8 秒规则，不得让 SSE 通知独立 8 秒过期。
+
+回滚复用现有全文写接口，以最新通知对应的远程版本作为 If-Match 恢复本轮初始正文；版本冲突拒绝，不覆盖后续版本，不通过重读后无条件重试绕过冲突。保留本地草稿，脏草稿回滚后继续暂停自动保存。通知与初始正文仅存页面内存，非备份；仅已打开可读取文本有完整统计／回滚，删除及非文本沿用现有提示。不增加接受／等待专用接口。
+
+回滚成功清除通知、旧标记及 peek，不新增回滚结果的 8 秒提示；失败保留通知和恢复入口。装饰清理由 CodeMirror StateEffect／ProseMirror meta 完成，不重建编辑器，不动正文、选区或撤销历史，不新增接口或 SSE 字段。Markdown 的统一 `-`／`*`／`+` bullet 由客户端通过 `remarkCtx.parse(source)` 真实 AST `listItem` 的源码 offset 检测，以 `remarkStringifyOptionsCtx.bullet` 保留，无列表默认 `-`；混合或其他不安全往返仍严格确认，外部重载回退源码，不放松 `equivalentSource`，不改变任何 ETag／If-Match 协议。

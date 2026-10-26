@@ -141,12 +141,12 @@ func TestFileAPIsUpdateOnlyAffectedSearchPaths(t *testing.T) {
 	}
 	// 不确定的磁盘操作结果仍需核对；恢复目标未知时执行一次全量补偿。
 	a := &api{Options: Options{Search: index}}
-	a.indexChange(&storage.Error{Code: "durability_uncertain"}, "external.txt")
+	a.indexChange(nil, &storage.Error{Code: "durability_uncertain"}, "external.txt")
 	wait("external_unnotified_token", "", 1)
 	if err := os.WriteFile(filepath.Join(root, "uncertain.txt"), []byte("uncertain_restore_token"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	a.indexChange(&storage.Error{Code: "trash_incomplete"})
+	a.indexChange(nil, &storage.Error{Code: "trash_incomplete"})
 	wait("uncertain_restore_token", "", 1)
 	fileStatus := call("GET", "/search/file-status?path=moved/uploaded.yaml", nil, "")
 	check(fileStatus, 200)

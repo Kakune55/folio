@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile, writeFile, rename, mkdir, stat, utimes } from 'node:fs/promises'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 async function prepare(page: Page, nested = false) {
-  const root = (await readFile(resolve('../artifacts/browser-workspace-path'), 'utf8')).trim()
+  const root = (await readFile(fileURLToPath(new URL('../../../artifacts/browser-workspace-path', import.meta.url)), 'utf8')).trim()
   const name = `外部修改-${Date.now()}`
   const path = nested ? `${name}/笔记.md` : `${name}.md`
   if (nested) await mkdir(join(root, name))
@@ -20,20 +21,17 @@ async function prepare(page: Page, nested = false) {
   return { root, path, name, source }
 }
 
-test('真实磁盘同大小同 mtime 改写会提示，显式加载后显示新版本', async ({ page }) => {
+test('真实磁盘同大小同 mtime 改写由兜底核对后自动加载', async ({ page }) => {
   const { root, path, source } = await prepare(page)
   const before = await stat(join(root, path))
   await writeFile(join(root, path), '# 磁盘改写\n')
   await utimes(join(root, path), before.atime, before.mtime)
-  await expect(page.getByRole('button', { name: '加载磁盘版本', exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(source).toContainText('初始内容')
-  await page.getByRole('button', { name: '加载磁盘版本', exact: true }).click()
-  await expect(source).toContainText('磁盘改写')
+  await expect(source).toContainText('磁盘改写', { timeout: 15000 })
   await expect(page.locator('.save-status')).toHaveText('已保存')
   expect(await readFile(join(root, path), 'utf8')).toBe('# 磁盘改写\n')
   await page.route('**/api/v1/files/revision?**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: '测试检查失败' } }) }))
   await page.getByRole('button', { name: '刷新文件列表' }).click()
-  await expect(page.getByText('部分文件的磁盘变更检查失败，当前正文已保留，请重试。', { exact: true })).toBeVisible()
+  await expect(page.getByText('部分文件的更新核对失败，当前正文已保留，请重试。', { exact: true })).toBeVisible()
   await expect(source).toContainText('磁盘改写')
   await page.unroute('**/api/v1/files/revision?**')
   await page.getByRole('button', { name: '重新检查', exact: true }).click()

@@ -1,3 +1,5 @@
+import { externalMarks } from './external-marks'
+import type { ExternalUpdate } from './external-marks'
 import type { FileMetadata, ViewerKind } from '../services/api'
 
 export type EditorMode = 'rich' | 'source'
@@ -7,6 +9,9 @@ export type Session = {
   revision: string; state: SaveState; error: string; generation: number
   viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number; locked: boolean
   external?: 'changed' | 'missing'
+  externalUpdate?: ExternalUpdate
+  sourceView?: { anchor: number; head: number; scrollTop: number; scrollLeft: number }
+  richScrollTop?: number
 }
 type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
@@ -17,6 +22,7 @@ export class WorkspaceSessions {
   private listeners = new Set<() => void>()
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private pending = new Map<string, Promise<boolean>>()
+  private highlightTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private version = 0
   private reservations = new Set<string>()
   private transport?: SaveTransport
@@ -36,19 +42,21 @@ export class WorkspaceSessions {
   list() { return [...this.sessions.values()] }
   update(path: string, source: string) {
     const session = this.get(path)
+    const hadMarks = !!session.externalUpdate
+    if (hadMarks) { delete session.externalUpdate; const timer = this.highlightTimers.get(session.id); if (timer) clearTimeout(timer); this.highlightTimers.delete(session.id) }
     session.source = source
     const dirty = source !== session.original || ['saving', 'error', 'conflict'].includes(session.state)
     const state: SaveState = session.external ? 'conflict' : session.state === 'saving' || session.state === 'error' || session.state === 'conflict' ? session.state : dirty ? 'dirty' : 'saved'
     const changed = dirty !== session.dirty || state !== session.state
     session.dirty = dirty; session.state = state
     if (session.external) { session.dirty = true; session.error = '磁盘文件已变化，本地草稿仍保留，请比较版本或另存副本' }
-    if (changed) this.emit(); else this.notifyBuffers()
+    if (changed || hadMarks) this.emit(); else this.notifyBuffers()
     this.schedule(session)
   }
   private schedule(session: Session, delay = 800) {
     const previous = this.timers.get(session.path); if (previous) clearTimeout(previous)
     this.timers.delete(session.path)
-    if (this.suspended || session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
+    if (this.suspended || session.external || session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
     this.timers.set(session.path, setTimeout(() => { this.timers.delete(session.path); void this.save(session.path) }, delay))
   }
   save(path: string, duringOperation = false): Promise<boolean> {
@@ -81,11 +89,29 @@ export class WorkspaceSessions {
     }
     return false
   }
-  // 只在用户已下载/保留本地副本后，通过显式操作加载远端内容。
-  acceptRemote(path: string, source: string, revision: string) {
+  clearExternalUpdate(path: string) {
+    const session = this.get(path)
+    const timer = this.highlightTimers.get(session.id)
+    if (timer) clearTimeout(timer)
+    this.highlightTimers.delete(session.id)
+    if (session.externalUpdate) { delete session.externalUpdate; this.emit() }
+  }
+  // 调用方须完成干净会话核对，或由用户明确保留本地副本后再接纳远端。
+  acceptRemote(path: string, source: string, revision: string, highlight: boolean | 'notice' = false, highlightFrom?: string) {
     if (this.pending.has(path)) throw new Error('保存尚未结束，请稍后重试')
     const session = this.get(path)
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    const oldHighlight = this.highlightTimers.get(session.id); if (oldHighlight) clearTimeout(oldHighlight)
+    this.highlightTimers.delete(session.id); delete session.externalUpdate
+    const previousSource = highlightFrom ?? session.source
+    if (highlight && previousSource !== source) {
+      const update = { id: crypto.randomUUID(), previousSource: previousSource.length <= 1_000_000 ? previousSource : undefined, ...externalMarks(previousSource, source), expiresAt: highlight === 'notice' ? null : Date.now() + 8000 }
+      session.externalUpdate = update
+      if (update.expiresAt !== null) this.highlightTimers.set(session.id, setTimeout(() => {
+        this.highlightTimers.delete(session.id)
+        if (this.sessions.get(session.path) === session && session.externalUpdate?.id === update.id) { delete session.externalUpdate; this.emit() }
+      }, 8000))
+    }
     session.source = source; session.original = source; session.revision = revision; session.dirty = false
     session.state = 'saved'; session.error = ''; session.external = undefined; session.generation++; this.emit()
   }
@@ -97,10 +123,19 @@ export class WorkspaceSessions {
     if (session.dirty) { session.state = 'conflict'; session.error = external === 'missing' ? '原文件已被移走或删除，本地草稿仍保留，可另存副本' : '磁盘文件已变化，本地草稿仍保留，请比较版本' }
     this.emit()
   }
+  acceptRollback(path: string, original: string, revision: string) {
+    const session = this.get(path)
+    this.clearExternalUpdate(path)
+    if (!session.dirty) { this.acceptRemote(path, original, revision); return }
+    session.original = original; session.revision = revision; session.external = undefined
+    session.dirty = session.source !== original; session.state = session.dirty ? 'error' : 'saved'; session.error = session.dirty ? '远程修改已回滚，本地草稿仍保留；请核对后手动保存或另存副本。' : ''
+    this.emit()
+  }
   remove(path: string, duringOperation = false) {
     const session = this.get(path)
     if ((session.locked && !duringOperation) || session.dirty || session.pendingUploads || this.pending.has(path)) return false
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    const highlight = this.highlightTimers.get(session.id); if (highlight) clearTimeout(highlight); this.highlightTimers.delete(session.id)
     this.sessions.delete(path); this.emit(); return true
   }
   isLocked(path: string) { return [...this.reservations].some((prefix) => path === prefix || path.startsWith(`${prefix}/`)) }

@@ -84,7 +84,7 @@ func (a *api) registerEntries(mux *http.ServeMux) {
 			return
 		}
 		err := a.Workspace.Move(body.From, body.To, revision)
-		a.indexChange(err, body.From, body.To)
+		a.indexChange(r, err, body.From, body.To)
 		if err != nil {
 			storageError(w, err)
 			return
@@ -97,7 +97,7 @@ func (a *api) registerEntries(mux *http.ServeMux) {
 			return
 		}
 		record, err := a.Workspace.Trash(r.URL.Query().Get("path"), revision)
-		a.indexChange(err, r.URL.Query().Get("path"))
+		a.indexChange(r, err, r.URL.Query().Get("path"))
 		if err != nil {
 			storageError(w, err)
 			return
@@ -119,9 +119,9 @@ func (a *api) registerEntries(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/trash/{id}/restore", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		path, err := a.Workspace.Restore(r.PathValue("id"))
 		if err == nil {
-			a.indexChange(nil, path)
+			a.indexChange(r, nil, path)
 		} else {
-			a.indexChange(err)
+			a.indexChange(r, err)
 		}
 		if err != nil {
 			storageError(w, err)

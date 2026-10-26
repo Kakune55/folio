@@ -40,3 +40,46 @@ it('重新加载期间继续编辑，保留本地输入而不是应用晚到正�
   expect(session.source).toBe('读取期间的新草稿')
   await sessions.flush('甲.md')
 })
+
+it('实时核对自动接纳干净会话，标记驻留 8 秒', async () => {
+  vi.useFakeTimers()
+  const sessions = setup(), session = sessions.get('甲.md')
+  vi.spyOn(api, 'textRevision').mockResolvedValue({ path: '甲.md', revision: '外部版本' })
+  vi.spyOn(api, 'metadata').mockResolvedValue({ path: '甲.md', size: 6, viewer: 'markdown', mediaType: 'text/markdown', mtime: '' })
+  vi.spyOn(api, 'read').mockResolvedValue({ path: '甲.md', content: '新原文', revision: '外部版本', size: 9, kind: 'text', encoding: 'utf-8', mtime: '' })
+  await reconcileSession(sessions, session, undefined, true)
+  expect(session).toMatchObject({ source: '新原文', original: '新原文', revision: '外部版本', dirty: false })
+  expect(session.externalUpdate?.marks).toEqual([{ line: 1, kind: 'modified' }])
+  await vi.advanceTimersByTimeAsync(8000)
+  expect(session.externalUpdate).toBeUndefined()
+  vi.useRealTimers()
+})
+
+it('自动读取期间有输入，保留草稿并暂停保存，不推进外部版本', async () => {
+  const sessions = setup(), session = sessions.get('甲.md')
+  vi.spyOn(api, 'textRevision').mockResolvedValue({ path: '甲.md', revision: '外部版本' })
+  vi.spyOn(api, 'metadata').mockResolvedValue({ path: '甲.md', size: 6, viewer: 'markdown', mediaType: 'text/markdown', mtime: '' })
+  let complete!: (value: Awaited<ReturnType<typeof api.read>>) => void
+  vi.spyOn(api, 'read').mockImplementation(() => new Promise(resolve => { complete = resolve }))
+  const pending = reconcileSession(sessions, session, undefined, true)
+  await vi.waitFor(() => expect(complete).toBeTypeOf('function'))
+  sessions.update('甲.md', '新输入')
+  complete({ path: '甲.md', content: '远端正文', revision: '外部版本', size: 12, kind: 'text', encoding: 'utf-8', mtime: '' })
+  await pending
+  expect(session).toMatchObject({ source: '新输入', revision: 'v1', dirty: true, state: 'conflict' })
+  expect(session.externalUpdate).toBeUndefined()
+  expect(await sessions.save('甲.md')).toBe(false)
+})
+
+it('自动重载继承父取消信号，取消后的响应不接纳正文', async () => {
+  const sessions = setup(), session = sessions.get('甲.md'), controller = new AbortController()
+  vi.spyOn(api, 'metadata').mockResolvedValue({ path: '甲.md', size: 6, viewer: 'markdown', mediaType: 'text/markdown', mtime: '' })
+  let complete!: (value: Awaited<ReturnType<typeof api.read>>) => void
+  vi.spyOn(api, 'read').mockImplementation((_path, signal) => { expect(signal).toBeDefined(); return new Promise(resolve => { complete = resolve }) })
+  const pending = reloadCleanSession(sessions, session, controller.signal)
+  await Promise.resolve()
+  controller.abort()
+  complete({ path: '甲.md', content: '不应接纳', revision: '外部版本', size: 12, kind: 'text', encoding: 'utf-8', mtime: '' })
+  await expect(pending).rejects.toThrow()
+  expect(session).toMatchObject({ source: '原文', revision: 'v1' })
+})

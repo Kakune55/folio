@@ -76,7 +76,7 @@ func (a *api) registerAttachments(mux *http.ServeMux) {
 			return
 		}
 		metadata, err := a.Workspace.Upload(r.URL.Query().Get("directory"), name, &singleUpload{part: part, reader: reader}, r.URL.Query().Get("image") == "true")
-		a.indexChange(err, path.Join(r.URL.Query().Get("directory"), name))
+		a.indexChange(r, err, path.Join(r.URL.Query().Get("directory"), name))
 		if err != nil {
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {

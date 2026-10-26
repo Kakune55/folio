@@ -5,7 +5,7 @@ import { dropIndicatorPlugin } from '@milkdown/kit/plugin/cursor'
 import { safeDropIndicator } from './drop-indicator'
 import { entryMime, hasEntryTransfer, readEntryTransfer } from '../../features/explorer/entry-transfer'
 import { Crepe } from '@milkdown/crepe'
-import { editorViewOptionsCtx } from '@milkdown/kit/core'
+import { editorViewOptionsCtx, remarkCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import { $view, $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
@@ -30,6 +30,8 @@ export function equivalentSource(source: string, serialized: string) {
   const withoutFinalNewline = (value: string) => value.endsWith('\n') ? value.slice(0, -1) : value
   return withoutFinalNewline(source) === withoutFinalNewline(serialized)
 }
+
+type MarkdownNode = { type: string; position?: { start: { offset?: number } }; children?: MarkdownNode[] }
 
 export function createCrepe(root: HTMLElement, source: string, onChange?: (source: string) => void, onUnsupported?: (message?: string) => void, bridge?: CrepeBridge) {
   let tabReleaseUntil = 0
@@ -113,6 +115,17 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     }))
   }
   crepe.editor.config((ctx) => {
+    const bullets = new Set<'-' | '*' | '+'>()
+    const visit = (node: MarkdownNode) => {
+      if (node.type === 'listItem' && node.position?.start.offset !== undefined) {
+        const marker = source[node.position.start.offset]
+        if (marker === '-' || marker === '*' || marker === '+') bullets.add(marker)
+      }
+      node.children?.forEach(visit)
+    }
+    // 使用解析节点位置，不把代码块或行内文本中的符号误认为列表风格。
+    visit(ctx.get(remarkCtx).parse(source))
+    ctx.update(remarkStringifyOptionsCtx, previous => ({ ...previous, bullet: bullets.size === 1 ? [...bullets][0] : '-' }))
     // 不使用库的临时 blob 上传；真实上传由带会话保护的桥接处理。
     ctx.update(uploadConfig.key, (prev) => ({ ...prev, uploader: async () => { onUnsupported?.(); return [] } }))
     ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev,

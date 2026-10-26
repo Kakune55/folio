@@ -536,3 +536,62 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 行为与限制：startLine 从 1 开始，lineCount 为 1–1000；传任一参数时缺省分别为 1／100，不传时原全文响应完全保留。选中字符和换行原样返回；size、revision／ETag 始终指完整文件，returnedSize 指片段，lineCount 是实际行数。尾段 hasMore=false 仍可能 isPartial=true；无实际返回行时 endLine=0，无后续时 nextLine=0。空文件／仅 BOM 为 0 行，BOM 仅 startLine=1 保留。
 
 没有改写正文或索引、没有新增权限。单次读取仍用原安全 Store.Read 校验完整文本，并读取全文以确认版本和总行数；不绕过文本上限、不承诺任意大文件流式读取，也没有按字节限制每行长度。跨请求不持有快照锁，调用方用可选 If-Match 固定完整版本，412 时保留候选并重新核对，不能混合拼接。原有外部宿主写入竞争边界不变。仅使用隔离测试账号／目录，未重启 8080；未本轮重新验证备份／容器、真实 Windows／NTFS、其他浏览器或真实设备。
+
+
+### M10 SSE 与外部更新标记（2026-10-26）
+
+新增按账号隔离的有界 SSE Hub、Cookie 专用 GET /api/v1/workspace/events，以及浏览器串行核对／自动接收干净正文。源码按行、富文本按语义块显示黄色修改、绿色新增和指向删除位置的红色小三角，末尾删除标在末行下方；8 秒后或本地编辑时清除，不显示图例。有草稿时不覆盖或自动打开对话框，工具栏保存及 Ctrl/Cmd+S 才进入既有差异确认／保留副本流程。实现涉及 httpapi/events.go、accounts.go、api.go、server/main.go、useExternalChanges、sessions、SourceEditor／RichEditor、editors/changes 和样式；协议、产品、设计、架构、路线图及 Agent 指南同步。
+
+本次实际验证：
+
+- `go -C backend test ./...`、`go -C backend test -race ./internal/httpapi`、`go -C backend vet ./...` 通过。专项覆盖有界合并、账号 Hub 隔离、连接数上限、关闭与退订、真实 HTTP 流、超过全局写超时仍可推送、未认证／跨来源／错误工作区／Bearer 拒绝、dryRun 无通知、目录通知与会话撤销。
+- `npm --prefix frontend run build` 通过，保留既有大包提示；`python3 scripts/copy-dist.py` 更新嵌入资源。`npm --prefix frontend run lint` 通过，`npm --prefix frontend test` 为 10 个文件、33 项通过，含变更定位、限额、8 秒清除和读取期间输入保护。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.sse.config.ts` 最终 7 项通过（32.2s），使用隔离生产服务。覆盖独立 Bearer 客户端修改后自动更新、三色与删除三角、8 秒清除、无回写、离线上线重连核对、未保存草稿与手动保存／快捷键冲突比较、保留副本、富文本语义标记、不安全富文本回退源码，以及读取过程中输入不被覆盖。源码 1440／1024／390 像素明暗主题截图及无障碍检查通过；人工检查最终手机源码与富文本截图，确认没有图例。
+- 初轮浏览器测试发现旧专项截图路径依赖工作目录、手机抽屉遮挡、Crepe 初始化清除装饰；修正后又发现离线事件未主动断开旧流、派生标题 ID 误报修改，已分别补充离线暂停与语义比较，再次完整运行上述 7 项通过。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 1 项通过（12.1s），文档筛选、失败重试、明暗三视口无障碍和草稿往返保留回归通过。
+- `git diff --check` 通过。
+- `/tmp/folio-api-validation/bin/python scripts/application-api-test.py` 通过：26 个应用契约操作、82 个真实请求。SSE 为 Cookie 专用，不扩展应用令牌白名单。
+
+边界：仅应用提交即时通知，宿主直接写入仍依赖 10 秒兜底与焦点检查；通知不含正文、不代替 If-Match，也不保留重放日志。每账号最多 4 个连接，慢消费者合并为全量核对；15 秒心跳复核身份，退出或撤销空闲会话至多一个心跳周期后关闭。前端批量、串行核对，忙碌编辑延迟重试；失败明确显示并保留正文。
+
+超过比较预算时明确提示仅部分／未显示标记；字符总数 100 万、单侧 20000 换行、2000 标记及原有 LCS 预算限制沿用实现。源码按行，富文本按顶层语义块，不提供块内逐行标记。远程接收会重建当前编辑器并重置其撤销栈；尽量恢复源码选区／滚动与富文本滚动，不承诺编辑位置逐字符映射。未引入自动合并或强制覆盖。仅使用隔离测试目录和账号，未重启日常 8080 服务；HTTPS 代理缓冲、真实设备／读屏器、其他浏览器、Windows／NTFS 与容器部署未本次重验。
+
+### M10 通知操作与就地差异展开（2026-10-26，后续本轮）
+
+保持干净正文即时加载，在右下角增加按文件通知：增删行统计、认证 Access Token 名称、接受（10 秒自动确认）／等待／回滚。同文件连续变化合并并重计时，等待后跨后续变化保持暂停；统计、编辑器标记及展开详情对照本轮初始正文。接受不写盘，回滚通过最新通知版本的 If-Match 恢复初始正文；有草稿不覆盖，回滚保留草稿且继续暂停自动保存。
+
+黄条、红三角和绿条可就地展开修改前／后；源码使用 CM6 block widget，富文本使用 ProseMirror widget 展示顶层块 Markdown，均为只读装饰，不写正文或撤销历史。支持再次点击、收起、Escape、Enter／Space 和展开状态。展开期间保留详情，超过原 8 秒后收起即清除；输入仍立即清理。共享输入预算为前后 100 万字符、任一侧 20000 换行，展开前后合计最多 200 行／20000 字符并明确提示截断。
+
+涉及新增 `sessions/remote-notices.ts`、`RemoteChangeNotices.tsx`、`editors/changes/details.ts` 及测试；调整会话协调、源码／富文本标记插件、Workbench 和样式。后端 SSE 增加可选 `source:{name}`，仅取自通过鉴权的令牌；Cookie、reset、背压及结果不确定时不传名称。名称只说明事件来源，不承诺随后读取版本的精确作者，不包含其他令牌属性。原 SSE／ETag 和账号隔离边界不变。
+
+本轮实际执行，独立于上节历史记录：
+
+- 后端目录执行 `LC_ALL=C go test ./...`、`go test -race ./internal/httpapi`、`go vet ./...`：通过，部分包命中 Go 缓存。普通 locale 的首轮全量测试曾因 GNU diff 输出中文末行标记失败，固定 `LC_ALL=C` 后通过；未把该环境失败隐藏为业务通过。
+- 前端目录执行 `npm run build -- --logLevel warn`、`npm run lint`、`npm test`：最终通过；单元为 12 个文件、42 项，覆盖连续合并／暂停、条件回滚与失败、草稿保护、接受与下一轮读取竞争、父信号取消，以及差异分组、EOF 与比较预算。生产构建仍有既有大分块警告。`python3 scripts/copy-dist.py` 已同步最终嵌入资源。
+- 前端目录执行 `npx playwright test -c playwright.sse.config.ts`：最终完整 18 项通过（54.4s），运行临时生产服务 `127.0.0.1:18081`。覆盖即时显示、来源及统计、10 秒倒计时／连续合并／等待、接受无回写、真实回滚与后续并发 412、草稿及读取期间输入保护、原宿主写入／断线补偿，以及两种编辑器普通／末尾删除点击展开、关闭／键盘、展开超期驻留、源码行号对齐、正文与磁盘版本不变。包括 1440／390 像素明暗截图与无横向溢出检查；现有源码页 WCAG 检查随专项通过，不将其扩大为所有新详情的完整无障碍认证。
+- 人工查看 `artifacts/sse/peek-source-390-dark.png`、`peek-rich-390-light.png`、`peek-rich-1440-dark.png`，确认详情就地显示、红绿前后文本可读、通知位于右下、无图例及独立弹窗，源码行号随展开内容正确对齐。
+- 首轮手机用例因未打开文件抽屉失败，时钟暂停取到过去时间导致偶发失败，分别修正测试准备及未来暂停点。额外行号断言发现 CM6 块装饰的垂直外边距未计入高度，去除源码详情外边距后完整专项通过。修复接受上一轮期间读取下一轮时复活旧回滚基准的竞态，并补充单测；错误路径核对会话身份／版本，非文本重载继承父取消信号。最初 TypeScript 参数属性不符合 `erasableSyntaxOnly`，已改为显式字段并构建通过。
+
+边界：通知与初始正文仅存在本页内存，不是持久历史或备份；只对已打开可读取文本提供完整统计／回滚，删除或非文本沿用原提示。富文本详情是顶层块序列化 Markdown，不保证保留旧文所有空白字节，需精确核对可用源码。大差异可能仅部分标记／统计近似，展开明确截断，不改变真实正文。自动接收依旧重置编辑器撤销栈。未重跑全量业务浏览器、应用 API 26 操作契约、备份／容器或新增详情的完整读屏验收；上节对应结果是历史记录。真实 HTTPS 代理、其他浏览器、真实手机／IME／读屏器、Windows／NTFS 仍未验证。未重启日常 8080 服务，未创建 Git 提交。
+
+### 列表原风格与通知统一生命周期（2026-10-26，继续本轮）
+
+用户补充列表符号格式变化可能导致无意义版本变化与 Agent 412，且 diff 显示必须与询问通知一致。调整 `editors/milkdown/engine.ts`：在已安装 Milkdown 7.22.3 的 `remarkCtx` 解析真实 AST，按 `listItem.position.start.offset` 检测原始统一 `-`／`*`／`+` 风格，设置公开 `remarkStringifyOptionsCtx.bullet`，保留其他序列化配置；无列表默认 `-`。不使用全文替换或将代码块里的符号计入风格，不放松 `equivalentSource`；混合及其他不可安全往返内容仍确认转换或外部回退源码。
+
+通知路径使用 `highlight: 'notice'`，`ExternalUpdate.expiresAt: null` 代表不独立过期。提前接受或 10 秒自动接受时通知、标记、已展开 peek 一同消失；等待后一直保留直到决策，连续更新继续暂停。本地输入仍清除失效装饰；回滚成功清理旧标记且不生成新的 8 秒提示，失败保留通知。源码 `StateEffect` 与富文本 ProseMirror meta 清理装饰，不重建编辑器；不触发保存，不改变正文／选区／撤销历史。非通知重载的旧 8 秒规则保留。涉及会话、两种标记插件、SourceEditor／RichEditor 桥接及相应测试，规范同步。
+
+本轮实际验证，与上节 18 项历史结果区分：
+
+- 在更新生产资源前执行前端目录 `npx playwright test -c playwright.sse.config.ts sse-lists.spec.ts -g '列表 短横线'`：按预期失败。错误快照明确显示“富文本转换预览”中原文 `- 第一项`／`- 第二项` 变成 `*`，证明旧 serializer 风格变化；没有据此声称仅打开就静默保存。
+- `npm run build -- --logLevel warn`、`python3 scripts/copy-dist.py`：通过，保留既有大分块提示；构建后才运行修复验收。`npm run lint` 通过。`npm test` 最终 12 文件／46 项通过，新增持久标记、接受／等待／本地输入清理与源码装饰清理不改变正文、选区和撤销历史测试。
+- 前端目录 `npx playwright test -c playwright.sse.config.ts sse-lists.spec.ts`：列表专项 8 项通过（37.9s）。覆盖三种统一列表符号、嵌套、任务、引用、代码块假列表；只读／选区及 Agent 更新无浏览器回写，原文与版本不变；真实富文本编辑仅保存一次且保留列表风格，Agent 用最新版本继续写入成功、陈旧版本仍拒绝 412。混合风格取消转换后无回写、原始正文和版本不变。
+- 前端目录 `npx playwright test -c playwright.sse.config.ts`：最终完整 **30 项通过（1.5m）**。新增源码／富文本各两项，验证等待 20 秒标记及展开详情仍保留，接受后立即全部清除；第 9 秒仍存在，第 10 秒自动接受后全部清除，正文和磁盘 revision 不变。连续更新暂停、本地输入清理、回滚失败及旧安全回归继续通过；1440／390 像素明暗截图及源码行号对齐断言保留。不是把此前只读文档研究或 18 项结果冒充本轮通过。
+- 追加执行 `npx playwright test tests/browser/workbench.spec.ts`：最终不带快照更新选项的完整 **9 项通过（21.4s）**，覆盖真实 Crepe 往返、有损转换取消／确认、陈旧预览拒绝、快速切换及三视口。首轮快照按预期只在“嵌套任务列表”出现差异；审核后仅更新该语料的 `serialized`（保留短横线）和 `safe: true`，保留其他语料全部预期，并补充嵌套任务列表安全断言。使用生成器恢复 JSON 快照原本无末尾换行格式后，以非更新模式重新验证通过。人工查看本轮 `peek-rich-390-light.png`，确认等待状态只有接受／回滚，详情仍在原位，无图例或额外弹窗。
+
+边界：本次仅修改前端及文档，未改 ETag／If-Match、服务端保存或强制重试策略；因此没有再次运行 Go 测试、全量应用契约或所有业务浏览器，前节对应结果属于历史。统一 bullet 的保留不是任意 Markdown 的无损格式编辑器，混合标记、特殊分隔线及其他序列化差异仍可能要求确认／源码；真实并发编辑依旧可能正确返回 412。通知与回滚基准仍仅存页面内存；等待不构成持久备份。真实 HTTPS 代理、其他浏览器、真实手机／IME／读屏器及 Windows／NTFS 等限制不变。未创建 Git 提交，未重启日常 8080 服务。
+
+### 紧凑内联差异（2026-10-26）
+
+按用户要求移除详情的“替换内容”等标题及可见“修改前／修改后”文字，红色旧内容、绿色新内容上下无缝拼接，“收起”浮于右上角，不另占标题行；保留内容区 aria-label、键盘操作、预算／截断与通知生命周期。涉及 `editors/changes/details.ts`、`app.css`、`sse.spec.ts` 和 DESIGN。
+
+仅执行定向验证：前端 `npm run build -- --logLevel warn`、`npx oxlint src/editors/changes/details.ts tests/browser/sse.spec.ts` 通过；`npx vitest run src/editors/changes/details.test.ts` 3 项通过；同步嵌入资源后 `npx playwright test -c playwright.sse.config.ts -g '内联详情支持'` 4 项通过（12.6s），覆盖源码／富文本 × 桌面／手机、标题移除及红绿区域几何间距为零，原展开／收起／键盘及正文无回写断言继续通过。人工查看手机富文本浅色截图确认紧凑效果。未重复完整浏览器套件或后端测试；无正文、安全协议及数据生命周期变化，未重启日常服务，未提交。

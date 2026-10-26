@@ -15,6 +15,7 @@ test('Markdown 真实 Crepe 往返快照', async ({ page }) => {
   }, fixtures)
   expect(JSON.stringify(results, null, 2)).toMatchSnapshot('markdown-roundtrip.json')
   expect(results.find((item) => item.name === 'Unicode')?.safe).toBe(true)
+  expect(results.find((item) => item.name === '嵌套任务列表')?.safe).toBe(true)
   expect(results.find((item) => item.name === 'frontmatter')?.safe).toBe(false)
   expect(results.find((item) => item.name === '引用式链接')?.safe).toBe(false)
 })

@@ -22,7 +22,7 @@ func (a *api) registerPatch(mux *http.ServeMux) {
 		name := r.URL.Query().Get("path")
 		result, err := a.Workspace.Patch(name, body.Diff, revision, body.DryRun)
 		if !body.DryRun && (err != nil || result.Changed) {
-			a.indexChange(err, name)
+			a.indexChange(r, err, name)
 		}
 		if err != nil {
 			storageError(w, err)

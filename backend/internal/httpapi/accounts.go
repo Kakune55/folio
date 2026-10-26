@@ -23,6 +23,7 @@ import (
 )
 
 type accountWorkspace struct {
+	events  *changeHub
 	handler http.Handler
 	store   *storage.Store
 	index   *search.Index
@@ -30,17 +31,18 @@ type accountWorkspace struct {
 	id      string
 }
 type Accounts struct {
-	shares  *sharing.Service
-	started time.Time
-	diskMu  sync.Mutex
-	mu      sync.Mutex
-	cfg     config.Config
-	auth    *auth.Service
-	assets  fs.FS
-	roots   *os.Root
-	data    *os.Root
-	entries map[int64]*accountWorkspace
-	base    http.Handler
+	eventsStopped bool
+	shares        *sharing.Service
+	started       time.Time
+	diskMu        sync.Mutex
+	mu            sync.Mutex
+	cfg           config.Config
+	auth          *auth.Service
+	assets        fs.FS
+	roots         *os.Root
+	data          *os.Root
+	entries       map[int64]*accountWorkspace
+	base          http.Handler
 }
 
 func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Accounts, error) {
@@ -172,9 +174,13 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 	options := a.options()
 	options.Workspace = store
 	options.Search = index
+	options.Events = newChangeHub()
+	if a.eventsStopped {
+		options.Events.close()
+	}
 	options.OwnerID = id
 	options.WorkspaceID = a.auth.WorkspaceID(fmt.Sprintf("user:%d:%s", id, identity))
-	entry := &accountWorkspace{handler: New(a.assets, options), store: store, index: index, trash: recovery, id: options.WorkspaceID}
+	entry := &accountWorkspace{events: options.Events, handler: New(a.assets, options), store: store, index: index, trash: recovery, id: options.WorkspaceID}
 	a.entries[id] = entry
 	return entry, nil
 }
@@ -209,8 +215,12 @@ func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (a *Accounts) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.eventsStopped = true
 	var err error
 	for _, e := range a.entries {
+		if e.events != nil {
+			e.events.close()
+		}
 		err = errors.Join(err, e.index.Close(), e.trash.Close(), e.store.Close())
 	}
 	return errors.Join(err, a.shares.Close(), a.roots.Close(), a.data.Close())

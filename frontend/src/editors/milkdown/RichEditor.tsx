@@ -1,3 +1,4 @@
+import { clearRichChangeMarks, installRichChangeMarks } from '../changes/rich'
 import { RichNavigation } from '../navigation/RichNavigation'
 import type { Crepe } from '@milkdown/crepe'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
@@ -19,9 +20,15 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
   const host = useRef<HTMLDivElement>(null)
   const [navigationEditor, setNavigationEditor] = useState<Crepe>()
   const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (ready && !session.externalUpdate && editorRef.current) clearRichChangeMarks(editorRef.current)
+  }, [ready, session.externalUpdate])
   const [conversion, setConversion] = useState<{ original: string; converted: string; accept: () => void }>()
   useEffect(() => {
     const original = session.source
+    const generation = session.generation
+    const remoteUpdate = session.externalUpdate
+    const scroll = host.current!.parentElement!
     const root = document.createElement('div')
     root.className = 'rich-editor-root'
     root.style.visibility = 'hidden'
@@ -29,9 +36,10 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
     let disposed = false
     let accepted = false
     const editor = createCrepe(root, original,
-      (source) => { if (accepted && !disposed) sessions.update(session.path, source) },
+      (source) => { if (accepted && !disposed && session.generation === generation) sessions.update(session.path, source) },
       (message) => onBlocked(message ?? '示例模式不提供文件上传和导航，请使用标准 Markdown 源码。'),
       bridge ? { ...bridge, attached: () => !disposed && accepted } : undefined)
+    const paintChanges = remoteUpdate ? installRichChangeMarks(editor, remoteUpdate) : undefined
     editorRef.current = editor
     const created = editor.create().then(async () => {
       if (disposed) return
@@ -42,6 +50,10 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
       }
       const converted = editor.getMarkdown()
       if (!equivalentSource(original, converted)) {
+        if (remoteUpdate) {
+          onBlocked('外部更新的 Markdown 需要转换才能富文本编辑，已保留完整原文并切到源码；可手动切回富文本核对。')
+          sessions.setMode(session.path, 'source'); return
+        }
         setConversion({ original, converted, accept: () => {
           if (disposed) return
           if (session.source !== original || session.locked || !sessions.has(session.path) || sessions.get(session.path) !== session) {
@@ -59,10 +71,12 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
         } })
         return
       }
+      if (session.externalUpdate === remoteUpdate) paintChanges?.()
       accepted = true
       root.style.visibility = ''
       setReady(true)
       setNavigationEditor(editor)
+      requestAnimationFrame(() => { if (!disposed && session.richScrollTop !== undefined) scroll.scrollTop = session.richScrollTop })
     }).catch((error: unknown) => {
       if (!disposed) {
         onBlocked(`富文本编辑器加载失败，原文已保留：${error instanceof Error ? error.message : '未知错误'}`)
@@ -71,6 +85,7 @@ export default function RichEditor({ session, sessions, onBlocked, bridge, searc
     })
     return () => {
       disposed = true
+      session.richScrollTop = scroll.scrollTop
       if (editorRef.current === editor) editorRef.current = null
       // 每次挂载使用独立宿主，异步创建完成后仍会销毁，避免旧实例污染新文件。
       void created.then(() => editor.destroy()).catch(console.error).finally(() => root.remove())

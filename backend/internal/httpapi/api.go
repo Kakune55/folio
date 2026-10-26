@@ -20,6 +20,7 @@ import (
 )
 
 type Options struct {
+	Events       *changeHub
 	Shares       *sharing.Service
 	System       *Accounts
 	OwnerID      int64
@@ -180,10 +181,14 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		if access != nil {
+			r = withChangeSource(r, access.Name)
+		}
 		next(w, r)
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerEvents(mux)
 	a.registerPatch(mux)
 	a.registerApplication(mux)
 	a.registerTokens(mux)
@@ -297,6 +302,9 @@ func (a *api) register(mux *http.ServeMux) {
 			storageError(w, err)
 			return
 		}
+		if a.Events != nil {
+			a.Events.publish(requestSource(r), body.Path)
+		}
 		writeJSON(w, 201, map[string]string{"path": body.Path})
 	}))
 }
@@ -352,7 +360,7 @@ func (a *api) write(w http.ResponseWriter, r *http.Request, create bool) {
 		revision = strings.Trim(revision, `"`)
 	}
 	newRevision, err := a.Workspace.Write(name, body.Content, revision, create)
-	a.indexChange(err, name)
+	a.indexChange(r, err, name)
 	if err != nil {
 		storageError(w, err)
 		return
@@ -372,15 +380,22 @@ func parseInt(raw string, out *int) (int, error) {
 }
 
 // 文件系统报错可能发生在发布后；已知路径仍核对，不确定恢复路径时全量补偿。
-func (a *api) indexChange(err error, paths ...string) {
-	if a.Search == nil {
-		return
-	}
+func (a *api) indexChange(r *http.Request, err error, paths ...string) {
 	if err != nil {
 		var problem *storage.Error
 		if errors.As(err, &problem) && problem.Code != "durability_uncertain" && problem.Code != "trash_failed" && problem.Code != "trash_incomplete" {
 			return
 		}
+	}
+	if a.Events != nil {
+		var source *changeSource
+		if err == nil && r != nil {
+			source = requestSource(r)
+		}
+		a.Events.publish(source, paths...)
+	}
+	if a.Search == nil {
+		return
 	}
 	if len(paths) == 0 {
 		a.Search.Refresh(false)

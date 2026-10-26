@@ -88,6 +88,28 @@ func TestAccountsIsolationManagementAndQuota(t *testing.T) {
 		return signIn(name, "user-password-12345")
 	}
 	alice, bob := create("alice"), create("bob")
+	aliceEntry, err := handler.get(alice.Principal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobEntry, err := handler.get(bob.Principal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceEntry.events == bobEntry.events {
+		t.Fatal("不同账号共用了通知通道")
+	}
+	ownEvents, err := aliceEntry.events.subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobEntry.events.publish(&changeSource{Name: "Bob 应用"}, "bob-only.txt")
+	select {
+	case <-ownEvents:
+		t.Fatal("其他账号事件进入本人通知")
+	default:
+	}
+	aliceEntry.events.unsubscribe(ownEvents)
 	if alice.WorkspaceID == bob.WorkspaceID {
 		t.Fatal("工作区身份相同")
 	}

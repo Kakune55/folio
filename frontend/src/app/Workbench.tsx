@@ -21,6 +21,7 @@ import type { Principal, FileContent } from '../services/api'
 import { workspace } from '../sessions/current'
 import { reloadCleanSession } from '../sessions/reconcile'
 import { useExternalChanges } from '../features/explorer/useExternalChanges'
+import { RemoteChangeNotices } from '../features/explorer/RemoteChangeNotices'
 import { useUI } from '../stores/ui'
 import { getDraftManager } from '../sessions/drafts'
 import { DraftRecovery } from '../features/recovery/DraftRecovery'
@@ -93,7 +94,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const [comparisonLoading, setComparisonLoading] = useState(false)
   const [copyPath, setCopyPath] = useState('')
   const comparisonSequence = useRef(0)
-  const external = useExternalChanges()
+  const external = useExternalChanges(workspaceId)
   const [remote, setRemote] = useState<FileContent>()
   const requestSequence = useRef(0)
   const onBlocked = useCallback((message: string) => setNotice(message), [setNotice])
@@ -246,6 +247,23 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     }
   }, [closeFile])
 
+  const loadComparison = useCallback(async (target?: Session) => {
+    const session = target ?? current
+    if (!session) return
+    const path = session.path, sequence = ++comparisonSequence.current
+    setComparison({ session, path }); setRemote(undefined); setComparisonError(''); setComparisonLoading(true)
+    setCopyPath(path.replace(/(\.[^/.]+)?$/, `.本地-${crypto.randomUUID().slice(0, 12)}$1`))
+    try { const file = await api.read(path); if (sequence === comparisonSequence.current) setRemote(file) }
+    catch (error) { if (sequence === comparisonSequence.current) setComparisonError(error instanceof Error ? error.message : '磁盘版本读取失败，可另存本地草稿') }
+    finally { if (sequence === comparisonSequence.current) setComparisonLoading(false) }
+  }, [current])
+  const handleSave = useCallback(async (path: string) => {
+    if (!workspace.has(path)) return
+    const session = workspace.get(path)
+    const saved = await workspace.save(path)
+    if (!saved && workspace.has(path) && workspace.get(path) === session && useUI.getState().activePath === path && (session.state === 'conflict' || session.external)) await loadComparison(session)
+  }, [loadComparison])
+
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || uploads.length || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
@@ -270,23 +288,14 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       if (modifier && !event.altKey && !event.shiftKey && key === 'p') { event.preventDefault(); setSearchOpen(true); event.stopPropagation(); return }
       if (modifier && !event.altKey && event.shiftKey && key === 'f') { event.preventDefault(); setSearchOpen(true); event.stopPropagation(); return }
       if (modifier && !event.altKey && !event.shiftKey && key === 'b' && !(event.target instanceof Element && event.target.closest('input,textarea,[contenteditable="true"]'))) { event.preventDefault(); useUI.getState().toggleSidebar(); return }
-      if (modifier && !event.altKey && !event.shiftKey && key === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void workspace.save(path) }
+      if (modifier && !event.altKey && !event.shiftKey && key === 's') { event.preventDefault(); const path = useUI.getState().activePath; if (workspace.has(path) && ['markdown', 'text'].includes(workspace.get(path).viewer)) void handleSave(path) }
     }
     window.addEventListener('beforeunload', beforeUnload); window.addEventListener('keydown', keydown, true)
     return () => { window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('keydown', keydown, true) }
-  }, [uploading, uploads.length, closeFile, openFile])
+  }, [uploading, uploads.length, closeFile, openFile, handleSave])
 
 
   const startCreate = (kind: 'file' | 'directory') => { setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
-  const loadComparison = async () => {
-    if (!current) return
-    const session = current, path = session.path, sequence = ++comparisonSequence.current
-    setComparison({ session, path }); setRemote(undefined); setComparisonError(''); setComparisonLoading(true)
-    setCopyPath(path.replace(/(\.[^/.]+)?$/, `.本地-${crypto.randomUUID().slice(0, 12)}$1`))
-    try { const file = await api.read(path); if (sequence === comparisonSequence.current) setRemote(file) }
-    catch (error) { if (sequence === comparisonSequence.current) setComparisonError(error instanceof Error ? error.message : '磁盘版本读取失败，可另存本地草稿') }
-    finally { if (sequence === comparisonSequence.current) setComparisonLoading(false) }
-  }
   const closeComparison = () => { if (!busy) { comparisonSequence.current++; setComparison(undefined) } }
   const handleKeepSeparate = async () => {
     if (!comparison) return
@@ -349,16 +358,18 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
         {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
-        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || current.state === 'conflict' || !current.dirty || !!current.external} onClick={() => void workspace.save(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
+        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || (!current.dirty && !current.external)} onClick={() => void handleSave(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
         <Button size="icon" aria-label="创建分享" title="创建分享链接" disabled={current.locked} onClick={() => setSharingPath(current.path)}><Link2 size={16} /></Button>
       </div></div>}
       <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
       {tabRestore.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{tabRestore.warning}</span><Button onClick={tabRestore.retry}>重试标签记录</Button><Button onClick={tabRestore.reset}>仅记住当前标签</Button></div>}
       {recovery.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{recovery.warning}</span><Button onClick={() => void manager.retry().catch(() => {})}>重试本地存储</Button></div>}
+      {current?.externalUpdate && <span className="visually-hidden" role="status">已加载外部更新。临时标记将在八秒后消失。</span>}
+      {current?.externalUpdate?.limited && <div className="notice" role="status">已加载外部更新；修改范围较大，标记仅供参考或已省略。</div>}
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
-      {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void workspace.save(current.path)}>重试保存</Button>}</div>}
+      {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void handleSave(current.path)}>重试保存</Button>}</div>}
       {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor navigationOpen={navigationOpen} session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
     <footer className="statusbar" aria-label="编辑状态">
@@ -366,6 +377,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {current && <FileStatus session={current} onSearch={() => setSearchOpen(true)} />}
       <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} /><span className="recovery-label">浏览器恢复稿</span><span className="recovery-count">{recovery.entries.length || ''}</span></Button>
     </footer>
+    <RemoteChangeNotices notices={external.notices} onConflict={session => void loadComparison(session)} />
 
     <Dialog.Root open={!!discardUpload} onOpenChange={(value) => { if (!value) setDiscardUpload(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>移除待上传原件？</Dialog.Title><Dialog.Description>「{discardUpload?.file.name}」移除后将不再由当前页面保留。请先确认已上传或已下载原件；此操作不会删除服务器文件。</Dialog.Description><div className="dialog-actions"><Button onClick={() => setDiscardUpload(undefined)}>取消</Button><Button variant="outline" onClick={() => { if (discardUpload) uploadQueue.remove(discardUpload.id); setDiscardUpload(undefined) }}>确认移除原件</Button></div></DialogContent></Dialog.Portal></Dialog.Root>
     <DraftRecovery manager={manager} open={recoveryOpen} onOpenChange={setRecoveryOpen} onNotice={onBlocked} onOpen={(path) => { void client.invalidateQueries({ queryKey: ['tree'] }); void openFile(path) }} />
