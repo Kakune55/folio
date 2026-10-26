@@ -40,11 +40,16 @@ curl --fail-with-body --silent --show-error \
 
 - 目录：`GET /workspace/tree?path=...&offset=0&limit=200`，只列直接子项。空目录路径表示工作区根；按返回的 total／offset／limit 分页，不要假设结果是递归树或一致快照。
 - 搜索：`GET /search?q=...` 默认全文，`mode=names` 为名称／路径。查询最多 200 个 Unicode 字符；limit 最多 200，没有分页，检查 truncated，不要把截断结果当完整清单。不支持正则或 FTS 运算符。
-- 文本：`GET /files/content?path=...` 返回已保存原文、revision 和 ETag。看不到浏览器未保存草稿；不能据此声称草稿不存在。
+- 文本：`GET /files/content?path=...` 不加范围时返回已保存全文、revision 和 ETag。`lineCount=100` 读取前 100 行；`startLine=50&lineCount=30` 从第 50 行读 30 行。传任一范围参数即进入按行模式，默认起始 1、行数 100，每次最多 1000 行。看不到浏览器未保存草稿。
+- 片段返回 startLine、endLine、lineCount（实际返回）、requestedLineCount、totalLines、hasMore、nextLine、isPartial 和 returnedSize；size／revision／ETag 始终指完整文件。hasMore=false 只代表后面没有行，不代表片段就是全文；必须看 isPartial。越过 EOF 返回空片段，lineCount/endLine/nextLine 为 0。
+- 跨段读取使用首段 ETag 作为后续请求 If-Match；变化时 412，保留候选修改，重新读取同一版本的上下文，不混合拼接不同版本。内容不加行号，按 startLine 计算完整文件坐标；LF／CRLF／CR 分行，末尾分隔符不产生虚构空行，空文件／仅 BOM 为 0 行，BOM 只在起始为 1 的区间保留。
+- **禁止将片段 content 直接 PUT 覆盖整篇文件。** 局部修改优先读取目标行及上下文，再提交带全文件行号的 PATCH diff；要全量 PUT 时必须先取得同一版本的完整正文。按行读取仍受全文文本上限，单行也可能很长；超限用下载，不通过窗口绕过限制。
 - 二进制或超限文本：先读 `/files/metadata`，再通过 `/files/download` 获取原始字节，不要用文本接口解码后重编码。预览仅支持安全位图／PDF，HTML／SVG 不活动执行。
 - 路径使用工作区相对路径；查询参数进行 URL 编码，JSON 内的路径不预编码。拒绝绝对路径、越根、链接或特殊文件时，不尝试替换编码绕过。
 
 ## 4. 修改正文：必须使用原版本
+
+局部任务可以按行读取所需上下文，再使用下文 diff 接口，无需先读取全文。以下步骤适用于必须提交完整候选正文的 PUT 更新：
 
 1. 先读取完整原文，保存正文及该次响应的强 ETag。
 2. 只进行用户要求的修改，保留无关正文、Markdown 标记、注释、BOM 和原始换行。不要无意把 CRLF／混合换行统一为 LF。

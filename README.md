@@ -115,3 +115,6 @@ Agent 可先读取 `/api/v1/agent.md`，了解连接、权限、条件保存和�
 
 
 局部修改可使用 `PATCH /api/v1/files/content?path=...` 提交单文件 unified diff，仍须原版本 `If-Match` 和文件读写权限；可先 `dryRun:true` 校验。上下文或版本不匹配时整份拒绝，详见应用 API 接入指南与 `/api/v1/agent.md`。
+
+
+文本 API 也支持 `GET /api/v1/files/content?path=...&lineCount=100`（前 100 行）与 `startLine=50&lineCount=30`。不传范围保持全文；片段携带完整文件版本，可用于 diff 修改。检查 `isPartial`，不要把片段 PUT 成整篇正文；跨段用 `If-Match` 核对同一版本。

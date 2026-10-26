@@ -21,7 +21,7 @@
 | GET | /workspace/tree?path=&offset=&limit= | 列出目录直接子项 |
 | GET | /files/metadata?path= | 文件分类与预览元数据 |
 | GET | /files/revision?path= | 有限文本版本，不返回正文 |
-| GET | /files/content?path= | 读取 UTF-8 正文与版本 |
+| GET | /files/content?path=&startLine=&lineCount= | 读取 UTF-8 全文或逻辑行区间与完整文件版本 |
 | PUT | /files/content?path= | 条件更新现有文本 |
 | PATCH | /files/content?path= | 用单文件 unified diff 条件修改局部文本 |
 | POST | /files | 不覆盖地创建文本文件 |
@@ -245,3 +245,12 @@ GET /api/v1/agent.md 匿名返回 text/markdown; charset=utf-8，支持 HEAD，�
 PATCH /files/content?path=... 使用 JSON {diff,dryRun?} 与完整强 If-Match。files=write，Cookie 仍执行来源／CSRF。diff 为严格单文件 unified diff，多块全部验证后才调用现有条件保存，绝不部分提交。dryRun 默认 false；true 时只校验当前读取版本及候选，返回原 revision／ETag、不写入、不更新索引、不预留配额。结果 {path,revision,dryRun,changed,addedLines,deletedLines,size,savedAt?}；size 指完整候选的 UTF-8 字节数，savedAt 仅实际改写时返回。
 
 400 invalid_patch：格式、计数、顺序或文件头无效；409 patch_mismatch：指定位置的上下文／删除内容／末尾换行不匹配；413 patch_too_large：补丁超过 1 MiB／20000 操作行／256 块，或源／结果超过 200000 行。正文仍受现有文本／配额限制，428／412／500 持续沿用原条件保存语义。完整格式、BOM／换行继承、无末尾换行标记及不支持范围见 APPLICATION_API.md；OpenAPI 与 agent.md 已同步。不支持偏移／模糊匹配、跨文件或通过补丁创建／删除／改名文件。
+
+
+### 按逻辑行读取（2026-10-26）
+
+GET /files/content 不传 startLine／lineCount 时保持原全文响应结构；传任一个则返回按行片段：startLine 默认 1、lineCount 默认 100，行号为 1-based，行数 1–1000。参数空值、重复、非整数、非正或行数超限为 400 invalid_line_range。source 以 LF／CRLF／CR 为逻辑分隔，末尾分隔符不额外产生空行，空文件／仅 BOM 为 0 行。BOM 只随 startLine=1 的区间保留，所有已选字符和分隔符不改写。
+
+片段保留原 Content 字段并增加 {startLine,endLine,lineCount,requestedLineCount,totalLines,returnedSize,hasMore,nextLine,isPartial}。content 是片段，size 是完整文件字节数，returnedSize 是片段字节数。lineCount 为实际返回行数，endLine 为实际末行，nextLine 是下一段起始；无返回行则 endLine=0，无后续则 nextLine=0。越过 EOF 返回 200 空片段；hasMore 只指后方还有行，isPartial 才说明不是全文。
+
+全文与按行模式都可携带可选 If-Match，必须为单个完整强 ETag；与已读取完整正文版本不符返回 412。分段需要同一快照时，将首段 ETag 用于每个后续请求。返回 revision／ETag 始终是完整文件版本，可直接用于 PATCH 条件修改；不要把片段作为完整 PUT 候选。按行模式不绕过文件类型或文本上限，仍安全读取整文件后做有界字节切片，节约传输／模型 token 而非承诺大文件流式读取。

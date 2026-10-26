@@ -155,7 +155,36 @@ def main():
         path = '/files/content?path=' + urllib.parse.quote('资料/笔记.md')
         disk, disk_headers = call('GET', path, token=token)
         assert disk['content'] == original
+        selected, selected_headers = call('GET', path + '&startLine=2&lineCount=2', token=reader['token'], headers={'If-Match': disk_headers['ETag']})
+        assert selected['content'] == '\r\n中文与 emoji 📝\n' and selected['totalLines'] == 4
+        assert selected['startLine'] == 2 and selected['endLine'] == 3 and selected['nextLine'] == 4
+        assert selected['isPartial'] and selected['hasMore'] and selected['revision'] == disk['revision']
+        assert selected_headers['ETag'] == disk_headers['ETag']
+        assert selected['size'] == disk['size'] and selected['returnedSize'] == len(selected['content'].encode())
+        first, _ = call('GET', path + '&lineCount=1', token=token)
+        assert first['content'] == '\ufeff# 原始正文\r\n'
+        call('GET', path + '&startLine=2&lineCount=1', token=searcher['token'], expected=403)
         call('GET', path, token=searcher['token'], expected=403)
+        range_source = ''.join(f'第 {i} 行\n' for i in range(1, 232))
+        range_created, _ = call('POST', '/files', token=token, data={'path': '资料/按行.txt', 'content': range_source}, expected=201)
+        range_path = '/files/content?path=' + urllib.parse.quote('资料/按行.txt')
+        range_etag = '"' + range_created['revision'] + '"'
+        hundred, _ = call('GET', range_path + '&lineCount=100', token=reader['token'])
+        assert hundred['lineCount'] == 100 and hundred['endLine'] == 100 and hundred['nextLine'] == 101 and hundred['totalLines'] == 231
+        window, _ = call('GET', range_path + '&startLine=50&lineCount=30', token=reader['token'], headers={'If-Match': range_etag})
+        assert window['content'] == ''.join(f'第 {i} 行\n' for i in range(50, 80))
+        assert window['endLine'] == 79 and window['nextLine'] == 80 and window['lineCount'] == 30
+        tail, _ = call('GET', range_path + '&startLine=201', token=token)
+        assert tail['lineCount'] == 31 and tail['requestedLineCount'] == 100 and not tail['hasMore'] and tail['isPartial']
+        beyond, _ = call('GET', range_path + '&startLine=500&lineCount=30', token=token)
+        assert beyond['content'] == '' and beyond['lineCount'] == beyond['endLine'] == beyond['nextLine'] == 0
+        call('GET', range_path + '&lineCount=1001', token=token, expected=400)
+        call('GET', range_path + '&startLine=0', token=token, expected=400)
+        call('GET', range_path + '&lineCount=1&lineCount=2', token=token, expected=400)
+        empty, range_headers = call('HEAD', range_path + '&startLine=50&lineCount=30', token=reader['token'])
+        assert empty == b'' and range_headers['ETag'] == range_etag
+        call('PUT', range_path, token=token, data={'content': range_source + '新增末行\n'}, headers={'If-Match': range_etag})
+        call('GET', range_path + '&startLine=101&lineCount=100', token=token, headers={'If-Match': range_etag}, expected=412)
         revision, _ = call('GET', '/files/revision?path=' + urllib.parse.quote('资料/笔记.md'), token=token)
         assert revision['revision'] == disk['revision'] == created['revision']
         call('GET', '/entries/revision?path=' + urllib.parse.quote('资料'), token=token)

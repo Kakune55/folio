@@ -473,8 +473,8 @@
     "/files/content": {
       "get": {
         "operationId": "readContent",
-        "summary": "读取原始 UTF-8 正文",
-        "description": "只返回已保存的限额内 UTF-8 文本；不包含浏览器草稿。二进制和超限文本使用下载接口，不应先解码再编码。",
+        "summary": "读取全文或指定逻辑行",
+        "description": "不传 startLine/lineCount 保持全文响应；传任一参数进入按行模式，默认起始行 1、行数 100，行数上限 1000。LF/CRLF/CR 分行，末尾换行不产生额外空行；空文件或仅 BOM 为 0 行。内容不加行号，原始换行保留，BOM 仅首段包含。返回完整文件 revision/ETag 与 size，returnedSize 为片段字节数，isPartial 明示不是全文，hasMore/nextLine 指示后续读取。越过末尾返回 200 空片段，endLine/nextLine 为 0。可携带 If-Match 固定版本，跨段变更返回 412；不得将片段用 PUT 覆盖整篇。仍安全读取整文件并受文本上限，不绕过大小限制。",
         "tags": [
           "文件"
         ],
@@ -487,7 +487,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Content"
+                  "$ref": "#/components/schemas/ContentResponse"
                 }
               }
             },
@@ -546,6 +546,38 @@
             "in": "query",
             "required": true,
             "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startLine",
+            "in": "query",
+            "required": false,
+            "description": "从 1 开始的起始逻辑行；单独使用时默认读取 100 行。不得为空或重复。",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "lineCount",
+            "in": "query",
+            "required": false,
+            "description": "请求行数；单独使用时从第 1 行开始。不得为空或重复。",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "description": "可选完整文件的单个强 ETag（含引号）；与当前正文不符返回 412，全文和按行模式都适用。",
             "schema": {
               "type": "string"
             }
@@ -3108,11 +3140,114 @@
           "size"
         ],
         "additionalProperties": false
+      },
+      "LineContent": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "请求区间的原始 UTF-8 文本，不加行号；仅首段含原始 BOM。不能作为完整候选直接 PUT。"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf-8"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "description": "不透明版本，不得自行解析或生成"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "完整文件字节数，非片段大小"
+          },
+          "mtime": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "endLine": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际末行，无返回行时为 0"
+          },
+          "lineCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "实际返回行数"
+          },
+          "requestedLineCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "totalLines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "returnedSize": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "所返回片段的 UTF-8 字节数"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "当前区间之后还有行"
+          },
+          "nextLine": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "下一段起始行，无后续行时为 0"
+          },
+          "isPartial": {
+            "type": "boolean",
+            "description": "true 表示片段，不能当作完整正文覆盖"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "content",
+          "encoding",
+          "revision",
+          "size",
+          "mtime",
+          "startLine",
+          "endLine",
+          "lineCount",
+          "requestedLineCount",
+          "totalLines",
+          "returnedSize",
+          "hasMore",
+          "nextLine",
+          "isPartial"
+        ],
+        "additionalProperties": false
+      },
+      "ContentResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Content"
+          },
+          {
+            "$ref": "#/components/schemas/LineContent"
+          }
+        ]
       }
     },
     "responses": {
       "400": {
-        "description": "参数、JSON 或路径不安全；invalid_patch 表示补丁语法、计数、顺序或文件头无效",
+        "description": "参数、JSON 或路径不安全；invalid_patch 表示补丁语法、计数、顺序或文件头无效；invalid_line_range 表示行号或行数参数不合法",
         "content": {
           "application/json": {
             "schema": {

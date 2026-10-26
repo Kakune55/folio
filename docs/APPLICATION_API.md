@@ -184,3 +184,21 @@ Content-Type: application/json
 返回 `{path,revision,dryRun,changed,addedLines,deletedLines,size,savedAt?}`，size 为候选 UTF-8 字节数。dryRun 返回原 revision／ETag，不写文件、不触发索引。实际保存返回新版本，savedAt 仅在确实改写时出现；候选与原文相同则 changed=false 且不重新落盘。保存仍走已有完整文件的安全条件替换，不是原位逐块写盘。
 
 补丁最多 1 MiB、20000 操作行和 256 块，源／结果最多 200000 行，超限 413 patch_too_large；完整候选仍遵守现有文本和配额限制。未知字段拒绝；不支持其他 diff 方言或模糊修复。上下文错误不要通过删除约束或盲换版本重试；网络失败和 durability_uncertain 仍先读回核对结果。
+
+
+## 按行读取，配合 diff 局部修改
+
+在既有 `GET /files/content` 增加可选参数，无需新的令牌权限：
+
+```text
+/api/v1/files/content?path=notes%2Fexample.md&lineCount=100
+/api/v1/files/content?path=notes%2Fexample.md&startLine=50&lineCount=30
+```
+
+分别表示前 100 行、从第 50 行开始的 30 行。行号从 1 开始，传任一参数启用按行模式，缺少的 startLine／lineCount 分别为 1／100，每次最多 1000 行。完全不传时仍返回原全文结构；空值、重复、零／负数、非整数和行数超限为 400 invalid_line_range。
+
+片段响应除原字段外，增加 startLine、endLine、lineCount（实际行数）、requestedLineCount、totalLines、returnedSize、hasMore、nextLine、isPartial。size、revision、ETag 属于完整文件，content 与 returnedSize 属于片段。hasMore=false 并不表示全文，例如从 201 行读到 EOF 仍是片段；只有 isPartial=false 才可视为完整正文。越过文件末尾是 200 空片段（实际行数和末行为 0、nextLine=0），不是 416。
+
+跨段读取时，把首段 ETag 原样带入后续 GET 的 If-Match；文件变化则 412，不拼接不同版本。该可选条件也支持全文 GET。局部修改直接用此完整文件版本提交 PATCH，hunk 行号使用完整文件坐标，不从片段第 1 行重新编号。**不能把片段 content 直接 PUT 成整篇文件。** 需要全量更新时先取得同版本的全部正文。
+
+保留实际 LF／CRLF／CR 分隔符，不加展示行号；末尾换行不会虚构额外一行。空文件或仅 BOM 文件为 0 行，后者在 startLine=1 时保留 BOM 字节；其他片段不携带首部 BOM。按行读取不会写入正文、不索引草稿，仍校验全文 UTF-8／特殊文件／文本上限。服务端仍读取整文件以确认完整版本与总行数，不是任意大文件的流式读取接口；行数也不是字节大小限制。

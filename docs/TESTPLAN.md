@@ -520,3 +520,19 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 明确边界：1 MiB 补丁、20000 操作行、256 块、源／结果各最多 200000 行；结果仍受文本限额及配额限制。BOM 自动保留、补丁正文首行不含 BOM；替换块按位置继承被删行的非空换行，额外新增行用源首个换行，无则 LF。未修改行原始字节不变；末尾无换行必须显式标记。此接口不做统一换行／移除 BOM，不支持 Git 前导头、跨文件、二进制、通过补丁创建／删除／改名、自动合并或模糊修复。无变化不落盘。
 
 预检不预留版本或配额，不承诺后续保存必然成功；实际写入再次核对版本和现时配额。正文在内存中形成完整候选后由既有安全整文件替换提交，绝非逐块原位写盘；外部宿主写入竞争窗口与 durability_uncertain 的原有边界不变，失败或超时须读回核对。验证仅使用隔离目录／账号，未改日常正文、未重启 8080；未重新验证备份／容器、真实 Windows／NTFS、ARM、HTTPS 代理、其他浏览器或真实移动设备／读屏器。
+
+### M9 文本按逻辑行读取（2026-10-26）
+
+用户授权在既有文本 API 增加范围读取，配合 diff 减少正文传输。新增 storage/lines.go（无逐行分配的窗口扫描）与 httpapi/content.go（参数／可选 If-Match／全文兼容分派），增加各自专项测试；api.go 复用统一错误映射。OpenAPI 的 ContentResponse 同时描述原全文及 LineContent，API／APPLICATION_API／SPEC／ARCHITECTURE／ROADMAP／README 与 agent.md 同步。Agent 明确局部任务无需先读全文，但片段禁止直接 PUT 覆盖整篇。
+
+本次实际验证：
+
+- `go -C backend test ./...` 全部通过，包含原文件、编辑相关接口、搜索和分享测试。新纯函数测试覆盖 LF／CRLF／CR／混合换行、中文 emoji、BOM 首段、空文件／仅 BOM、末行无换行、末尾分隔符不额外计行、超 EOF／最大整数起点、范围拼接、元数据不变及超补丁行数上限文本的低分配窗口读取。HTTP 测试覆盖全文不增加字段、缺省范围、起始／计数限制、空值／重复／非数字／溢出、强 ETag、全文与跨段 412。最后仅补充“设置文本限额更小后，读一行仍 413”断言，`go -C backend test ./internal/httpapi -run TestLineReadParametersCompatibilityAndVersion -count=1` 再次通过。
+- `go -C backend test -race ./internal/storage ./internal/httpapi` 通过（2.256s／11.948s），`go -C backend vet ./...` 通过。
+- `/tmp/folio-api-validation/bin/python scripts/application-api-test.py` 最终通过：26 个契约操作、82 个真实请求，含 OpenAPI 标准校验、全文／片段 oneOf JSON Schema 核对。新增前 100 行、第 50 行起 30 行、尾段实际 31 行、EOF 空片段、可选完整版本、BOM／原换行／片段字节数、只读与无文件权限、HEAD、非法／重复参数，以及写入后按旧版本续读返回 412；原 diff、索引与回收恢复闭环继续通过。报告 artifacts/application-api/contract-report.json 更新。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 1 项通过（13.0s），既有生产文档筛选、错误重试、明暗三视口无障碍与草稿往返保留通过。操作数仍 26，只扩展原 GET 参数及响应；无前端生产代码或样式变更，未重新运行前端 build／lint／单测，使用已有生产资源。
+- `git diff --check` 通过。
+
+行为与限制：startLine 从 1 开始，lineCount 为 1–1000；传任一参数时缺省分别为 1／100，不传时原全文响应完全保留。选中字符和换行原样返回；size、revision／ETag 始终指完整文件，returnedSize 指片段，lineCount 是实际行数。尾段 hasMore=false 仍可能 isPartial=true；无实际返回行时 endLine=0，无后续时 nextLine=0。空文件／仅 BOM 为 0 行，BOM 仅 startLine=1 保留。
+
+没有改写正文或索引、没有新增权限。单次读取仍用原安全 Store.Read 校验完整文本，并读取全文以确认版本和总行数；不绕过文本上限、不承诺任意大文件流式读取，也没有按字节限制每行长度。跨请求不持有快照锁，调用方用可选 If-Match 固定完整版本，412 时保留候选并重新核对，不能混合拼接。原有外部宿主写入竞争边界不变。仅使用隔离测试账号／目录，未重启 8080；未本轮重新验证备份／容器、真实 Windows／NTFS、其他浏览器或真实设备。
