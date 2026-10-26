@@ -1,6 +1,6 @@
 import { SettingsHeader } from './SettingsHeader'
 import { useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, UserRound, HardDrive, AppWindow, Copy, Trash2, RefreshCw } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -63,7 +63,7 @@ function ApplicationsPanel() {
   const [remove, setRemove] = useState<AccessToken | null>(null)
   const secretInput = useRef<HTMLInputElement>(null), lock = useRef(false)
   const refresh = () => client.invalidateQueries({ queryKey: ['access-tokens'] })
-  return <><section className="setting-panel" aria-labelledby="applications-heading"><h2 id="applications-heading">管理 Access Token</h2><div className="setting-panel-content"><p className="setting-description">令牌可通过 HTTP API 访问本账号工作区，请为每个应用单独生成。</p>
+  return <><section className="setting-panel" aria-labelledby="applications-heading"><div className="setting-panel-heading"><h2 id="applications-heading">管理 Access Token</h2><Link to="/api-docs">API 文档</Link></div><div className="setting-panel-content"><p className="setting-description">令牌可通过 HTTP API 访问本账号工作区，请为每个应用单独生成。</p>
     {tokens.isPending && <p role="status">正在读取令牌…</p>}{tokens.error && <p role="alert" className="form-error">{tokens.error.message} <Button onClick={() => void tokens.refetch()}>重试</Button></p>}
     <ul className="access-token-list">{tokens.data?.entries.map(t => <li key={t.id}><KeyRound size={23} /><div className="access-token-info"><strong>{t.name}</strong><p><code>{t.prefix}…</code> · 创建于 {date(t.createdAt)}</p><p>{t.lastUsedAt ? `最近使用 ${date(t.lastUsedAt)}` : '尚未使用'} · {t.expiresAt ? `${date(t.expiresAt)} 到期${t.expiresAt <= tokens.dataUpdatedAt / 1000 ? '（已过期）' : ''}` : '永不过期'}</p><p>{(Object.keys(permissionNames) as (keyof TokenPermissions)[]).map(k => `${permissionNames[k]}：${permissionText[t.permissions[k]]}`).join(' · ')}</p></div><Button className="token-delete" aria-label={`删除令牌 ${t.name}`} onClick={() => { setError(''); setRemove(t) }}><Trash2 size={15} />删除</Button></li>)}</ul>
     {tokens.data?.entries.length === 0 && <p className="token-empty">尚未创建访问令牌。</p>}

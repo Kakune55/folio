@@ -138,7 +138,12 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 				writeError(w, 500, "internal_error", "认证服务暂时不可用，请保留当前草稿并稍后重试", nil)
 				return
 			}
-			writeError(w, 401, "unauthenticated", "登录已过期，请重新登录；未保存草稿会保留在当前页面", nil)
+			if _, bearer := r.Header["Authorization"]; bearer || r.URL.Path == "/api/v1/application" {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="folio", error="invalid_token"`)
+				writeError(w, 401, "unauthenticated", "访问令牌无效、已过期或已撤销", nil)
+			} else {
+				writeError(w, 401, "unauthenticated", "登录已过期，请重新登录；未保存草稿会保留在当前页面", nil)
+			}
 			return
 		}
 		if a.OwnerID != 0 && principal.ID != a.OwnerID {
@@ -179,6 +184,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerApplication(mux)
 	a.registerTokens(mux)
 	a.registerSharing(mux)
 	a.registerUsers(mux)

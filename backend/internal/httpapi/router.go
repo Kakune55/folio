@@ -2,12 +2,30 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
 )
 
-// 静态资源与 API 共享同源服务，所有文件操作均经过认证与 CSRF 边界。
+// ServeContent 在 Range 错误时会清除缓存头；私有 API 的最终响应仍必须禁止缓存。
+type apiResponseWriter struct{ http.ResponseWriter }
+
+func (w *apiResponseWriter) WriteHeader(status int) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *apiResponseWriter) Write(body []byte) (int, error) {
+	w.Header().Set("Cache-Control", "no-store")
+	return w.ResponseWriter.Write(body)
+}
+func (w *apiResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
+	w.Header().Set("Cache-Control", "no-store")
+	return io.Copy(w.ResponseWriter, reader)
+}
+func (w *apiResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// 静态资源与 API 共享同源服务；文件操作均需认证，Cookie 写入另需 CSRF。
 func New(assets fs.FS, options Options) http.Handler {
 	mux := http.NewServeMux()
 	api := &api{Options: options}
@@ -39,7 +57,7 @@ func New(assets fs.FS, options Options) http.Handler {
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
-		if r.URL.Path == "/user-setting" || r.URL.Path == "/system-setting" || r.URL.Path == "/shares" || strings.HasPrefix(r.URL.Path, "/s/") {
+		if r.URL.Path == "/api-docs" || r.URL.Path == "/user-setting" || r.URL.Path == "/system-setting" || r.URL.Path == "/shares" || strings.HasPrefix(r.URL.Path, "/s/") {
 			clone := r.Clone(r.Context())
 			url := *r.URL
 			url.Path = "/"
@@ -58,6 +76,7 @@ func New(assets fs.FS, options Options) http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
+			w = &apiResponseWriter{w}
 		}
 		mux.ServeHTTP(w, r)
 	})

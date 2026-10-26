@@ -5,7 +5,7 @@
 ## 通用约定
 
 - 除登录、公开分享、静态资源与无内部信息的健康检查外，接口需要有效会话或明确获准的 Access Token（令牌路由白名单见末节）。登录与 me 返回 {id,username,admin,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
-- 修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
+- Cookie 会话的修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验；Bearer 请求不使用 Cookie 或 CSRF。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
 - 路径使用正确编码的工作区相对路径，不接受服务器绝对路径。元数据/文本使用 UTF-8，二进制传原始字节。
 - revision 为不透明强版本；更新、移动、删除必须提供 If-Match: "<revision>"。缺少条件返回 428，陈旧版本返回 412。新建接口始终不覆盖，同名返回 409，无需 If-None-Match。
 - 时间戳仅供参考，不是并发依据。列表仅按明确的分页/限额返回，不承诺外部变动中的一致快照。
@@ -197,7 +197,7 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 
 ## 用户令牌与存储分类（2026-10-26）
 
-以下管理接口只接受浏览器 Cookie 会话；修改仍需 CSRF 与来源校验：
+以下令牌管理接口只接受浏览器 Cookie 会话；修改仍需 CSRF 与来源校验。存储分类接口也允许 files=read/write 的令牌：
 
 | 方法 | 路由 | 用途 |
 | --- | --- | --- |
@@ -219,3 +219,21 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 其余私有路由不允许令牌，包括 /auth/*、/admin/*、/user/tokens、私有 /shares* 和永久删除回收记录。search 授权允许搜索本账号已保存内容，不要求 files 权限；授权范围始终为本人整个工作区，没有目录范围参数。公开分享入口维持独立访客授权规则。
 
 categories 固定为 documents、images、media、other、trash、shares；各项 bytes 之和等于本次 used，quota=0 表示零额度，不能解释为无限。按扩展名分类，不承诺实际内容类型。失败返回明确错误，不返回伪造的零用量。索引／数据库不计费，临时文件及外部写入一致性边界同配额说明。
+
+
+## 应用 API 接入（2026-10-26）
+
+应用接口继续使用 /api/v1，不另建一套正文读写。完整接入、条件更新、原始字节上传下载及恢复示例见 [应用 API 接入指南](APPLICATION_API.md)。
+
+- GET /application：仅接受有效 Bearer，返回 {apiVersion:"v1",user:{id,username},workspaceId,token:{id,name,prefix,createdAt,expiresAt,lastUsedAt,permissions}}；任何合法权限组合均可查询本人信息，Cookie 单独请求返回 403 token_required。不会返回完整凭据、摘要、CSRF、管理员信息或其他令牌。工作区绑定变化仍返回 409。
+- GET /openapi.json：公开静态 OpenAPI 3.1.0 定义，含全部应用接口的参数、请求、响应、稳定 operationId 和 x-folio-permissions。无需认证，不打开用户工作区，不包含真实资源。后端嵌入的 openapi.json 是机器契约唯一来源；网页 /api-docs 读取同一定义展示，网页本身仍需登录。
+- 所有 GET 路由的 HEAD 继承相同令牌权限，不返回正文；不允许用 HEAD 绕过账号／令牌／分享管理边界。
+- 无效 Bearer 的 401 带 WWW-Authenticate，提示令牌失效，不回退 Cookie。
+- 下载／预览的 416 和底层文件服务错误可能是 text/plain；客户端先检查状态与 Content-Type。最终 API 响应强制 no-store，避免 Go ServeContent 在 Range 错误时清除该缓存保护。
+
+浏览器原接口与 CSRF 行为保持不变；令牌不能请求账号、系统、其他令牌、私有分享管理或永久删除回收记录。没有目录授权、幂等键、批量事务或自动合并。
+
+
+### Agent 入口（2026-10-26）
+
+GET /api/v1/agent.md 匿名返回 text/markdown; charset=utf-8，支持 HEAD，统一 no-store／nosniff，不设置会话 Cookie、不打开用户工作区。正文源为 backend/internal/httpapi/AGENT.md，由 Go embed 提供，内容为静态接入流程、权限、任务范围、条件写入、分页／截断、原始字节和失败恢复规则；链接到同源 openapi.json。它只提供说明，不授予权限，不是服务器端执行的 Skill 或项目 AGENTS.md。OpenAPI 同步声明此公开入口。

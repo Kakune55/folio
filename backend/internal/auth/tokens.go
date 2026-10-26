@@ -116,8 +116,8 @@ func (s *Service) AuthenticateAccessToken(secret string) (*Principal, *AccessTok
 	var p Principal
 	var t AccessToken
 	now := time.Now().Unix()
-	err := s.db.QueryRow(`SELECT a.id,a.username,t.id,t.workspace_id,t.files,t.search,t.trash FROM access_tokens t JOIN account a ON a.id=t.user_id
- WHERE t.token_hash=? AND a.enabled=1 AND (t.expires_at=0 OR t.expires_at>?)`, tokenHash(secret), now).Scan(&p.ID, &p.Username, &t.ID, &t.WorkspaceID, &t.Permissions.Files, &t.Permissions.Search, &t.Permissions.Trash)
+	err := s.db.QueryRow(`SELECT a.id,a.username,t.id,t.workspace_id,t.files,t.search,t.trash,t.name,t.prefix,t.created_at,t.expires_at,t.last_used_at FROM access_tokens t JOIN account a ON a.id=t.user_id
+ WHERE t.token_hash=? AND a.enabled=1 AND (t.expires_at=0 OR t.expires_at>?)`, tokenHash(secret), now).Scan(&p.ID, &p.Username, &t.ID, &t.WorkspaceID, &t.Permissions.Files, &t.Permissions.Search, &t.Permissions.Trash, &t.Name, &t.Prefix, &t.CreatedAt, &t.ExpiresAt, &t.LastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrCredentials
 	}

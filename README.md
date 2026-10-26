@@ -106,3 +106,9 @@ curl --fail-with-body \
 ```
 
 修改已有正文必须携带读取时返回的 If-Match，冲突不得盲重试；完整协议见 [接口协议](docs/API.md)。令牌不能管理账号、系统或其他令牌，也不能创建公开分享和永久删除回收记录。改密、禁用或管理员重置会撤销对应账号令牌；离线改密及备份恢复撤销全部令牌。迁移工作区根身份后需重新生成令牌。通过 HTTPS 传输凭据，避免写入 URL、日志或仓库。
+
+
+应用页的“API 文档”提供在线只读接口说明（/api-docs）。程序可先 GET /api/v1/application 核对当前令牌身份、权限和工作区，再执行操作；机器契约为 /api/v1/openapi.json。完整示例与隔离验证命令见 [应用 API 接入指南](docs/APPLICATION_API.md)。
+
+
+Agent 可先读取 `/api/v1/agent.md`，了解连接、权限、条件保存和失败恢复，再拉取 `/api/v1/openapi.json` 获取接口契约。两份说明均可匿名读取，实际文件操作仍需 Access Token。

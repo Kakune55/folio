@@ -179,7 +179,12 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 	return entry, nil
 }
 func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 登录与静态文件使用公共路由；所有业务资源按服务端会话分派。
+	// 接口契约只有静态公开定义，不打开账号工作区。
+	if r.URL.Path == "/api/v1/openapi.json" || r.URL.Path == "/api/v1/agent.md" {
+		a.base.ServeHTTP(w, r)
+		return
+	}
+	// 登录与静态文件使用公共路由；所有业务资源按服务端身份分派。
 	if !strings.HasPrefix(r.URL.Path, "/api/v1/public/") && strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz" {
 		p, access, err := authenticateRequest(a.auth, r)
 		if access != nil && !authorizeToken(access, r) {

@@ -1,0 +1,3 @@
+# 仅用于隔离 API 契约演练，不进入 Go 服务或前端生产依赖。
+openapi-spec-validator==0.9.0
+jsonschema==4.26.0

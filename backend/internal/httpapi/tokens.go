@@ -10,31 +10,58 @@ import (
 )
 
 // 显式路由白名单：新增接口不会自动获得令牌访问权。
+type tokenAccess struct {
+	Group string
+	Write bool
+}
+
+var applicationRoutes = map[string]tokenAccess{
+	"GET /application":         {"application", false},
+	"GET /workspace/tree":      {"files", false},
+	"GET /workspace/usage":     {"files", false},
+	"GET /workspace/storage":   {"files", false},
+	"GET /files/metadata":      {"files", false},
+	"GET /files/revision":      {"files", false},
+	"GET /files/content":       {"files", false},
+	"GET /files/download":      {"files", false},
+	"GET /files/preview":       {"files", false},
+	"GET /entries/revision":    {"files", false},
+	"GET /settings":            {"files", false},
+	"POST /files":              {"files", true},
+	"PUT /files/content":       {"files", true},
+	"POST /directories":        {"files", true},
+	"PATCH /entries/move":      {"files", true},
+	"POST /uploads":            {"files", true},
+	"GET /search":              {"search", false},
+	"GET /search/status":       {"search", false},
+	"GET /search/file-status":  {"search", false},
+	"POST /search/rebuild":     {"search", true},
+	"GET /trash":               {"trash", false},
+	"DELETE /entries":          {"trash", true},
+	"POST /trash/{id}/restore": {"trash", true},
+}
+
 func tokenPermission(r *http.Request) (string, bool) {
-	key := r.Method + " " + r.URL.Path
-	switch key {
-	case "GET /api/v1/workspace/tree", "GET /api/v1/workspace/usage", "GET /api/v1/workspace/storage", "GET /api/v1/files/metadata", "GET /api/v1/files/revision", "GET /api/v1/files/content", "GET /api/v1/files/download", "GET /api/v1/files/preview", "GET /api/v1/entries/revision", "GET /api/v1/settings":
-		return "files", false
-	case "POST /api/v1/files", "PUT /api/v1/files/content", "POST /api/v1/directories", "PATCH /api/v1/entries/move", "POST /api/v1/uploads":
-		return "files", true
-	case "GET /api/v1/search", "GET /api/v1/search/status", "GET /api/v1/search/file-status":
-		return "search", false
-	case "POST /api/v1/search/rebuild":
-		return "search", true
-	case "GET /api/v1/trash":
-		return "trash", false
-	// 回收涉及工作区删除，需同时拥有文件读写权限，另在 authorizeToken 核对。
-	case "DELETE /api/v1/entries":
-		return "trash", true
+	if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		return "", false
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/"), "/")
-	if r.Method == "POST" && len(parts) == 3 && parts[0] == "trash" && parts[1] != "" && parts[2] == "restore" {
-		return "trash", true
+	route := strings.TrimPrefix(r.URL.Path, "/api/v1")
+	parts := strings.Split(route, "/")
+	if len(parts) == 4 && parts[1] == "trash" && parts[2] != "" && parts[3] == "restore" {
+		route = "/trash/{id}/restore"
 	}
-	return "", false
+	method := r.Method
+	if method == http.MethodHead {
+		method = http.MethodGet
+	}
+	access := applicationRoutes[method+" "+route]
+	return access.Group, access.Write
 }
 func authorizeToken(t *auth.AccessToken, r *http.Request) bool {
 	group, write := tokenPermission(r)
+	if group == "application" {
+		return true
+	}
 	permission := ""
 	switch group {
 	case "files":

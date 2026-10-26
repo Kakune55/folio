@@ -1,0 +1,78 @@
+import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+import { mkdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+
+test('应用 API 文档、筛选、错误重试与往返保留草稿', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  await expect(page.getByRole('link', { name: '用户设置', exact: true })).toBeVisible()
+  const principal = await (await page.request.get('/api/v1/auth/me')).json()
+  const filename = `api-docs-${Date.now()}.json`
+  const original = '{"已保存":true}'
+  expect((await page.request.post('/api/v1/files', { headers: { 'X-CSRF-Token': principal.csrfToken }, data: { path: filename, content: original } })).status()).toBe(201)
+  await page.getByRole('button', { name: '刷新文件列表' }).click()
+  await page.getByRole('button', { name: filename, exact: true }).click()
+  const editor = page.getByRole('textbox', { name: '源码编辑器' })
+  await expect(editor).toContainText('已保存')
+  await editor.evaluate(element => element.setAttribute('data-api-docs-probe', 'original'))
+  await page.route('**/api/v1/files/content?*', route => route.request().method() === 'PUT' ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'test_unavailable', message: '测试保留未保存正文' } }) }) : route.continue())
+  const draft = '{"已保存":true,"未保存草稿":"必须保留"}'
+  await editor.fill(draft)
+  await expect(page.locator('.save-status')).toContainText('保存失败')
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
+  await page.getByRole('button', { name: '应用', exact: true }).click()
+  await page.route('**/api/v1/openapi.json', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'test_unavailable', message: '测试文档加载故障' } }) }))
+  await page.getByRole('link', { name: 'API 文档', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '应用 API', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('测试文档加载故障')
+  await page.unroute('**/api/v1/openapi.json')
+  await page.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(page.locator('#getApplication')).toBeVisible()
+  await expect(page.locator('.settings-header-links')).toHaveText('用户设置admin')
+  expect(await page.locator('.api-operation').count()).toBe(25)
+  const mutations: string[] = []
+  page.on('request', request => { if (request.url().includes('/api/v1/') && !['GET', 'HEAD'].includes(request.method())) mutations.push(request.url()) })
+  const filter = page.getByLabel('筛选接口', { exact: true })
+  await filter.fill('/files/content')
+  await expect(page.locator('.api-operation')).toHaveCount(2)
+  await page.locator('#updateContent > summary').click()
+  await expect(page.locator('#updateContent')).toContainText('If-Match')
+  await expect(page.locator('#updateContent')).toContainText('文件读写')
+  await filter.fill('无匹配的功能-abcdef')
+  await expect(page.getByRole('status')).toHaveText('没有匹配的接口。')
+  await filter.fill('')
+  await page.locator('#getApplication > summary').click()
+  await page.locator('#getApplication .api-response').first().locator('summary').click()
+  await expect(page.locator('#getApplication')).toContainText('workspaceId')
+  const output = fileURLToPath(new URL('../../../artifacts/application-api/', import.meta.url))
+  await mkdir(output, { recursive: true })
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+      if (width !== 1024) await page.screenshot({ path: `${output}/reference-${width}-${theme}.png`, fullPage: true })
+      if (width === 1440) await page.screenshot({ path: `${output}/reference-top-${theme}.png` })
+    }
+  }
+  expect(mutations).toEqual([])
+  const download = page.getByRole('link', { name: '下载 OpenAPI', exact: true })
+  await expect(download).toHaveAttribute('href', '/api/v1/openapi.json')
+  const definition = await (await page.request.get('/api/v1/openapi.json')).json()
+  expect(definition.openapi).toBe('3.1.0')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '管理 Access Token', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '返回工作区', exact: true }).click()
+  await expect(editor).toHaveAttribute('data-api-docs-probe', 'original')
+  await expect(editor).toContainText(draft)
+  const disk = await (await page.request.get('/api/v1/files/content?path=' + encodeURIComponent(filename))).json()
+  expect(disk.content).toBe(original)
+  await page.unroute('**/api/v1/files/content?*')
+  await page.getByRole('button', { name: '保存当前文件', exact: true }).click()
+  await expect(page.locator('.save-status')).toHaveText('已保存')
+})

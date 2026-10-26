@@ -474,3 +474,31 @@ ShareManager.tsx 将单向“撤销”改为按 disabled 状态显示“暂停�
 按用户反馈新增 SettingsHeader，由 UserSettings 与 SystemSettings 共用。两页右侧均为独立的设置跳转链接与纯文本用户名，修复系统页把“用户设置 · admin”拼成单一链接的不一致；更新 DESIGN 和浏览器对应定位。
 
 本次 `npm --prefix frontend run build`、`npm --prefix frontend run lint`、`python3 scripts/copy-dist.py`、`git diff --check` 通过。`./frontend/node_modules/.bin/playwright test -c frontend/playwright.user-settings.config.ts -g '用户设置、令牌'` 1 项通过（12.2s），包含两页顶栏内容／链接数断言、新三栏三视口明暗 axe 回归；系统页顶栏截图已人工查看。仅修改前端展示，未更改正文、鉴权或令牌能力，未重跑后端及全套浏览器测试，未重启日常服务。
+
+### M7 应用 API 接入完善（2026-10-26）
+
+用户确认先完善已有文件、搜索、上传下载和回收恢复能力。新增 application.go／application_test.go／openapi.json，扩展 auth/tokens 的当前令牌元数据读取；httpapi/tokens 的显式权限表增加身份查询与 GET/HEAD 一致性，api.go 提供 Bearer 401 认证提示，router.go 保留最终 no-store。前端新增 ApiReference 与按需路由，应用页增加入口并沿用 SettingsHeader。新增 APPLICATION_API.md、隔离 application-api-test.py 和仅供开发验证的 requirements-api-test.txt；产品／设计／架构／接口／路线图／README 同步。
+
+本次实际验证：
+
+- `go -C backend test ./...` 全部通过；`go -C backend test -race ./internal/auth ./internal/httpapi ./internal/storage` 通过（auth 7.279s、httpapi 11.122s，storage 使用本次缓存）；`go -C backend vet ./...` 通过。新增契约与令牌白名单双向核对（含权限）、operationId 唯一性、公开静态定义不需认证、HEAD 不绕过权限测试。
+- 在 /tmp/folio-api-validation 隔离 Python 环境安装 scripts/requirements-api-test.txt（openapi-spec-validator 0.9.0、jsonschema 4.26.0），不改变生产依赖。`/tmp/folio-api-validation/bin/python -m openapi_spec_validator backend/internal/httpapi/openapi.json` 通过；完整演练也会先验证契约。
+- `/tmp/folio-api-validation/bin/python scripts/application-api-test.py` 最终通过：24 个操作、55 个已记录请求，全部契约操作均有真实 HTTP 覆盖，JSON 响应校验 Schema，响应媒体类型与契约核对。使用临时账号、目录和服务；应用请求为纯 Bearer，账号／令牌准备使用隔离 Cookie。验证身份不含完整凭据／CSRF／管理员字段、Cookie 不能代替身份查询、无效令牌不能回退 Cookie、只读与跨账号隔离、配额拒绝、原始 BOM／混合换行保留、陈旧版本拒绝、移动／回收恢复、附件原始字节／范围下载／HEAD／预览隔离、同名与多 part 上传失败不提交、搜索与重建状态及撤销。证据为 artifacts/application-api/contract-report.json，不含完整令牌。
+- `npm --prefix frontend run build`、`npm --prefix frontend run lint`、`npm --prefix frontend test` 通过（9 文件 28 项），保留既有构建大分块提示。`python3 scripts/copy-dist.py` 已复制最终生产资源。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 最终 1 项通过（11.9s）：生产 Go 嵌入资源及 CSP 下，应用页进入文档、筛选／空结果、参数／响应展示、加载失败重试、OpenAPI 下载入口、文档浏览不发送文件修改；模拟保存失败后，原未保存草稿及同一编辑器 DOM 往返保留，随后可显式重试保存。1440／1024／390 × 明暗主题的 WCAG 2 A/AA、2.1 A/AA 零违规，无外壳横向溢出。artifacts/application-api/reference-* 截图已保存；人工查看桌面浅色完整布局、手机深色完整布局和桌面深色展开响应区域，未声称逐张人工查看。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.user-settings.config.ts` 完整 5 项通过（34.4s），回归令牌／存储／账号改密、系统设置和编辑器保留，覆盖应用页新增入口及共用顶栏。
+- `git diff --check` 通过。
+
+过程发现与修复：真实无效 Range 请求返回 416 时，Go ServeContent 默认会删除 Cache-Control，首轮隔离演练因此失败；按本机 Go 标准库文档确认根因，在最终 ResponseWriter 写出时保留 no-store，并委托 ReadFrom／Unwrap，不改全局 GODEBUG。修复后全部 55 请求通过。浏览器首两轮分别发现正文链接仅以颜色区分、手机横向代码区不可键盘聚焦；已增加正文链接下划线及代码／参数滚动区键盘访问，最终新构建零违规。
+
+边界：不迁移或重写已有正文，不新增分享管理、目录级授权、幂等键、批量事务、自动合并、OAuth、MCP 或 Skill。客户端应保留候选正文，超时／durability_uncertain 先核对结果。公开 JSON 只有固定协议与示例，不含真实资源；网页说明需登录。已开始请求仍可能在撤销后完成，宿主外部写入的原有竞争窗口不变。验证未访问日常数据、未重启 8080 服务；未本轮重做备份／容器、真实 Windows／NTFS、外部 HTTPS 代理、其他浏览器、真实读屏器或移动设备验证。原有平台限制沿用路线图。
+
+### Agent Markdown 入口（2026-10-26）
+
+按用户要求新增 backend/internal/httpapi/AGENT.md，Go embed 后由 GET /api/v1/agent.md 提供，支持 HEAD。Accounts 将其作为公开静态说明分派，不初始化工作区；OpenAPI 声明该入口，隔离演练同步验证响应。指南说明凭据、同源接入、任务授权与正文数据边界、条件写入、分页／截断、原始内容与失败核验，不改项目根 AGENTS.md、不安装 Skill。API／SPEC／ARCHITECTURE／ROADMAP／APPLICATION_API／README 同步。
+
+本次 `go -C backend test ./...`、`go -C backend vet ./internal/httpapi`、`git diff --check` 通过。新增真实 httptest HTTP 验证匿名／无效令牌／合法格式但无效的令牌均可读取固定 Markdown，GET 与源文件字节一致、HEAD 无正文，text/markdown UTF-8、no-store、nosniff、不设置 Cookie；无认证服务的 Accounts 可直接响应，证明不触发工作区认证。`/tmp/folio-api-validation/bin/python scripts/application-api-test.py` 通过，覆盖 25 个操作、57 个请求，包含 OpenAPI 标准校验和新指南媒体类型／原始字节核对。
+
+`./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 1 项通过（11.2s），动态文档包含第 25 个操作，既有筛选、失败重试、明暗三视口无障碍与草稿保留回归通过。前端生产代码无变更，未重新运行 frontend build／lint／单测；使用上一轮已构建资源。未修改正文或增加权限，指南不包含真实资源或凭据。未重启 8080 日常服务，未重跑 race／其他浏览器／容器及真实设备验证。
+
+Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Folio 是什么”，简述自托管 Markdown／开发文件工作区、Agent 可用能力、真实文件权威、账号隔离、仅已保存内容及无终端执行接口。本次仅修改静态指南；`go -C backend test ./internal/httpapi -run 'TestAgentGuideIsPublicWithoutOpeningWorkspace|TestApplicationContractMatchesAuthorization' -count=1` 与 `git diff --check` 通过。未重跑全量／浏览器测试，未重启日常服务。

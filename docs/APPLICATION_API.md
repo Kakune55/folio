@@ -1,0 +1,162 @@
+# 应用 API 接入指南
+
+Folio 提供同源 `/api/v1` HTTP 接口，支持脚本和 Agent 使用 Access Token 操作本人工作区。已有文件操作直接复用，不建立另一套文件存储或正文格式。
+
+在“用户设置 → 应用”生成令牌、选择权限和有效期。完整令牌仅显示一次，服务端保存摘要；丢失后删除重建。通过 HTTPS 传输；本机隔离开发可使用 HTTP。不要将令牌放进 URL、仓库、日志或浏览器 localStorage。
+
+在线说明位于 `/api-docs`，可从应用页“API 文档”进入；说明页只读，不执行文件操作。机器契约位于 `/api/v1/openapi.json`，也保存在 [openapi.json](../backend/internal/httpapi/openapi.json)。定义遵循 [OpenAPI 3.1.0](https://spec.openapis.org/oas/v3.1.0.html)，可供客户端工具导入。公开 JSON 只含静态协议，不含真实账号、文件或凭据；网页说明仍需登录。
+
+## 连接与身份
+
+下例使用 shell 和 curl。通过自己的安全凭据配置提供 `FOLIO_ACCESS_TOKEN`，将 `FOLIO_URL` 设为站点地址，不包含末尾 `/api/v1`：
+
+```sh
+export FOLIO_URL='https://你的域名'
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" \
+  "$FOLIO_URL/api/v1/application"
+```
+
+返回 `apiVersion`、`user:{id,username}`、`workspaceId` 和当前 `token:{id,name,prefix,createdAt,expiresAt,lastUsedAt,permissions}`，不返回完整令牌、摘要、CSRF、管理员身份或其他令牌。`expiresAt=0` 为永久；`lastUsedAt=0` 为尚未使用，使用时间最多每分钟更新。此接口只接受 Bearer，Cookie 单独调用返回 `403 token_required`。
+
+Bearer 请求无需 Cookie、Origin 或 CSRF。无效令牌返回 `401 unauthenticated` 和 `WWW-Authenticate: Bearer ...`，即使同时存在有效 Cookie 也不会回退。账号禁用、改密、管理员重置会撤销对应账号令牌；离线改密和备份恢复清除全部。已开始请求可能完成。
+
+## 权限
+
+权限覆盖本人整个工作区，暂无目录限制；账号 ID／workspaceId 参数不能选择其他用户资源。`write` 包含 `read`。
+
+| 权限 | 只读 | 读写额外允许 |
+| --- | --- | --- |
+| files | 浏览目录、读正文／版本／元数据、下载／预览、限额与用量 | 新建文本／目录、条件更新／移动、附件上传 |
+| search | 查询名称／正文摘要及索引状态 | 异步重建索引 |
+| trash | 回收记录列表 | 回收与恢复，另需 files=write |
+
+`search=read` 本身包含可命中正文的摘要，不要求 files 权限。令牌不能访问账号、系统、令牌管理、私有分享管理／转存，也不能永久删除回收站文件。公开分享仍使用独立访客规则，不因应用令牌自动授权。
+
+## 路径、目录与新建
+
+路径为 UTF-8 工作区相对路径，根目录用空字符串；拒绝绝对路径、`..`、反斜线、链接和特殊文件。查询参数用 URL 编码；JSON 中不预先 URL 编码路径。目录列表只返回直接子项，默认 200、最多 1000 项，以 offset/limit 分页；不能假设宿主变动期间是快照。
+
+```sh
+curl --fail-with-body --silent --show-error --get \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" \
+  --data-urlencode 'path=笔记' --data-urlencode 'offset=0' --data-urlencode 'limit=100' \
+  "$FOLIO_URL/api/v1/workspace/tree"
+
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  --data '{"path":"笔记"}' "$FOLIO_URL/api/v1/directories"
+
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  --data '{"path":"笔记/示例.md","content":"# 示例\n","encoding":"utf-8"}' \
+  "$FOLIO_URL/api/v1/files"
+```
+
+根据自己的工作区依次选择需要的命令；目录和文件创建不会覆盖同名目标，同名返回 409；父目录须存在。不递归创建目录，不提供批量事务。
+
+## 条件读写
+
+`GET /files/content?path=...` 返回原始 UTF-8 正文、版本以及强 ETag 响应头。正文保留 BOM、LF／CRLF／混合换行。只读取已保存文件，看不到浏览器未保存草稿；修改后浏览器沿用原有版本探测与冲突保护。
+
+客户端必须保留原始内容及版本，只改变目标内容；不要通过默认文本换行转换无意改写整篇文档。以下 Python 标准库示例演示“读取 → 以本地候选文件条件更新”，不自动重试，不跟随重定向携带凭据：
+
+```python
+import json
+import os
+from pathlib import Path
+import urllib.parse
+import urllib.request
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        return None
+
+base = os.environ['FOLIO_URL'].rstrip('/') + '/api/v1'
+headers = {'Authorization': 'Bearer ' + os.environ['FOLIO_ACCESS_TOKEN']}
+client = urllib.request.build_opener(NoRedirect())
+path = '笔记/示例.md'
+url = base + '/files/content?' + urllib.parse.urlencode({'path': path})
+with client.open(urllib.request.Request(url, headers=headers), timeout=30) as response:
+    original = json.load(response)
+    etag = response.headers['ETag']
+
+# 原始字节读取不会替你把 CRLF 变成 LF；候选正文由调用方准备并保留。
+candidate = Path('candidate.md').read_bytes().decode('utf-8')
+body = json.dumps({'content': candidate, 'encoding': 'utf-8'}, ensure_ascii=False).encode('utf-8')
+request = urllib.request.Request(url, data=body, method='PUT', headers={
+    **headers, 'If-Match': etag, 'Content-Type': 'application/json',
+})
+with client.open(request, timeout=30) as response:
+    saved = json.load(response)
+    print(saved['path'], saved['revision'])
+```
+
+该示例会写入既有文件，仅在已准备候选正文时运行。读取后再编辑候选内容期间，必须继续使用同一次读取的版本，不能为绕过冲突而先取一个新版本。`428` 表示缺少条件，`412` 表示版本陈旧：保留候选正文，重新读取比较、由调用方决定合并或另存。客户端不得自行生成版本、使用 `If-Match: *` 或自动换成最新版本反复覆盖。
+
+`PATCH /entries/move`、`DELETE /entries` 同样必须携带原文件／完整目录子树版本，可先调用 `GET /entries/revision`。移动不覆盖目标，不自动改写链接；跨设备移动不静默复制。
+
+## 附件、下载与 HEAD
+
+先读 `GET /settings` 和 `GET /workspace/usage` 做客户端预检；服务端仍执行流式大小、图片像素与最终配额核对。配额 0 是零额度，不是无限。
+
+```sh
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" \
+  -F 'file=@./image.png' \
+  "$FOLIO_URL/api/v1/uploads?directory=%E7%AC%94%E8%AE%B0&image=true"
+
+curl --fail-with-body --silent --show-error --get \
+  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" \
+  --data-urlencode 'path=笔记/image.png' \
+  --output ./downloaded-image.png "$FOLIO_URL/api/v1/files/download"
+```
+
+上传必须只有一个名为 `file` 的文件 part；文件名须为纯文件名。多文件分请求，每个请求独立提交，不会覆盖同名文件。
+
+下载返回原始字节，不能当 JSON 解析；支持 `Range: bytes=0-1023` 与 206 响应。`HEAD` 与对应 GET 使用同一读取权限，只返回头部。预览仅限安全位图／PDF，并带隔离响应头；HTML／SVG 不活动预览。无效 Range 的 416 以及底层文件服务错误可能是 `text/plain`；客户端先检查状态与 Content-Type。API 的错误响应也保持 `Cache-Control: no-store`。
+
+## 搜索与回收恢复
+
+`GET /search?q=...` 默认全文，`mode=names` 为名称／路径搜索，查询最多 200 个 Unicode 字符；limit 默认 50、最大 200，没有分页，检查 `truncated`。只支持字面查询，不支持正则或 FTS 语法。空全文无结果，空名称查询列文件。
+
+保存后索引异步更新；`GET /search/status` 的 `indexing` 含排队与处理中任务，`warning` 表示可能陈旧。`POST /search/rebuild` 返回 202 仅表示已接受，要查询状态确认完成；客户端设置等待上限，不能无限忙等。直接宿主文件修改不自动更新索引。
+
+回收流程是读取版本 → `DELETE /entries?path=...` 携带 If-Match → 保存返回的记录 ID。`GET /trash` 分页列出当前账号记录；`POST /trash/{id}/restore` 不需正文，恢复到原路径且不覆盖目标，父目录须存在。回收不释放配额，损坏／未完成记录保留供检查；令牌不支持永久删除。
+
+## 失败与重试
+
+JSON 错误形状为 `{error:{code,message,details}}`，以 code 决定处理，message 为简体中文提示；二进制接口及代理错误可能不是 JSON。
+
+| 状态／错误 | 调用方处理 |
+| --- | --- |
+| 401 | 检查令牌到期、撤销与账号状态，重新申请；不尝试回退 Cookie |
+| 403 | 检查当前权限，不自动提升权限 |
+| 404 | 核对当前路径，外部移动不会被自动追踪 |
+| 409 target_exists | 核对既有文件，选择新路径，不覆盖 |
+| 409 workspace_changed | 停止写入，人工确认工作区后重新申请令牌 |
+| 412／428 | 保留候选内容，读取并比较；补上原版本，不能盲重试 |
+| 413／415 | 检查配额、限额和文件类型，保留原件 |
+| 429 | 遵守 Retry-After；设置次数和等待上限 |
+| 500 durability_uncertain／回收中断 | 操作可能已提交，先核对文件与回收记录，保留候选正文／原件 |
+| 503 index_unavailable | 搜索索引故障；文件读写不必因此停止 |
+| 超时／连接断开 | 结果未知，先读取确认，不能假定未提交 |
+
+目前没有幂等键、批量事务、自动合并、部分文本补丁、目录级令牌授权、OAuth 或 MCP。客户端可以保存自己的任务状态，但不能绕过服务端原版本与文件边界验证。
+
+## 可复现验证
+
+后端契约一致性测试包含在 `go -C backend test ./...` 中。完整隔离演练使用单独 Python 环境，开发校验依赖不进入生产服务：
+
+```sh
+python3 -m venv /tmp/folio-api-validation
+/tmp/folio-api-validation/bin/pip install -r scripts/requirements-api-test.txt
+/tmp/folio-api-validation/bin/python scripts/application-api-test.py
+```
+
+脚本构建并启动临时 Go 服务、创建隔离账号和文件，用纯 Bearer 调用所有契约操作，验证 JSON 响应结构及关键授权／冲突边界；报告位于 `artifacts/application-api/contract-report.json`。脚本不会访问日常服务或读取真实用户令牌。
+
+
+## 给 Agent 的入口
+
+先读取同源 `/api/v1/agent.md`，再读取 `/api/v1/openapi.json`。前者说明任务流程和失败恢复，后者给出精确字段与权限；两者均可匿名获取，实际操作仍需 Bearer。指南源文件为 [AGENT.md](../backend/internal/httpapi/AGENT.md)，不会覆盖项目根目录的 AGENTS.md，也不会自动安装 Skill。

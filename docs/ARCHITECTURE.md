@@ -160,3 +160,15 @@ Accounts 与 protect 使用同一认证入口；出现 Authorization 头时只�
 获准请求更新最近使用时间，条件 SQL 最多每分钟实际写一次，不缓存撤销状态。改密与禁用在同一账号事务中删除会话和令牌；离线改密清除全部。备份保留摘要，恢复时清除令牌（兼容无该表的旧备份），恢复后重新申请。撤销不能中止已经开始的请求。
 
 storage.StorageDetails 在用户存储锁内读取安全普通文件元数据，使用与配额相同的临时文件排除规则，再汇总回收载荷和分享快照。按扩展名分类，不读取正文、不触发索引刷新；取消或异常条目导致整次失败。不保证对宿主并发外部写入的快照一致性，目录较大时按需统计可能较慢。
+
+
+## 应用接口契约（2026-10-26）
+
+httpapi/openapi.json 是机器接口契约的唯一源文件，由 Go embed 暴露为 /api/v1/openapi.json，公开访问不触发 Accounts 工作区初始化。applicationRoutes 为显式令牌权限白名单，测试双向核对其与契约 operationId、权限定义的一致性；HEAD 规范化为 GET 后沿用授权，动态恢复路由只匹配一个记录 ID。
+
+/application 经既有认证、工作区绑定和 protect 校验，仅返回当前 Bearer 的账号、令牌元数据和权限，查询不赋予新操作权。401 为 Bearer 设置 WWW-Authenticate。API 响应使用窄 ResponseWriter 包装，在 WriteHeader／Write／ReadFrom 时保留 no-store；ReadFrom 与 Unwrap 委托原 Writer，避免因标准文件服务错误清头而丢失缓存边界，不通过 GODEBUG 改全局行为。
+
+前端 /api-docs 按需加载，从相同 JSON 渲染只读接口说明，不生成第二份端点列表、不接收令牌输入或执行文件操作。工作区仍保持挂载，设置顶栏共用 SettingsHeader。隔离应用演练脚本使用 Python 开发依赖校验 OpenAPI 与真实 JSON 响应，生产 Go／React 不新增运行依赖。
+
+
+Agent 指南唯一源为 httpapi/AGENT.md，Go embed 后通过 GET /api/v1/agent.md 返回 Markdown。与 openapi.json 一样由 Accounts 直接交给公共路由，携带无效 Bearer 也不访问用户数据；服务只返回静态文本，不解析执行指南。
