@@ -142,7 +142,7 @@ JSON 错误形状为 `{error:{code,message,details}}`，以 code 决定处理，
 | 503 index_unavailable | 搜索索引故障；文件读写不必因此停止 |
 | 超时／连接断开 | 结果未知，先读取确认，不能假定未提交 |
 
-目前没有幂等键、批量事务、自动合并、部分文本补丁、目录级令牌授权、OAuth 或 MCP。客户端可以保存自己的任务状态，但不能绕过服务端原版本与文件边界验证。
+目前没有幂等键、批量事务、自动合并、目录级令牌授权、OAuth 或 MCP。客户端可以保存自己的任务状态，但不能绕过服务端原版本与文件边界验证。
 
 ## 可复现验证
 
@@ -160,3 +160,27 @@ python3 -m venv /tmp/folio-api-validation
 ## 给 Agent 的入口
 
 先读取同源 `/api/v1/agent.md`，再读取 `/api/v1/openapi.json`。前者说明任务流程和失败恢复，后者给出精确字段与权限；两者均可匿名获取，实际操作仍需 Bearer。指南源文件为 [AGENT.md](../backend/internal/httpapi/AGENT.md)，不会覆盖项目根目录的 AGENTS.md，也不会自动安装 Skill。
+
+
+## 使用 diff 局部修改
+
+`PATCH /api/v1/files/content?path=...` 使用现有 files=write 权限（Cookie 仍需 CSRF），要求完整强 If-Match。JSON 为 `{diff,dryRun?}`，dryRun 默认 false。采用 [unified diff](https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html) 的单文件严格子集，按指定行号核对上下文和删除内容，不做偏移搜索或模糊匹配，不依赖 git／patch 进程。
+
+```http
+PATCH /api/v1/files/content?path=notes%2Fexample.md
+Authorization: Bearer <Access Token>
+If-Match: "<读取时的 revision>"
+Content-Type: application/json
+
+{"diff":"@@ -2 +2 @@\n-旧内容\n+新内容\n","dryRun":true}
+```
+
+以上代表替换第二行，只传差异。实际调用必须先读取真实文件，使用真实版本和真实第二行；示意 ETag 不能直接使用。正式保存将 dryRun 设为 false，继续携带同一次读取的版本；如果期间变更，412 拒绝。预检不预留配额，保存仍可能遇到配额或磁盘错误。
+
+支持多个有序非重叠 @@ 块，单行计数可省略 ,1，空范围须明确 ,0；上下文用空格、删除用 -、新增用 +。可以不带文件头；若带 ---／+++，两者必须匹配请求 path（也接受 a/path、b/path 及 Tab 分隔时间戳）。不接受 diff --git、index、重命名、/dev/null、二进制、多文件或通过补丁创建／删除文件。计数、坐标和顺序错误返回 400 invalid_patch，内容／原位置不匹配返回 409 patch_mismatch，均不保存任何块；版本陈旧仍为 412。
+
+源文件以 LF／CRLF／CR 为逻辑行分隔，补丁自身用 LF 或 CRLF。BOM 自动保留，补丁首行正文不包含 BOM；未修改行保留原始字节。连续删除／新增块中的新增行按顺序继承对应删除行的非空换行，其他新增行用源文件首个换行（无则 LF）。源或结果末行无换行须使用标准 `\ No newline at end of file` 标记；无法在结果中间留下无分隔符的行。此接口不用于统一换行或删除 BOM，外部 diff 工具若对 CR 分行规则不同，应先核对格式。
+
+返回 `{path,revision,dryRun,changed,addedLines,deletedLines,size,savedAt?}`，size 为候选 UTF-8 字节数。dryRun 返回原 revision／ETag，不写文件、不触发索引。实际保存返回新版本，savedAt 仅在确实改写时出现；候选与原文相同则 changed=false 且不重新落盘。保存仍走已有完整文件的安全条件替换，不是原位逐块写盘。
+
+补丁最多 1 MiB、20000 操作行和 256 块，源／结果最多 200000 行，超限 413 patch_too_large；完整候选仍遵守现有文本和配额限制。未知字段拒绝；不支持其他 diff 方言或模糊修复。上下文错误不要通过删除约束或盲换版本重试；网络失败和 durability_uncertain 仍先读回核对结果。

@@ -502,3 +502,21 @@ ShareManager.tsx 将单向“撤销”改为按 disabled 状态显示“暂停�
 `./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 1 项通过（11.2s），动态文档包含第 25 个操作，既有筛选、失败重试、明暗三视口无障碍与草稿保留回归通过。前端生产代码无变更，未重新运行 frontend build／lint／单测；使用上一轮已构建资源。未修改正文或增加权限，指南不包含真实资源或凭据。未重启 8080 日常服务，未重跑 race／其他浏览器／容器及真实设备验证。
 
 Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Folio 是什么”，简述自托管 Markdown／开发文件工作区、Agent 可用能力、真实文件权威、账号隔离、仅已保存内容及无终端执行接口。本次仅修改静态指南；`go -C backend test ./internal/httpapi -run 'TestAgentGuideIsPublicWithoutOpeningWorkspace|TestApplicationContractMatchesAuthorization' -count=1` 与 `git diff --check` 通过。未重跑全量／浏览器测试，未重启日常服务。
+
+### M8 单文件条件 diff 修改（2026-10-26）
+
+用户授权增加局部 diff 修改以减少 Agent 重发正文。新增 storage/patch.go、httpapi/patch.go 及各自专项测试；PATCH /files/content 接收 {diff,dryRun?}，沿用 files=write、Cookie CSRF 和完整 If-Match。解析有界严格单文件 unified diff，不做偏移／模糊匹配，全部块验证后复用原 Store.Write。新增 OpenAPI PatchResult、权限白名单、Agent 局部修改流程及 APPLICATION_API 示例，SPEC／API／ARCHITECTURE／ROADMAP／README 同步。前端生产代码无变更，仅动态文档测试的总数与同路径方法数更新。
+
+本次实际验证：
+
+- `go -C backend test ./...` 通过，包含现有文件层、鉴权、搜索及分享回归。新测试覆盖上下文／重复片段／原坐标、新旧行数、有序多块、空文件插入、删除全部内容但保留文件、LF／CRLF／CR／混合换行、BOM、末尾无换行标记、可选单文件头与 CRLF framing；拒绝计数错误、上下文不匹配、越界／重叠、其他文件头、Git 前导行、NUL／整数溢出及资源超限。Store 测试验证 dryRun 不写入、配额失败／后块失败不部分保存、同版本两个并发补丁只有一个成功和一个版本冲突。HTTP Cookie 测试验证来源／CSRF、强 ETag、JSON／未知字段及 1 MiB 限制。初次运行契约测试因尚未添加 PATCH 定义而失败，补齐 OpenAPI 后通过。
+- 标准 GNU diff 在本机为 7 组不同内容生成 42 个非相同组合（含空文件、重复行、中文／emoji 和无末尾换行），独立验证应用结果与目标完全相同；生产不调用 diff 或其他命令。
+- `go -C backend test -race ./internal/storage ./internal/httpapi` 通过（2.256s／11.325s），`go -C backend vet ./...` 通过。
+- `go -C backend test ./internal/storage -run '^$' -fuzz '^FuzzUnifiedPatchNoPanic$' -fuzztime=10s -parallel=2` 通过（实际约 11s），执行 27361 次，未发现崩溃；不据此宣称穷尽全部补丁输入。
+- `/tmp/folio-api-validation/bin/python scripts/application-api-test.py` 最终通过：26 个契约操作、68 个真实请求，含 OpenAPI 标准校验和 JSON 响应结构核对。新增纯 Bearer 补丁预检／正式写入、只读拒绝、428／412、400／409、预检 ETag 不推进与不出现 savedAt、混合换行／BOM 保留、写后索引可搜到新内容。报告 artifacts/application-api/contract-report.json 已更新。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.application-api.config.ts` 1 项通过（12.5s），动态接口总数 26，/files/content 筛选为 GET／PUT／PATCH 三项；保留既有生产 CSP、筛选、错误重试、三视口明暗无障碍和未保存草稿往返回归。无前端生产代码修改，未重新构建前端／重复 lint 或单测，使用已有生产资源；未重复其他浏览器专项。
+- `git diff --check` 通过。
+
+明确边界：1 MiB 补丁、20000 操作行、256 块、源／结果各最多 200000 行；结果仍受文本限额及配额限制。BOM 自动保留、补丁正文首行不含 BOM；替换块按位置继承被删行的非空换行，额外新增行用源首个换行，无则 LF。未修改行原始字节不变；末尾无换行必须显式标记。此接口不做统一换行／移除 BOM，不支持 Git 前导头、跨文件、二进制、通过补丁创建／删除／改名、自动合并或模糊修复。无变化不落盘。
+
+预检不预留版本或配额，不承诺后续保存必然成功；实际写入再次核对版本和现时配额。正文在内存中形成完整候选后由既有安全整文件替换提交，绝非逐块原位写盘；外部宿主写入竞争窗口与 durability_uncertain 的原有边界不变，失败或超时须读回核对。验证仅使用隔离目录／账号，未改日常正文、未重启 8080；未重新验证备份／容器、真实 Windows／NTFS、ARM、HTTPS 代理、其他浏览器或真实移动设备／读屏器。

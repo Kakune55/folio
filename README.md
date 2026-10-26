@@ -112,3 +112,6 @@ curl --fail-with-body \
 
 
 Agent 可先读取 `/api/v1/agent.md`，了解连接、权限、条件保存和失败恢复，再拉取 `/api/v1/openapi.json` 获取接口契约。两份说明均可匿名读取，实际文件操作仍需 Access Token。
+
+
+局部修改可使用 `PATCH /api/v1/files/content?path=...` 提交单文件 unified diff，仍须原版本 `If-Match` 和文件读写权限；可先 `dryRun:true` 校验。上下文或版本不匹配时整份拒绝，详见应用 API 接入指南与 `/api/v1/agent.md`。

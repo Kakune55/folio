@@ -100,3 +100,10 @@
 
 
 2026-10-26 用户授权补充 M7 的 Agent 说明入口 /api/v1/agent.md，作为现有 API 的公开静态使用指南，与 OpenAPI 相互引用；不引入 MCP、可执行 Skill 或新增文件操作权限。验收匿名／无效令牌读取、HEAD 无正文、响应类型与缓存边界、源文件一致和完整契约演练。
+
+
+## M8：应用 API 条件 diff 修改（2026-10-26，用户授权）
+
+新增 PATCH /files/content 的单文件严格 unified diff 与 dryRun 预检，复用 files=write、If-Match、原文件保存与索引保护。补齐 OpenAPI、Agent 指南与接入示例，不改变浏览器正文会话模型。
+
+验收：指定位置精确匹配、重复片段不模糊套用、多块全成或全拒、BOM／LF／CRLF／CR／混合换行与末尾标记、版本与并发保护、只读／Cookie CSRF／路径安全、文件与补丁资源上限／配额、预检不保存及不更新索引、标准工具独立生成样本、模糊测试、真实 Bearer 演练和动态文档回归。不引入 Git／patch 命令执行、多文件事务或自动合并。本次实际证据见 TESTPLAN。

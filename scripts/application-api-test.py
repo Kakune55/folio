@@ -160,6 +160,30 @@ def main():
         assert revision['revision'] == disk['revision'] == created['revision']
         call('GET', '/entries/revision?path=' + urllib.parse.quote('资料'), token=token)
         call('GET', '/workspace/tree?path=' + urllib.parse.quote('资料') + '&offset=0&limit=1', token=token)
+        patch = '@@ -3 +3 @@\n-中文与 emoji 📝\n+通过补丁修改的中文 📝\n'
+        call('PATCH', path, token=token, data={'diff': patch}, expected=428)
+        call('PATCH', path, token=reader['token'], data={'diff': patch}, headers={'If-Match': disk_headers['ETag']}, expected=403)
+        preview, preview_headers = call('PATCH', path, token=token, data={'diff': patch, 'dryRun': True}, headers={'If-Match': disk_headers['ETag']})
+        assert preview['changed'] and preview['dryRun'] and preview['revision'] == disk['revision']
+        assert preview_headers['ETag'] == disk_headers['ETag'] and 'savedAt' not in preview
+        unchanged, _ = call('GET', path, token=token)
+        assert unchanged['content'] == original
+        call('PATCH', path, token=token, data={'diff': '@@ -3 +3 @@\n-wrong\n+bad\n'}, headers={'If-Match': disk_headers['ETag']}, expected=409)
+        call('PATCH', path, token=token, data={'diff': '*** invalid patch ***'}, headers={'If-Match': disk_headers['ETag']}, expected=400)
+        patched, patched_headers = call('PATCH', path, token=token, data={'diff': patch}, headers={'If-Match': disk_headers['ETag']})
+        assert patched['addedLines'] == 1 and patched['deletedLines'] == 1 and 'savedAt' in patched
+        call('PATCH', path, token=token, data={'diff': patch}, headers={'If-Match': disk_headers['ETag']}, expected=412)
+        original = original.replace('中文与 emoji 📝', '通过补丁修改的中文 📝')
+        disk, disk_headers = call('GET', path, token=token)
+        assert disk['content'] == original and patched_headers['ETag'] == disk_headers['ETag']
+        for _ in range(100):
+            patched_search, _ = call('GET', '/search?q=' + urllib.parse.quote('通过补丁修改的中文'), token=token)
+            if any(item['path'] == '资料/笔记.md' for item in patched_search['entries']):
+                break
+            time.sleep(.05)
+        else:
+            raise AssertionError('补丁保存后的索引未反映新正文')
+
         updated_source = original + '\n追加的 API 正文\r\n'
         call('PUT', path, token=token, data={'content': updated_source}, expected=428)
         changed, _ = call('PUT', path, token=token, data={'content': updated_source, 'encoding': 'utf-8'}, headers={'If-Match': disk_headers['ETag']})

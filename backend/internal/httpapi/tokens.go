@@ -28,6 +28,7 @@ var applicationRoutes = map[string]tokenAccess{
 	"GET /entries/revision":    {"files", false},
 	"GET /settings":            {"files", false},
 	"POST /files":              {"files", true},
+	"PATCH /files/content":     {"files", true},
 	"PUT /files/content":       {"files", true},
 	"POST /directories":        {"files", true},
 	"PATCH /entries/move":      {"files", true},

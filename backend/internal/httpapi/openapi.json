@@ -670,6 +670,126 @@
             }
           }
         }
+      },
+      "patch": {
+        "operationId": "patchContent",
+        "summary": "使用 unified diff 条件修改局部正文",
+        "description": "单文件严格 unified diff，支持可选 ---/+++ 文件头与多个有序 @@ 块；行号、上下文、删除内容及末尾换行标记必须精确匹配，不搜索偏移或模糊匹配。必须携带原版本 If-Match，任何块失败均不保存。BOM 自动保留，补丁首行正文不携带 BOM；未修改行保留原字节。替换块新增行按位置继承被删行的非空换行，其他新增行使用源文件首个换行（无则 LF），支持 \\ No newline at end of file。补丁限 1 MiB、20000 操作行、256 块；源/结果最多 200000 行，结果仍受文本/配额限制。dryRun 仅校验当前读取版本和候选，不写入、不更新索引、不预留配额；revision/ETag 仍是原版本，size 是候选字节数。实际保存重新核对版本与配额。",
+        "tags": [
+          "文件"
+        ],
+        "x-folio-permissions": {
+          "files": "write"
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResult"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "原样传入后续 If-Match 的强 ETag",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "412": {
+            "$ref": "#/components/responses/412"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "428": {
+            "$ref": "#/components/responses/428"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "原样携带读取响应的单个强 ETag（含双引号）。禁止 *、列表或盲目采用新版本重试。",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "diff": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1048576,
+                    "description": "LF 或 CRLF 分隔的 unified diff，实际按 UTF-8 字节限制 1 MiB；可省略文件头；不支持 diff --git/index、二进制、跨文件、创建/删除文件或改名。"
+                  },
+                  "dryRun": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "diff"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "diff": "@@ -2 +2 @@\n-旧内容\n+新内容\n",
+                "dryRun": true
+              }
+            }
+          }
+        }
       }
     },
     "/files/revision": {
@@ -2943,11 +3063,56 @@
           "accepted"
         ],
         "additionalProperties": false
+      },
+      "PatchResult": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "description": "保存成功为新版本，dryRun 或无变化为原版本"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "addedLines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deletedLines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "候选完整正文的 UTF-8 字节数，含 BOM 与原始换行"
+          },
+          "savedAt": {
+            "type": "string",
+            "description": "仅实际修改并保存时返回"
+          }
+        },
+        "required": [
+          "path",
+          "revision",
+          "dryRun",
+          "changed",
+          "addedLines",
+          "deletedLines",
+          "size"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {
       "400": {
-        "description": "参数、JSON 或路径不安全",
+        "description": "参数、JSON 或路径不安全；invalid_patch 表示补丁语法、计数、顺序或文件头无效",
         "content": {
           "application/json": {
             "schema": {
@@ -2994,7 +3159,7 @@
         }
       },
       "409": {
-        "description": "目标已存在、操作竞争或工作区身份变化",
+        "description": "目标已存在、操作竞争或工作区身份变化；patch_mismatch 表示原位置上下文或删除内容不匹配，未保存补丁",
         "content": {
           "application/json": {
             "schema": {
@@ -3014,7 +3179,7 @@
         }
       },
       "413": {
-        "description": "文件或配额上限；保留待发送内容",
+        "description": "文件或配额上限；保留待发送内容；patch_too_large 表示补丁或行数超限",
         "content": {
           "application/json": {
             "schema": {

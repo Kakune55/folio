@@ -23,6 +23,7 @@
 | GET | /files/revision?path= | 有限文本版本，不返回正文 |
 | GET | /files/content?path= | 读取 UTF-8 正文与版本 |
 | PUT | /files/content?path= | 条件更新现有文本 |
+| PATCH | /files/content?path= | 用单文件 unified diff 条件修改局部文本 |
 | POST | /files | 不覆盖地创建文本文件 |
 | POST | /directories | 创建目录 |
 | GET | /entries/revision?path= | 文件或完整子树版本 |
@@ -212,7 +213,7 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 
 | 权限组 | 只读 | 读写额外允许 |
 | --- | --- | --- |
-| files | workspace/tree、workspace/usage、workspace/storage、files/metadata、files/revision、files/content、files/download、files/preview、entries/revision、settings 的 GET | POST files、directories、uploads；PUT files/content；PATCH entries/move |
+| files | workspace/tree、workspace/usage、workspace/storage、files/metadata、files/revision、files/content、files/download、files/preview、entries/revision、settings 的 GET | POST files、directories、uploads；PUT files/content；PATCH files/content、entries/move |
 | search | GET search、search/status、search/file-status，包含可命中文本摘要 | POST search/rebuild |
 | trash | GET trash | DELETE entries、POST trash/{id}/restore，另须 files=write |
 
@@ -237,3 +238,10 @@ categories 固定为 documents、images、media、other、trash、shares；各�
 ### Agent 入口（2026-10-26）
 
 GET /api/v1/agent.md 匿名返回 text/markdown; charset=utf-8，支持 HEAD，统一 no-store／nosniff，不设置会话 Cookie、不打开用户工作区。正文源为 backend/internal/httpapi/AGENT.md，由 Go embed 提供，内容为静态接入流程、权限、任务范围、条件写入、分页／截断、原始字节和失败恢复规则；链接到同源 openapi.json。它只提供说明，不授予权限，不是服务器端执行的 Skill 或项目 AGENTS.md。OpenAPI 同步声明此公开入口。
+
+
+### 条件 diff 更新（2026-10-26）
+
+PATCH /files/content?path=... 使用 JSON {diff,dryRun?} 与完整强 If-Match。files=write，Cookie 仍执行来源／CSRF。diff 为严格单文件 unified diff，多块全部验证后才调用现有条件保存，绝不部分提交。dryRun 默认 false；true 时只校验当前读取版本及候选，返回原 revision／ETag、不写入、不更新索引、不预留配额。结果 {path,revision,dryRun,changed,addedLines,deletedLines,size,savedAt?}；size 指完整候选的 UTF-8 字节数，savedAt 仅实际改写时返回。
+
+400 invalid_patch：格式、计数、顺序或文件头无效；409 patch_mismatch：指定位置的上下文／删除内容／末尾换行不匹配；413 patch_too_large：补丁超过 1 MiB／20000 操作行／256 块，或源／结果超过 200000 行。正文仍受现有文本／配额限制，428／412／500 持续沿用原条件保存语义。完整格式、BOM／换行继承、无末尾换行标记及不支持范围见 APPLICATION_API.md；OpenAPI 与 agent.md 已同步。不支持偏移／模糊匹配、跨文件或通过补丁创建／删除／改名文件。
