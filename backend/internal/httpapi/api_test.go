@@ -57,7 +57,11 @@ func TestAuthenticatedFileFlow(t *testing.T) {
 			t.Fatalf("预期 %d，得到 %d %s", status, w.Code, w.Body.String())
 		}
 	}
-	assertStatus(call("GET", "/api/v1/workspace/tree", "", "", false), 401)
+	anonymous := call("GET", "/api/v1/workspace/tree", "", "", false)
+	assertStatus(anonymous, 401)
+	if !strings.Contains(anonymous.Body.String(), "缺少访问令牌") || anonymous.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("匿名请求缺少令牌提示", anonymous.Body.String())
+	}
 	login := call("POST", "/api/v1/auth/login", `{"username":"admin","password":"测试用的足够长密码-123"}`, "", false)
 	assertStatus(login, 200)
 	cookie = login.Result().Cookies()[0]
@@ -69,6 +73,13 @@ func TestAuthenticatedFileFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	csrf = principal.CSRF
+	for _, body := range []string{`{"path":"missing.md"}`, `{"path":"missing.md","content":null}`} {
+		assertStatus(call("POST", "/api/v1/files", body, "", true), 400)
+	}
+	if _, err := os.Stat(filepath.Join(root, "missing.md")); !os.IsNotExist(err) {
+		t.Fatal("缺失正文不能创建文件", err)
+	}
+	assertStatus(call("POST", "/api/v1/files", `{"path":"empty.md","content":""}`, "", true), 201)
 	assertStatus(call("POST", "/api/v1/directories", `{"path":"笔记"}`, "", false), 403)
 	assertStatus(call("POST", "/api/v1/directories", `{"path":"笔记"}`, "", true), 201)
 	create := call("POST", "/api/v1/files", `{"path":"笔记/你好.md","content":"# 你好\n"}`, "", true)
@@ -77,6 +88,15 @@ func TestAuthenticatedFileFlow(t *testing.T) {
 	read := call("GET", "/api/v1/files/content?path=笔记/你好.md", "", "", false)
 	assertStatus(read, 200)
 	etag := read.Header().Get("ETag")
+	assertStatus(call("GET", "/api/v1/workspace/tree?path=笔记/你好.md", "", "", false), 400)
+	assertStatus(call("GET", "/api/v1/workspace/tree?path=不存在", "", "", false), 404)
+	for _, body := range []string{`{}`, `{"content":null}`} {
+		assertStatus(call("PUT", "/api/v1/files/content?path=笔记/你好.md", body, etag, true), 400)
+	}
+	unchanged := call("GET", "/api/v1/files/content?path=笔记/你好.md", "", "", false)
+	if unchanged.Header().Get("ETag") != etag || unchanged.Body.String() != read.Body.String() {
+		t.Fatal("缺失正文改变了原文件")
+	}
 	revision := call("GET", "/api/v1/files/revision?path=笔记/你好.md", "", "", false)
 	assertStatus(revision, 200)
 	if revision.Header().Get("ETag") != etag || strings.Contains(revision.Body.String(), `"content"`) {

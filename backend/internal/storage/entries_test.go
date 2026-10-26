@@ -59,7 +59,10 @@ func TestMovePreservesContentsAndRejectsCollision(t *testing.T) {
 }
 func TestTrashRestoreAndCollision(t *testing.T) {
 	store, root := testStore(t)
-	repository := withTrash(t, store, t.TempDir())
+	trashRoot := t.TempDir()
+	repository := withTrash(t, store, trashRoot)
+	_, missingErr := store.Restore("deadbeefdeadbeefdeadbeefdeadbeef")
+	code(t, missingErr, "trash_not_found")
 	revision, err := store.Write("笔记.md", "保留原文", "", true)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +89,8 @@ func TestTrashRestoreAndCollision(t *testing.T) {
 	if _, err = store.Restore(record.ID); err != nil {
 		t.Fatal(err)
 	}
+	_, err = store.Restore(record.ID)
+	code(t, err, "trash_not_found")
 	if data, err := os.ReadFile(filepath.Join(root, "笔记.md")); err != nil || string(data) != "保留原文" {
 		t.Fatal("恢复内容不正确")
 	}
@@ -95,6 +100,23 @@ func TestTrashRestoreAndCollision(t *testing.T) {
 	}
 	_, err = store.Restore("../../escape")
 	code(t, err, "path_invalid")
+	// 整条记录消失与已有目录内缺失清单必须区分，避免把真正损坏当成 404。
+	id := "deadbeefdeadbeefdeadbeefdeadbeef"
+	if err := os.Mkdir(filepath.Join(trashRoot, id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Restore(id)
+	code(t, err, "trash_damaged")
+	retained, err := repository.Create("笔记.md", "file", revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained.State = "restored"
+	if err := repository.Write(retained); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Restore(retained.ID)
+	code(t, err, "already_restored")
 }
 func TestIncompleteTrashCanRestoreStagedOriginal(t *testing.T) {
 	store, root := testStore(t)

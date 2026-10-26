@@ -278,3 +278,8 @@ source 的实际契约为可选 {name}，仅包含认证 Access Token 名称，�
 回滚复用现有全文写接口，以最新通知对应的远程版本作为 If-Match 恢复本轮初始正文；版本冲突拒绝，不覆盖后续版本，不通过重读后无条件重试绕过冲突。保留本地草稿，脏草稿回滚后继续暂停自动保存。通知与初始正文仅存页面内存，非备份；仅已打开可读取文本有完整统计／回滚，删除及非文本沿用现有提示。不增加接受／等待专用接口。
 
 回滚成功清除通知、旧标记及 peek，不新增回滚结果的 8 秒提示；失败保留通知和恢复入口。装饰清理由 CodeMirror StateEffect／ProseMirror meta 完成，不重建编辑器，不动正文、选区或撤销历史，不新增接口或 SSE 字段。Markdown 的统一 `-`／`*`／`+` bullet 由客户端通过 `remarkCtx.parse(source)` 真实 AST `listItem` 的源码 offset 检测，以 `remarkStringifyOptionsCtx.bullet` 保留，无列表默认 `-`；混合或其他不安全往返仍严格确认，外部重载回退源码，不放松 `equivalentSource`，不改变任何 ETag／If-Match 协议。
+
+
+## API 输入与错误分类修正（2026-10-26）
+
+POST /files 与 PUT /files/content 的 content 必须显式提供字符串；缺失或 null 返回 400 invalid_request，空字符串合法且表示空正文。拒绝请求不创建或修改文件。workspace/tree 的 path 指向普通文件返回 400 not_a_directory，不存在返回 404 not_found。恢复不存在或已清理的回收记录返回 404 trash_not_found；记录目录存在但清单或副本损坏仍返回 422 trash_damaged。成功恢复通常清除记录，未保留用于区分已恢复与从未存在的历史。无凭据返回明确的缺少令牌／会话提示；失效 Cookie 保留浏览器重新登录提示。

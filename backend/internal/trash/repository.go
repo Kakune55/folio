@@ -26,6 +26,9 @@ type Record struct {
 }
 type Repository struct{ root *os.Root }
 
+// ErrNotFound 仅表示整个回收记录目录不存在；目录内缺失清单仍视为损坏。
+var ErrNotFound = errors.New("回收记录不存在")
+
 func ValidID(id string) bool {
 	data, err := hex.DecodeString(id)
 	return err == nil && len(data) == 16 && len(id) == 32
@@ -105,6 +108,9 @@ func (r *Repository) Write(record Record) error {
 func (r *Repository) Read(id string) (Record, error) {
 	dir, err := r.Directory(id)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Record{}, ErrNotFound
+		}
 		return Record{}, err
 	}
 	defer dir.Close()

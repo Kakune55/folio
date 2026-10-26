@@ -191,6 +191,13 @@ func (s *Store) List(name string, offset, limit int) ([]Entry, int, error) {
 		return nil, 0, err
 	}
 	defer dir.Close()
+	info, err := dir.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !info.IsDir() {
+		return nil, 0, fail("not_a_directory")
+	}
 	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		return nil, 0, err

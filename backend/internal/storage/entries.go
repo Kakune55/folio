@@ -453,7 +453,13 @@ func (s *Store) Restore(id string) (string, error) {
 	}
 	record, err := s.trash.Read(id)
 	if err != nil {
+		if errors.Is(err, trash.ErrNotFound) {
+			return "", fail("trash_not_found")
+		}
 		return "", fail("trash_damaged")
+	}
+	if record.State == "restored" {
+		return "", fail("already_restored")
 	}
 	if ValidPath(record.Path, false) != nil || (record.State != "ready" && record.State != "preparing" && record.State != "incomplete") {
 		return "", fail("trash_damaged")
