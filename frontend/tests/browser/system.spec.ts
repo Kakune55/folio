@@ -6,6 +6,7 @@ test('系统设置在线生效、失败保留，系统状态明暗和手机布�
   await page.goto('/')
   await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
   await page.getByRole('button', { name: '进入工作区' }).click()
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
   await page.getByRole('link', { name: '系统设置', exact: true }).click()
   const initial = await (await page.request.get('/api/v1/admin/settings')).json()
   const me = await (await page.request.get('/api/v1/auth/me')).json()

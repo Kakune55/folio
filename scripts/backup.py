@@ -221,6 +221,8 @@ def consolidate_database(directory, clear_sessions=False):
             if clear_sessions:
                 account = target.execute('SELECT id,salt,hash FROM account').fetchall()
                 target.execute('DELETE FROM sessions')
+                if target.execute("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='access_tokens'").fetchone():
+                    target.execute('DELETE FROM access_tokens')
                 target.commit()
                 if target.execute('SELECT id,salt,hash FROM account').fetchall() != account:
                     raise BackupError('清理旧会话后账号数据不一致')

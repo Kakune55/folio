@@ -132,7 +132,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, 401, "unauthenticated", "请先登录", nil)
 			return
 		}
-		principal, err := a.Auth.Authenticate(sessionToken(r))
+		principal, access, err := authenticateRequest(a.Auth, r)
 		if err != nil {
 			if !errors.Is(err, auth.ErrCredentials) {
 				writeError(w, 500, "internal_error", "认证服务暂时不可用，请保留当前草稿并稍后重试", nil)
@@ -145,7 +145,21 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, 409, "workspace_changed", "账户工作区已切换，请重新加载", nil)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		if access != nil {
+			if !authorizeToken(access, r) {
+				writeError(w, 403, "token_forbidden", "访问令牌没有此接口的权限", nil)
+				return
+			}
+			if access.WorkspaceID != a.WorkspaceID {
+				writeError(w, 409, "workspace_changed", "令牌绑定的工作区已变化，请在用户设置中重新生成令牌", nil)
+				return
+			}
+			if err := a.Auth.TouchAccessToken(access.ID); err != nil {
+				writeError(w, 500, "internal_error", "令牌使用记录保存失败，请稍后重试", nil)
+				return
+			}
+		}
+		if access == nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if !a.allowedOrigin(r) || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(principal.CSRF)) != 1 {
 				writeError(w, 403, "forbidden", "来源或 CSRF 校验失败", nil)
 				return
@@ -165,6 +179,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerTokens(mux)
 	a.registerSharing(mux)
 	a.registerUsers(mux)
 	a.registerSystem(mux)

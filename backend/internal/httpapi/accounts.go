@@ -181,7 +181,12 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 登录与静态文件使用公共路由；所有业务资源按服务端会话分派。
 	if !strings.HasPrefix(r.URL.Path, "/api/v1/public/") && strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz" {
-		p, err := a.auth.Authenticate(sessionToken(r))
+		p, access, err := authenticateRequest(a.auth, r)
+		if access != nil && !authorizeToken(access, r) {
+			w.Header().Set("Cache-Control", "no-store")
+			writeError(w, 403, "token_forbidden", "访问令牌没有此接口的权限", nil)
+			return
+		}
 		if err == nil {
 			entry, err := a.get(p.ID)
 			if err != nil {

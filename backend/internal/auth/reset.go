@@ -57,6 +57,9 @@ func ResetPassword(directory, passwordFile string) (err error) {
 	if _, err = tx.Exec("DELETE FROM sessions"); err != nil {
 		return err
 	}
+	if _, err = tx.Exec("DELETE FROM access_tokens"); err != nil {
+		return err
+	}
 	if err = tx.Commit(); err != nil {
 		return errors.New("重置提交结果不确定：保持服务停止并用新密码核验，不要删除账号库或盲目重复操作")
 	}

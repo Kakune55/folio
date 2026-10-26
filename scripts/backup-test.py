@@ -149,6 +149,7 @@ def main():
         try:
             original_id = server.login()
             cookie = '; '.join(f'{value.name}={value.value}' for value in server.cookies)
+            server.call('POST', '/user/tokens', {'name': '备份撤销验证', 'expiresAt': 0, 'permissions': {'files': 'read', 'search': 'none', 'trash': 'none'}}, expect=201)
             server.call('POST', '/directories', {'path': '中文目录'}, expect=201)
             note = '中文目录/笔记.md'; content = '---\r\ntitle: 原始元数据\r\n---\r\n\r\n# 备份验收\r\n\r\n真实文件正文与 request_id。<!-- 保留注释 -->\r\n'
             server.call('POST', '/files', {'path': note, 'content': content}, expect=201)
@@ -225,9 +226,11 @@ def main():
         assert (restored / 'workspace/1/中文目录/图片.png').read_bytes() == attachment
         with closing(sqlite3.connect(f'file:{restored}/app-data/app.db?immutable=1', uri=True)) as database:
             assert database.execute('SELECT count(*) FROM sessions').fetchone() == (0,)
+            assert database.execute('SELECT count(*) FROM access_tokens').fetchone() == (0,)
         with closing(sqlite3.connect(f'file:{restored}/app-data/shares/shares.db?immutable=1', uri=True)) as database:
             assert database.execute('SELECT count(*) FROM grants').fetchone() == (0,)
         report['checks'].append('分享快照及分享库 WAL 完整备份，恢复保留链接／次数并清理旧访客授权')
+        report['checks'].append('备份恢复清除旧 Access Token，凭据必须重新申请')
         server = factory(binary, restored / 'workspace', restored / 'app-data')
         try:
             server.call('GET', '/auth/me', expect=401, cookie=cookie)

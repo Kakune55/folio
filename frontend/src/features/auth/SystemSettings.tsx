@@ -1,9 +1,10 @@
+import { SettingsHeader } from './SettingsHeader'
 import { SystemConfigurationPanel, SystemStatusPanel } from './SystemPanel'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowLeft, Plus, Search, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { DialogContent } from '../../components/ui/dialog-content'
 import { api } from '../../services/api'
@@ -36,7 +37,7 @@ export function SystemSettings({ principal }: { principal: Principal }) {
   if (!principal.admin) return <main className="settings-page"><h1>无权访问系统设置</h1><Link to="/">返回工作区</Link></main>
   const close = () => { if (!busy) { setEditing(null); setReset(null); setPassword(''); setError('') } }
   return <main className="settings-page">
-    <header className="settings-header"><Link to="/" className="settings-back"><ArrowLeft size={17} />返回工作区</Link><span>{principal.username}</span></header>
+    <SettingsHeader principal={principal} page="system" />
     <div className="settings-layout"><aside className="settings-nav"><h1>系统设置</h1><nav aria-label="系统管理">{['用户管理', '系统设置', '系统状态'].map((name) => <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}>{name}</button>)}</nav></aside>
       {page === '系统设置' ? <SystemConfigurationPanel /> : page === '系统状态' ? <SystemStatusPanel /> : <section className="users-section" aria-labelledby="users-heading"><div className="users-heading"><h2 id="users-heading">用户管理 <span>{users.data?.total ?? ''}</span></h2><Button variant="outline" onClick={() => begin('new')}><Plus size={16} />创建用户</Button></div>
         <label className="user-search"><Search size={16} /><input aria-label="搜索用户名" placeholder="搜索用户名" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0) }} /></label>

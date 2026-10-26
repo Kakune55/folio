@@ -4,7 +4,7 @@
 
 ## 通用约定
 
-- 除登录、静态资源与无内部信息的健康检查外，接口需要有效会话。登录与 me 返回 {id,username,admin,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
+- 除登录、公开分享、静态资源与无内部信息的健康检查外，接口需要有效会话或明确获准的 Access Token（令牌路由白名单见末节）。登录与 me 返回 {id,username,admin,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
 - 修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
 - 路径使用正确编码的工作区相对路径，不接受服务器绝对路径。元数据/文本使用 UTF-8，二进制传原始字节。
 - revision 为不透明强版本；更新、移动、删除必须提供 If-Match: "<revision>"。缺少条件返回 428，陈旧版本返回 412。新建接口始终不覆盖，同名返回 409，无需 If-None-Match。
@@ -194,3 +194,28 @@ GET /search/file-status?path=<相对路径>&revision=<可选已保存版本> 需
 公开资源 ID 和分享标识不可充当账号权限；访客不能管理分享。常见错误：400 非法模式／实时含附件／密码格式，403 无访问资格／密码错误，404 分享不存在／清单外文件，409 管理版本陈旧，410 暂停／过期／次数用完／来源工作区变化，412 文件确认版本变化，413 配额／包或文件限制，429 验证／载荷繁忙，500 明确操作失败。转存失败响应不等于所有文件系统故障都尚未提交，durability_uncertain 仍须核对结果目录。Cookie 内资格令牌不进入 URL 或 localStorage。
 
 分享列表支持 offset、limit，默认每页 20 条、最多 50 条，返回 {entries,total,offset,limit}。公开访客有效授权最多保留 10000 条，容量满时 429，过期授权在新进入事务中清理；不会因容量失败扣减访问次数。
+
+## 用户令牌与存储分类（2026-10-26）
+
+以下管理接口只接受浏览器 Cookie 会话；修改仍需 CSRF 与来源校验：
+
+| 方法 | 路由 | 用途 |
+| --- | --- | --- |
+| GET | /user/tokens | 当前账号最多 100 条令牌，返回 {entries} |
+| POST | /user/tokens | 生成令牌，201 返回元数据及仅此一次的 token |
+| DELETE | /user/tokens/{id} | 删除本人令牌，返回 {ok:true}，不存在或其他账号令牌均为 404 |
+| GET | /workspace/storage | 按需统计，返回 {used,quota,categories:[{key,bytes}]} |
+
+创建 JSON 为 {name,expiresAt,permissions:{files,search,trash}}。权限枚举 none/read/write，至少一项非 none；expiresAt 是 Unix 秒，0 为永久，非零必须在未来且不超过 366 天。name 去除首尾空白后为 1–80 个字符。元数据字段 id、name、prefix、createdAt、expiresAt、lastUsedAt、permissions；时间为 Unix 秒，lastUsedAt=0 表示尚未使用。列表不返回摘要或完整令牌。输入无效 400 invalid_token，数量超限 409 token_limit。
+
+程序客户端在请求头发送 Authorization: Bearer folio_<64位十六进制随机值>，不得放入 URL。无效／过期／已删除／所属账号禁用为 401；有 Cookie 也不回退。无对应权限为 403 token_forbidden，绑定工作区变化为 409 workspace_changed。Bearer 不使用 Cookie 的 CSRF，但仍受正文、上传、ETag 条件写入、配额、路径边界及 no-store 约束。
+
+| 权限组 | 只读 | 读写额外允许 |
+| --- | --- | --- |
+| files | workspace/tree、workspace/usage、workspace/storage、files/metadata、files/revision、files/content、files/download、files/preview、entries/revision、settings 的 GET | POST files、directories、uploads；PUT files/content；PATCH entries/move |
+| search | GET search、search/status、search/file-status，包含可命中文本摘要 | POST search/rebuild |
+| trash | GET trash | DELETE entries、POST trash/{id}/restore，另须 files=write |
+
+其余私有路由不允许令牌，包括 /auth/*、/admin/*、/user/tokens、私有 /shares* 和永久删除回收记录。search 授权允许搜索本账号已保存内容，不要求 files 权限；授权范围始终为本人整个工作区，没有目录范围参数。公开分享入口维持独立访客授权规则。
+
+categories 固定为 documents、images、media、other、trash、shares；各项 bytes 之和等于本次 used，quota=0 表示零额度，不能解释为无限。按扩展名分类，不承诺实际内容类型。失败返回明确错误，不返回伪造的零用量。索引／数据库不计费，临时文件及外部写入一致性边界同配额说明。

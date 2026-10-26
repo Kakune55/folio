@@ -107,6 +107,9 @@ func (s *Service) SaveUser(id int64, input UserInput) (User, error) {
 		}
 		if err == nil && (!input.Enabled || input.Password != "") {
 			_, err = tx.Exec("DELETE FROM sessions WHERE user_id=?", id)
+			if err == nil {
+				_, err = tx.Exec("DELETE FROM access_tokens WHERE user_id=?", id)
+			}
 		}
 	}
 	if err != nil {
@@ -154,6 +157,9 @@ func (s *Service) setPassword(id int64, oldPassword *string, newPassword string)
 		return err
 	}
 	if _, err = tx.Exec("DELETE FROM sessions WHERE user_id=?", id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM access_tokens WHERE user_id=?", id); err != nil {
 		return err
 	}
 	return tx.Commit()

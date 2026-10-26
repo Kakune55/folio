@@ -448,3 +448,29 @@ ShareManager.tsx 将单向“撤销”改为按 disabled 状态显示“暂停�
 本轮 go -C backend test ./internal/sharing ./internal/httpapi 通过（1.255s／4.812s），go -C backend test -race ./internal/sharing 通过（4.780s），go -C backend vet ./internal/sharing ./internal/httpapi 通过。新增真实短 ID 格式、内部令牌长度保留、旧 ID 进入并读取原快照、非法字符拒绝、注入 ID 碰撞后重试且原记录未改写、持续冲突有界失败测试。npm --prefix frontend run build、npm --prefix frontend run lint、npm --prefix frontend test（9 文件 28 项）、python3 scripts/copy-dist.py 和 git diff --check 通过，保留既有大分块提示。生产分享专项完整 5 项通过（35.1s），新建短链接完成原密码／附件／预览／转存／暂停继续闭环；新增旧格式进入公开路由及非法长度拒绝验证。旧 ID 实际快照读取由上述 Go 测试验证，浏览器旧格式用不存在 ID 验证路由兼容。
 
 未修改原文件、既有链接或鉴权与到期策略，未重启日常服务。新 ID 随机强度降为用户确认的 96 位；碰撞通过唯一约束处理，无密码分享仍须保密其链接。未重复全量后端／备份演练或其他浏览器验证。
+
+### M6 用户设置、存储构成与 Access Token（2026-10-26）
+
+用户授权的当前范围已实现：/user-setting 的账号、存储、应用三栏，左下角入口迁移，管理员系统设置移至设置页顶栏；原系统路由保留。涉及 UserSettings／AccountControls／Login／App／SystemSettings／api.ts／app.css，后端 auth/tokens、httpapi/tokens、storage/breakdown 与认证分派、账号撤销、SPA 路由，以及 backup.py／backup-test.py。SPEC／DESIGN／ARCHITECTURE／API／ROADMAP／README 同步。
+
+本次实际验证（历史 M0–M5 结果不作为本轮证据）：
+
+- `go -C backend test ./...` 全部通过。新增令牌摘要保存、仅一次返回、列表不泄露、重启保留、有效期、100 条上限、改密／禁用／重新启用／重置撤销；离线改密验证旧令牌不可用。HTTP 覆盖无效令牌不回退 Cookie、只读拒绝写入、跨账号资源隔离、敏感接口与永久删除拒绝、CSRF 管理边界、工作区身份、路径越界、If-Match 缺失／陈旧、同名创建与配额保护。存储覆盖六类之和与配额一致、临时文件排除、故障隔离原件计费、回收载荷、分享额外用量、取消及不安全条目拒绝。
+- `go -C backend test -race ./internal/auth ./internal/httpapi ./internal/storage` 通过；`go -C backend vet ./...` 通过。最后仅补充旧工作区绑定令牌的 HTTP 测试，相关包普通测试与 httpapi race 再次执行通过。
+- `npm --prefix frontend run build`、`npm --prefix frontend run lint`、`npm --prefix frontend test` 均通过，单测仍为 9 文件 28 项；生产构建保留既有 500 kB 大分块提示。`python3 scripts/copy-dist.py` 已复制最新生产资源。
+- `./frontend/node_modules/.bin/playwright test -c frontend/playwright.user-settings.config.ts` 最终完整 5 项通过（33.7s），使用真实 Go 嵌入资源及生产 CSP。覆盖新令牌生成、只读真实 HTTP 请求、禁止写入／自我管理、重新加载后无法取回完整令牌、确认删除后 401、真实文件／附件／回收／分享样本的存储统计、统计失败重试、管理员新入口、设置往返保持同一编辑器 DOM、配额失败后原文保留、自助改密后重新登录保留正文及标签；中文六字符密码按 UTF-8 字节校验通过。
+- 新三栏在 1440／1024／390 三视口 × 明暗主题执行 WCAG 2 A/AA、2.1 A/AA 检查，零违规，页面无横向溢出。`artifacts/user-settings/` 保存明暗桌面／手机截图，已人工查看应用页桌面深色、手机浅色与存储页桌面深色、手机浅色；不是每张截图均经人工查看。旧系统管理浏览器测试也通过。
+- `python3 scripts/backup-test.py` 主机进程演练通过：新增备份中存在令牌、恢复库令牌表为空的断言，并保留原 WAL／双卷／分享／回收站／条件写入演练。不是容器验收。
+- `git diff --check` 通过。
+
+过程失败及修复：首轮新增存储测试误用不存在的 Revision 方法，已改为 EntryRevision。最初改密后仍等待成功面板，后台请求可先触发会话失效，改为成功后主动进入重新登录并展示原因。中途 JSX 编辑缺少条件表达式右括号造成构建失败，后续命令曾误用旧 dist；这轮结果不算修复验收。已修复括号并改为构建失败即中止的验证顺序，最后新生产构建上的完整 5 项才作为最终浏览器证据。令牌过期展示最初在 render 调用 Date.now 产生 lint 警告，改用查询更新时间，最终 lint 无告警。
+
+内容与安全边界：本次不改写已有正文，不引入 MCP／OAuth／Skill。令牌仅授予本人整个工作区，未实现目录授权；默认只读，不能管理账号、系统、令牌、私有分享或永久清理回收站。完整令牌只保存在生成响应和页面内存，丢失或请求中断后可删除重建；不自动覆盖文件。改密、禁用和重置撤销对应令牌，离线改密及恢复清除全部，已开始请求可能完成。分类按扩展名，不代表内容识别；大目录统计持有用户存储锁，可能延迟同用户写入，异常条目整次失败。外部宿主写入不保证快照一致性。
+
+本轮只操作隔离测试目录与账号，未重启日常服务。尚未本轮验证真实 Windows／NTFS、ARM、容器、外部 HTTPS 代理、其他浏览器、真实手机软键盘／读屏器；沿用路线图已有环境限制。分享专项浏览器整套未重复执行，分享相关后端包含在全量 Go 测试内。
+
+### 设置顶栏一致性修复（2026-10-26）
+
+按用户反馈新增 SettingsHeader，由 UserSettings 与 SystemSettings 共用。两页右侧均为独立的设置跳转链接与纯文本用户名，修复系统页把“用户设置 · admin”拼成单一链接的不一致；更新 DESIGN 和浏览器对应定位。
+
+本次 `npm --prefix frontend run build`、`npm --prefix frontend run lint`、`python3 scripts/copy-dist.py`、`git diff --check` 通过。`./frontend/node_modules/.bin/playwright test -c frontend/playwright.user-settings.config.ts -g '用户设置、令牌'` 1 项通过（12.2s），包含两页顶栏内容／链接数断言、新三栏三视口明暗 axe 回归；系统页顶栏截图已人工查看。仅修改前端展示，未更改正文、鉴权或令牌能力，未重跑后端及全套浏览器测试，未重启日常服务。

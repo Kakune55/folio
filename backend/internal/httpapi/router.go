@@ -39,7 +39,7 @@ func New(assets fs.FS, options Options) http.Handler {
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
-		if r.URL.Path == "/system-setting" || r.URL.Path == "/shares" || strings.HasPrefix(r.URL.Path, "/s/") {
+		if r.URL.Path == "/user-setting" || r.URL.Path == "/system-setting" || r.URL.Path == "/shares" || strings.HasPrefix(r.URL.Path, "/s/") {
 			clone := r.Clone(r.Context())
 			url := *r.URL
 			url.Path = "/"

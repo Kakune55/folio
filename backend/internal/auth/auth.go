@@ -120,6 +120,9 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 	if _, err = db.Exec("SELECT user_id FROM sessions LIMIT 0"); err != nil {
 		return closeOnError(errors.New("会话结构不受支持，请停服后清理开发数据重新初始化"))
 	}
+	if err = service.initTokens(); err != nil {
+		return closeOnError(err)
+	}
 	err = db.QueryRow("SELECT salt,hash FROM account WHERE id=1").Scan(&service.salt, &service.hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		if existingOnly {

@@ -29,6 +29,10 @@ func TestOfflineResetRevokesSessionsAndKeepsWorkspaceIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, access, err := service.CreateAccessToken(1, identity, "离线撤销", 0, TokenPermissions{"read", "none", "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	secret := passwordFixture(t, "新的密码-1234567890\r\n")
 	if err = ResetPassword(dir, secret); err == nil {
 		t.Fatal("运行实例未阻止离线重置")
@@ -51,6 +55,9 @@ func TestOfflineResetRevokesSessionsAndKeepsWorkspaceIdentity(t *testing.T) {
 	defer service.Close()
 	if service.WorkspaceID("same-root") != identity || bytes.Equal(service.hash, originalHash) {
 		t.Fatal("重置未更新哈希，或改变了浏览器草稿工作区身份")
+	}
+	if _, _, err = service.AuthenticateAccessToken(access); err == nil {
+		t.Fatal("离线重置未撤销访问令牌")
 	}
 	if _, err = service.Authenticate(token); err == nil {
 		t.Fatal("旧会话仍可使用")
