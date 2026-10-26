@@ -122,6 +122,41 @@ func TestAttachmentBoundary(t *testing.T) {
 	if imagePreview.Code != 200 || imagePreview.Header().Get("Content-Type") != "image/png" || !bytes.Equal(imagePreview.Body.Bytes(), imageData.Bytes()) {
 		t.Fatal("图片预览响应错误")
 	}
+	for _, endpoint := range []string{"download", "preview"} {
+		url := "/api/v1/files/" + endpoint + "?path=中文.png"
+		lastModified := get(url).Header().Get("Last-Modified")
+		if lastModified == "" {
+			t.Fatal("文件流缺少 Last-Modified", endpoint)
+		}
+		for _, condition := range []struct {
+			value  string
+			status int
+		}{{lastModified, 206}, {"Thu, 01 Jan 1970 00:00:00 GMT", 200}} {
+			r := httptest.NewRequest("GET", url, nil)
+			r.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+			r.Header.Set("Range", "bytes=0-3")
+			r.Header.Set("If-Range", condition.value)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			want := imageData.Bytes()
+			if condition.status == 206 {
+				want = want[:4]
+			}
+			if w.Code != condition.status || !bytes.Equal(w.Body.Bytes(), want) {
+				t.Fatal("If-Range 未按文件日期选择片段／全文", endpoint, w.Code)
+			}
+		}
+	}
+	for _, name := range []string{"笔记.md", "笔记.markdown"} {
+		if w := upload(name, []byte("# 正文\n"), false, false); w.Code != 201 {
+			t.Fatal(w.Body.String())
+		}
+		w := get("/api/v1/files/metadata?path=" + name)
+		var result storage.Metadata
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.MediaType != "text/markdown" || result.Viewer != "markdown" {
+			t.Fatal("Markdown 类型错误", w.Body.String(), err)
+		}
+	}
 	if get("/api/v1/files/preview?path=源码.svg").Code != 415 {
 		t.Fatal("SVG 被作为活动内容预览")
 	}

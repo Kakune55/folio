@@ -92,6 +92,7 @@ func (s *Store) metadata(file *os.File, name string, limits Limits) (*Metadata, 
 			result.MediaType = "text/plain"
 			if ext == ".md" || ext == ".markdown" {
 				result.Viewer = "markdown"
+				result.MediaType = "text/markdown"
 			}
 		}
 	}

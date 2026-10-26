@@ -646,3 +646,7 @@ Agent 指南应用定位补充（2026-10-26）：在 AGENT.md 开头新增“Fol
 ### API 问题清单修复：补丁无变化语义（2026-10-26）
 
 定向命令 `go test ./internal/storage ./internal/httpapi -run 'TestUnifiedPatch|TestPatch'`，结果见本轮执行。新增纯上下文、相同替换的预检／保存回归，验证计数归零、版本／mtime／文件身份不变及错误上下文拒绝。P3-3 保持 409。
+
+### API 问题清单修复：元数据与文件流（2026-10-26）
+
+`go test ./internal/httpapi -run TestAttachmentBoundary` 验证 Markdown 两种扩展名的 mediaType／viewer；下载和预览均验证 Last-Modified 非空、日期 If-Range 匹配返回 206 且字节正确、不匹配返回 200 全文。SVG／HTML 保留安全文本分类和预览隔离，不新增活动 MIME 预览。
