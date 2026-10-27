@@ -65,6 +65,58 @@ func privateTestDirectory(t *testing.T) string {
 	return dir
 }
 
+func TestPasswordEightByteMinimumAcrossEntryPoints(t *testing.T) {
+	if _, err := Open(privateTestDirectory(t), "1234567"); err == nil {
+		t.Fatal("首次初始化接受了七字节密码")
+	}
+	dir := privateTestDirectory(t)
+	service, err := Open(dir, "12345678")
+	if err != nil {
+		t.Fatal("首次初始化拒绝了八字节密码", err)
+	}
+	defer service.Close()
+	if _, _, err := service.Login("admin", "12345678", "", "local"); err != nil {
+		t.Fatal("八字节初始密码无法登录", err)
+	}
+	input := UserInput{Username: "member", Enabled: true, Quota: 1 << 20, Password: "1234567"}
+	if _, err := service.SaveUser(0, input); !errors.Is(err, ErrUserInput) {
+		t.Fatal("创建用户接受七字节密码", err)
+	}
+	input.Password = "12345678"
+	member, err := service.SaveUser(0, input)
+	if err != nil {
+		t.Fatal("创建用户拒绝八字节密码", err)
+	}
+	if err := service.ChangePassword(member.ID, "12345678", "1234567"); !errors.Is(err, ErrUserInput) {
+		t.Fatal("自助改密接受七字节密码", err)
+	}
+	if err := service.ChangePassword(member.ID, "12345678", "abcdefg8"); err != nil {
+		t.Fatal("自助改密拒绝八字节密码", err)
+	}
+	if _, _, err := service.Login("member", "abcdefg8", "", "changed"); err != nil {
+		t.Fatal("改密后不能登录", err)
+	}
+	if err := service.ResetUserPassword(member.ID, "1234567"); !errors.Is(err, ErrUserInput) {
+		t.Fatal("管理员重置接受七字节密码", err)
+	}
+	if err := service.ResetUserPassword(member.ID, "password"); err != nil {
+		t.Fatal("管理员重置拒绝八字节密码", err)
+	}
+	if _, _, err := service.Login("member", "password", "", "reset"); err != nil {
+		t.Fatal("重置后不能登录", err)
+	}
+	for _, candidate := range []struct {
+		password string
+		valid    bool
+	}{{"1234567", false}, {"12345678", true}, {"密码ab", true}, {"密码a", false}} {
+		file := passwordFixture(t, candidate.password+"\n")
+		_, err := ReadPasswordFile(file)
+		if (err == nil) != candidate.valid {
+			t.Fatalf("密码文件 %q 有效性应为 %v：%v", candidate.password, candidate.valid, err)
+		}
+	}
+}
+
 func TestBusyLoginDoesNotQueueOrConsumeAttempts(t *testing.T) {
 	service, err := Open(privateTestDirectory(t), "并发登录测试-123456")
 	if err != nil {

@@ -54,6 +54,7 @@ export function SystemSettings({ principal }: { principal: Principal }) {
         try {
           const bytes = Number(quota) * unit
           if (!reset && (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 2 ** 50)) throw new Error('请输入有效配额（0–1024 TB）')
+          if ((reset || editing === 'new') && (new TextEncoder().encode(password).length < 8 || new TextEncoder().encode(password).length > 1024)) throw new Error('密码须为 8–1024 字节')
           if (reset) await api.resetUserPassword(reset.id, password)
           else await api.saveUser(editing === 'new' ? 0 : editing!.id, { username, enabled, quota: bytes, password: editing === 'new' ? password : '' })
           setNotice(reset ? '密码已重置，旧会话已撤销。' : editing === 'new' ? '用户已创建。' : '用户已更新。')
@@ -68,7 +69,7 @@ export function SystemSettings({ principal }: { principal: Principal }) {
           <label htmlFor="user-quota">工作区配额</label><div className="quota-input"><input id="user-quota" type="number" min="0" step="any" required value={quota} onChange={(e) => setQuota(e.target.value)} /><select aria-label="配额单位" value={unit} onChange={(e) => setUnit(Number(e.target.value))}><option value={1024 ** 2}>MB</option><option value={1024 ** 3}>GB</option><option value={1024 ** 4}>TB</option></select></div>
           {editing !== 'new' && editing?.used !== null && editing && Number(quota) * unit < editing.used && <p role="status">低于当前用量：保留已有文件，阻止增加用量。</p>}
         </>}
-        {(reset || editing === 'new') && <><label htmlFor="user-password">{reset ? '新密码' : '初始密码'}</label><input id="user-password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024} value={password} onChange={(e) => setPassword(e.target.value)} /><small>至少 12 个字符</small></>}
+        {(reset || editing === 'new') && <><label htmlFor="user-password">{reset ? '新密码' : '初始密码'}</label><input id="user-password" type="password" autoComplete="new-password" required maxLength={1024} value={password} onChange={(e) => setPassword(e.target.value)} /><small>至少 8 字节，最多 1024 字节</small></>}
         {error && <p className="form-error" role="alert">{error}</p>}<div className="user-form-actions"><Button variant="outline" type="button" disabled={busy} onClick={close}>取消</Button><Button variant="outline" type="submit" disabled={busy}>{busy ? '正在保存…' : reset ? '重置密码' : editing === 'new' ? '创建' : '保存'}</Button></div>
       </form><Dialog.Close asChild><Button className="dialog-close" size="icon" aria-label="关闭用户表单" disabled={busy}><X size={17} /></Button></Dialog.Close>
     </DialogContent></Dialog.Portal></Dialog.Root>

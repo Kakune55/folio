@@ -72,8 +72,8 @@ func ReadPasswordFile(filename string) (string, error) {
 	if strings.HasSuffix(password, "\n") {
 		password = strings.TrimSuffix(strings.TrimSuffix(password, "\n"), "\r")
 	}
-	if len(data) > 1026 || len(password) < 12 || len(password) > 1024 || !utf8.ValidString(password) || strings.ContainsAny(password, "\x00\r\n") {
-		return "", errors.New("密码须为 12 到 1024 字节的 UTF-8 文本，不能含换行或 NUL；允许文件末尾一组 LF/CRLF")
+	if len(data) > 1026 || len(password) < MinPasswordBytes || len(password) > 1024 || !utf8.ValidString(password) || strings.ContainsAny(password, "\x00\r\n") {
+		return "", errors.New("密码须为 8 到 1024 字节的 UTF-8 文本，不能含换行或 NUL；允许文件末尾一组 LF/CRLF")
 	}
 	return password, nil
 }

@@ -27,12 +27,12 @@ function AccountPanel({ principal }: { principal: Principal }) {
   const lock = useRef(false)
   return <section className="setting-panel" aria-labelledby="account-heading"><h2 id="account-heading">账号</h2><div className="setting-panel-content"><p className="account-identity">{principal.username}<span>{principal.admin ? '管理员' : '用户'}</span></p><h3>修改密码</h3><p className="setting-description">修改后将退出所有登录，并撤销全部 Access Token。</p>
     <form className="account-password-form" onSubmit={async e => {
-      e.preventDefault(); if (lock.current) return; setError(''); if (new TextEncoder().encode(password).length < 12 || new TextEncoder().encode(password).length > 1024) { setError('新密码须为 12–1024 字节'); return }; if (password !== confirm) { setError('两次输入的新密码不一致'); return }
+      e.preventDefault(); if (lock.current) return; setError(''); if (new TextEncoder().encode(password).length < 8 || new TextEncoder().encode(password).length > 1024) { setError('新密码须为 8–1024 字节'); return }; if (password !== confirm) { setError('两次输入的新密码不一致'); return }
       lock.current = true; setBusy(true)
       try { await api.changePassword(oldPassword, password); setOld(''); setPassword(''); setConfirm(''); window.dispatchEvent(new CustomEvent('folio:unauthenticated', { detail: { reason: 'password_changed' } })) }
       catch (e) { setError(e instanceof Error ? e.message : '修改失败，请重试') } finally { lock.current = false; setBusy(false) }
     }}><label htmlFor="account-old">原密码</label><input id="account-old" type="password" autoComplete="current-password" value={oldPassword} onChange={e => setOld(e.target.value)} required maxLength={1024} disabled={busy} />
-      <label htmlFor="account-new">新密码</label><input id="account-new" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={1024} disabled={busy} /><p className="setting-description">至少 12 字节，最多 1024 字节。</p>
+      <label htmlFor="account-new">新密码</label><input id="account-new" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={1024} disabled={busy} /><p className="setting-description">至少 8 字节，最多 1024 字节。</p>
       <label htmlFor="account-confirm">确认新密码</label><input id="account-confirm" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required maxLength={1024} disabled={busy} />
       {error && <p role="alert" className="form-error">{error}</p>}<Button variant="outline" type="submit" disabled={busy}>{busy ? '正在修改…' : '修改密码'}</Button>
     </form>

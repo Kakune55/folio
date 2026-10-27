@@ -3,6 +3,63 @@ import AxeBuilder from '@axe-core/playwright'
 import { mkdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
+test('八字节密码可创建、重置与自助改密，七字节不提交', async ({ page, browser }) => {
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  await expect(page.getByRole('link', { name: '用户设置', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
+  await expect(page.getByRole('link', { name: '系统设置', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '系统设置', exact: true }).click()
+  await page.getByRole('button', { name: '创建用户', exact: true }).click()
+  const username = `pass${Date.now()}`
+  await page.getByLabel('用户名', { exact: true }).fill(username)
+  const password = page.getByLabel('初始密码', { exact: true })
+  const postRequests: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/admin/users') postRequests.push(request.postData() ?? '') })
+  await password.fill('1234567')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('8–1024 字节')
+  expect(postRequests).toHaveLength(0)
+  await password.fill('12345678')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(page.getByText(username, { exact: true })).toBeVisible()
+  expect(postRequests).toHaveLength(1)
+
+  const memberContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const member = await memberContext.newPage()
+    await member.goto('/')
+    await member.getByLabel('密码', { exact: true }).fill('12345678')
+    await member.getByLabel('账号', { exact: true }).fill(username)
+    await member.getByRole('button', { name: '进入工作区' }).click()
+    await expect(member.getByRole('link', { name: '用户设置', exact: true })).toBeVisible()
+    await member.getByRole('link', { name: '用户设置', exact: true }).click()
+    await member.getByLabel('原密码', { exact: true }).fill('12345678')
+    await member.getByLabel('新密码', { exact: true }).fill('1234567')
+    await member.getByLabel('确认新密码', { exact: true }).fill('1234567')
+    await member.getByRole('button', { name: '修改密码', exact: true }).click()
+    await expect(member.getByRole('alert')).toContainText('8–1024 字节')
+    await member.getByLabel('新密码', { exact: true }).fill('abcdefgh')
+    await member.getByLabel('确认新密码', { exact: true }).fill('abcdefgh')
+    await member.getByRole('button', { name: '修改密码', exact: true }).click()
+    await expect(member.getByRole('button', { name: '进入工作区' })).toBeVisible()
+    await member.getByLabel('账号', { exact: true }).fill(username)
+    await member.getByLabel('密码', { exact: true }).fill('abcdefgh')
+    await member.getByRole('button', { name: '进入工作区' }).click()
+    await expect(member.getByRole('heading', { name: '用户设置', exact: true })).toBeVisible()
+  } finally { await memberContext.close() }
+
+  await page.getByRole('row', { name: new RegExp(username) }).getByRole('button', { name: '重置密码', exact: true }).click()
+  const resetPassword = page.getByLabel('新密码', { exact: true })
+  await resetPassword.fill('7654321')
+  await page.getByRole('button', { name: '重置密码', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('8–1024 字节')
+  await resetPassword.fill('76543210')
+  await page.getByRole('button', { name: '重置密码', exact: true }).click()
+  await expect(page.getByText('密码已重置，旧会话已撤销。')).toBeVisible()
+})
+
 test('令牌有效期常用档位、自定义边界及明暗手机表单', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/')

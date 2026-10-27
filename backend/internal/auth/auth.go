@@ -154,8 +154,8 @@ func open(dir, initialPassword string, existingOnly bool) (*Service, error) {
 				return closeOnError(err)
 			}
 		}
-		if len(initialPassword) < 12 || len(initialPassword) > 1024 {
-			return closeOnError(errors.New("初始密码须为 12 到 1024 字节"))
+		if len(initialPassword) < MinPasswordBytes || len(initialPassword) > 1024 {
+			return closeOnError(errors.New("初始密码须为 8 到 1024 字节"))
 		}
 		service.salt = make([]byte, 16)
 		if _, err = rand.Read(service.salt); err != nil {

@@ -13,7 +13,9 @@ import (
 
 const DefaultQuota int64 = 5 << 30
 
-var ErrUserInput = errors.New("用户名须为 1–64 位字母、数字、下划线、点或短横线；密码须为 12–1024 字节；配额须为 0–1024 TB；管理员不能禁用")
+const MinPasswordBytes = 8
+
+var ErrUserInput = errors.New("用户名须为 1–64 位字母、数字、下划线、点或短横线；密码须为 8–1024 字节；配额须为 0–1024 TB；管理员不能禁用")
 var ErrUsername = errors.New("用户名已存在")
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
 
@@ -58,7 +60,7 @@ func (s *Service) Users(q string, offset, limit int) ([]User, int, error) {
 	return users, total, rows.Err()
 }
 func (s *Service) SaveUser(id int64, input UserInput) (User, error) {
-	if !usernamePattern.MatchString(input.Username) || input.Quota < 0 || input.Quota > 1<<50 || (input.Password != "" && (len(input.Password) < 12 || len(input.Password) > 1024)) || (id == 0 && input.Password == "") {
+	if !usernamePattern.MatchString(input.Username) || input.Quota < 0 || input.Quota > 1<<50 || (input.Password != "" && (len(input.Password) < MinPasswordBytes || len(input.Password) > 1024)) || (id == 0 && input.Password == "") {
 		return User{}, ErrUserInput
 	}
 	// 与登录及自助改密共用高成本哈希闸门，防止并发 Argon2 耗尽内存。
@@ -130,7 +132,7 @@ func (s *Service) ResetUserPassword(id int64, newPassword string) error {
 	return s.setPassword(id, nil, newPassword)
 }
 func (s *Service) setPassword(id int64, oldPassword *string, newPassword string) error {
-	if len(newPassword) < 12 || len(newPassword) > 1024 || (oldPassword != nil && len(*oldPassword) > 1024) {
+	if len(newPassword) < MinPasswordBytes || len(newPassword) > 1024 || (oldPassword != nil && len(*oldPassword) > 1024) {
 		return ErrUserInput
 	}
 	if !s.loginMu.TryLock() {
