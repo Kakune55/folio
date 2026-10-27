@@ -3,6 +3,76 @@ import AxeBuilder from '@axe-core/playwright'
 import { mkdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
+test('令牌有效期常用档位、自定义边界及明暗手机表单', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
+  await page.getByRole('button', { name: '应用', exact: true }).click()
+  const principal = await (await page.request.get('/api/v1/auth/me')).json()
+  const created: number[] = [], requests: number[] = []
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/user/tokens') requests.push(request.postDataJSON().expiresAt) })
+  const expiry = page.getByLabel('有效期', { exact: true }), custom = page.getByLabel('自定义天数', { exact: true })
+  await expect(expiry).toHaveValue('30')
+  await expect(expiry.locator('option')).toHaveText(['1 天', '7 天', '14 天', '30 天', '90 天', '180 天', '365 天', '永不过期', '自定义'])
+  try {
+    for (const days of [1, 7, 14, 30, 90, 180, 365]) {
+      await expiry.selectOption(String(days))
+      await expect(custom).toHaveCount(0)
+      await page.getByLabel('令牌名称', { exact: true }).fill(`有效期 ${days} 天`)
+      const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/user/tokens')
+      await page.getByRole('button', { name: '生成令牌', exact: true }).click()
+      const result = await response; expect(result.status()).toBe(201)
+      const token = await result.json(); created.push(token.id)
+      expect(Math.abs(token.expiresAt - token.createdAt - days * 86400)).toBeLessThanOrEqual(5)
+      expect(token.permissions).toEqual({ files: 'read', search: 'read', trash: 'none' })
+      await page.getByRole('button', { name: '我已保存', exact: true }).click()
+    }
+    await expiry.selectOption('custom')
+    await page.getByLabel('令牌名称', { exact: true }).fill('自定义有效期')
+    for (const value of ['', '0', '-1', '1.5', '367']) {
+      await custom.fill(value)
+      const count = requests.length
+      await page.getByRole('button', { name: '生成令牌', exact: true }).click()
+      expect(await custom.evaluate(input => (input as HTMLInputElement).validity.valid)).toBe(false)
+      expect(requests).toHaveLength(count)
+    }
+    // 除原生校验外，提交逻辑也不能把自定义 0 天误当作永久。
+    await custom.fill('0')
+    await custom.evaluate(input => (input as HTMLInputElement).min = '0')
+    await page.getByRole('button', { name: '生成令牌', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('有效期须为 1–366 天的整数')
+    expect(requests).toHaveLength(7)
+    await custom.evaluate(input => (input as HTMLInputElement).min = '1')
+    for (const days of [45, 366, 0]) {
+      await expiry.selectOption(days ? 'custom' : '0')
+      if (days) await custom.fill(String(days))
+      else await expect(custom).toHaveCount(0)
+      await page.getByLabel('令牌名称', { exact: true }).fill(`自定义 ${days}`)
+      const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/user/tokens')
+      await page.getByRole('button', { name: '生成令牌', exact: true }).click()
+      const result = await response; expect(result.status()).toBe(201)
+      const token = await result.json(); created.push(token.id)
+      if (days) expect(Math.abs(token.expiresAt - token.createdAt - days * 86400)).toBeLessThanOrEqual(5)
+      else expect(token.expiresAt).toBe(0)
+      await page.getByRole('button', { name: '我已保存', exact: true }).click()
+    }
+    expect(requests).toHaveLength(10)
+    await expiry.selectOption('custom'); await custom.fill('45')
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+      }
+    }
+  } finally {
+    for (const id of created) await page.request.delete(`/api/v1/user/tokens/${id}`, { headers: { 'X-CSRF-Token': principal.csrfToken } })
+  }
+})
+
 test('用户设置、令牌实际访问与撤销、存储构成和明暗手机布局', async ({ page, playwright }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/')
