@@ -12,7 +12,7 @@ type Tools = {
   serialize: (doc: PMNode) => string
   ast: (source: string) => MarkdownAst
 }
-type Snapshot = { source: string; semantic: string; viewSemantic: string; keys: string[]; raw: string[]; gaps: string[] }
+type Snapshot = { source: string; semantic: string; viewSemantic: string; hasVirtualTail: boolean; keys: string[]; raw: string[]; gaps: string[] }
 type Prepared = { source: string; commit: () => void } | { error: string }
 const maxChars = 1_000_000
 const maxSnapshotBytes = 8 * 1024 * 1024
@@ -59,8 +59,7 @@ function trailingNewlines(source: string) {
   return source.match(/[\t \r\n]*$/)?.[0].match(/\r\n|\r|\n/g)?.length ?? 0
 }
 
-function index(source: string, doc: PMNode, tools: Tools): Snapshot {
-  budget(source)
+export function unsupportedMarkdown(source: string, ast: MarkdownAst): string | undefined {
   const opening = /^\uFEFF?(---|\+\+\+)[ \t]*(?:\r\n|\r|\n)/.exec(source)
   if (opening) {
     const rest = source.slice(opening[0].length)
@@ -70,31 +69,38 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
     const metadata = opening[1] === '---'
       ? /^[ \t]*[^\s:][^\r\n]*:[ \t]*(?:[^\r\n]*)(?:\r\n|\r|\n|$)/
       : /^[ \t]*(?:[^\s=][^\r\n]*=|\[[^\r\n]+\])/
-    if (closing.test(rest) || metadata.test(rest))
-      throw new Error('frontmatter 无法完整表达为富文本，请保留源码。')
+    if (closing.test(rest) || metadata.test(rest)) return 'frontmatter 无法完整表达为富文本，请使用源码。'
   }
-  // remark 在预处理时移除 BOM，其 offset 相对于去 BOM 后的 UTF-16 正文。
-  const bom = source.startsWith('\uFEFF') ? 1 : 0
-  const ast = tools.ast(source.slice(bom))
   const pending = [ast]
   let visited = 0
   while (pending.length) {
     const node = pending.pop()!
-    if (++visited > 100_000) throw new Error('Markdown AST 超过保源节点预算。')
+    if (++visited > 100_000) return 'Markdown AST 超过保源节点预算，请使用源码。'
     if (['definition', 'linkReference', 'imageReference', 'yaml', 'toml'].includes(node.type)
       || (node.type === 'code' && node.meta != null && node.meta !== ''))
-      throw new Error('引用定义、frontmatter 或代码 meta 无法安全保源，请使用源码。')
+      return '引用定义、frontmatter 或代码 meta 无法安全保源，请使用源码。'
     for (const child of node.children ?? []) pending.push(child)
   }
+}
+
+function index(source: string, doc: PMNode, tools: Tools): Snapshot {
+  budget(source)
+  // remark 在预处理时移除 BOM，其 offset 相对于去 BOM 后的 UTF-16 正文。
+  const bom = source.startsWith('\uFEFF') ? 1 : 0
+  const ast = tools.ast(source.slice(bom))
+  const unsupported = unsupportedMarkdown(source, ast)
+  if (unsupported) throw new Error(unsupported)
   const parsed = tools.parse(source)
   if (!parsed) throw new Error('原文解析失败。')
   const parsedSemantic = semanticDoc(parsed)
   const viewSemantic = semanticDoc(doc)
+  let hasVirtualTail = false
   if (parsedSemantic !== viewSemantic) {
     const projected = withoutVirtualTail(doc)
     if (!projected || semanticDoc(projected) !== parsedSemantic)
       throw new Error('原文解析与编辑文档语义不一致。')
     doc = projected
+    hasVirtualTail = true
   }
   const semantic = parsedSemantic
   const children = ast.children ?? []
@@ -103,7 +109,7 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
   // PM 常用单个空段落表示空文件；不凭 AST/PM 数量猜测其他映射。
   if (!children.length) {
     if (!/^[\s\uFEFF]*$/.test(source)) throw new Error('空 AST 含有未映射原文。')
-    return { source, semantic, viewSemantic, raw, gaps: [source], keys }
+    return { source, semantic, viewSemantic, hasVirtualTail, raw, gaps: [source], keys }
   }
   if (children.length !== doc.childCount) throw new Error('顶层 Markdown 块无法逐块映射。')
   children.forEach((child, i) => {
@@ -124,7 +130,7 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
   const tail = source.slice(end)
   if (!/^[\t \r\n]*$/.test(tail)) throw new Error('末尾存在未映射正文。')
   gaps.push(tail)
-  return { source, semantic, viewSemantic, raw, gaps, keys }
+  return { source, semantic, viewSemantic, hasVirtualTail, raw, gaps, keys }
 }
 
 export class SourcePreserver {
@@ -170,6 +176,15 @@ export class SourcePreserver {
       })
       const known = this.history.find(snapshot => snapshot.viewSemantic === semantic)
       if (known) return finish(known, false)
+      // 历史中显式源码的 canonical 视图可重新索引，不能从当前虚拟尾段推断并删除它。
+      const explicit = this.history.find(snapshot => snapshot.semantic === semantic
+        && (snapshot !== base || snapshot === this.history[0]))
+      if (explicit) {
+        try {
+          const candidate = index(explicit.source, fullDoc, this.tools)
+          return finish(candidate, true)
+        } catch { /* 历史原文未必能表示当前视图，继续严格生成并回验。 */ }
+      }
       const projected = withoutVirtualTail(doc)
       const emptyKey = doc.lastChild && isDefaultEmptyParagraph(doc.lastChild) ? semanticDoc(doc.lastChild) : undefined
       let mappedEmpty = 0, targetEmpty = 0
@@ -178,7 +193,9 @@ export class SourcePreserver {
         for (let i = doc.childCount - 1; i >= 0 && isDefaultEmptyParagraph(doc.child(i)); i--) targetEmpty++
       }
       // 已映射的显式空段不能吞掉，只允许比基线多出的最后一个默认空段作为占位。
-      if (projected && targetEmpty > mappedEmpty) {
+      const tailRaw = mappedEmpty ? base.raw.slice(-mappedEmpty) : []
+      const ambiguousTail = tailRaw.some(raw => raw !== tailRaw[0])
+      if (projected && (targetEmpty > mappedEmpty || (base.hasVirtualTail && !ambiguousTail))) {
         doc = projected
         semantic = semanticDoc(doc)
       }
@@ -186,7 +203,7 @@ export class SourcePreserver {
       doc.forEach(node => keys.push(semanticDoc(node)))
       const empty = this.tools.parse('')
       if (empty && semanticDoc(empty) === semantic && doc === fullDoc) keys.length = 0
-      if (base.source.length + semantic.length > 4 * maxChars) throw new Error('保源比较超过输入预算。')
+      if (semantic.length > 4 * maxChars) throw new Error('保源比较超过输入预算。')
       const identities = new Map<string, string>()
       const ambiguous = new Set<string>()
       base.keys.forEach((key, i) => {
@@ -224,7 +241,7 @@ export class SourcePreserver {
           const reused = identities.get(keys[next])
           if (reused !== undefined) {
             generatedChars += reused.length
-            if (generatedChars + base.source.length > maxChars) throw new Error('生成块合计超过保源输入预算。')
+            if (generatedChars > maxChars) throw new Error('生成块合计超过保源输入预算。')
             generated.push(reused)
             continue
           }
@@ -256,7 +273,7 @@ export class SourcePreserver {
               throw new Error('空段落无法无损序列化，请保留当前正文。')
           }
           generatedChars += serialized.length
-          if (generatedChars + base.source.length > maxChars) throw new Error('生成块合计超过保源输入预算。')
+          if (generatedChars > maxChars) throw new Error('生成块合计超过保源输入预算。')
           const stop = blocks.at(-1)?.position?.end.offset
           if (blocks.length !== 1 || stop === undefined || !/^[\t \r\n]*$/.test(serialized.slice(stop)))
             throw new Error('变化块不能独立序列化，空段落或多块输出无法保源。')
@@ -265,6 +282,11 @@ export class SourcePreserver {
         if (generated.length && old === a && old > 0)
           source += newline.repeat(Math.max(0, 2 - trailingNewlines(source)))
         source += generated.join(newline + newline)
+        // 淘汰历史后的尾部撤销不把已删空段前的分隔符留作新的文件尾巴。
+        if (doc !== fullDoc && base.hasVirtualTail && a === base.keys.length && b === keys.length
+          && !generated.length && old < a && base.keys.slice(old, a).every(key => key === emptyKey)
+          && base.gaps[a] === '' && base.gaps[old] === newline + newline)
+          source = source.slice(0, -(newline + newline).length)
         // 删除/合并后仍保留原有各个 gap；只为新增邻接补充分隔。
         for (; old < a; old++) source += base.gaps[old + 1]
         if (a < base.keys.length) {
@@ -275,7 +297,6 @@ export class SourcePreserver {
         }
       }
       budget(source)
-      if (base.source.length + source.length > maxChars) throw new Error('前后正文合计超过 100 万字符保源比较预算。')
       const candidate = index(source, fullDoc, this.tools)
       if (this.size(candidate) > maxSnapshotBytes)
         throw new Error('候选保源快照超过单快照 8 MiB 预算；当前正文未变。')

@@ -336,3 +336,111 @@ test('段落间连续回车保存实际空段，不忽略中间结构', async ({
     expect((await read()).content).toBe(saved)
   } finally { await agent.dispose() }
 })
+
+for (const [name, pasted, guarded] of [
+  ['引用定义', '粘贴正文。\n\n[keep]: /important "必须保留的定义"\n', '[keep]:'],
+  ['代码附加信息', '```js filename="important.js"\nconst keep = 1\n```\n', 'filename="important.js"'],
+] as const) test(`不安全纯文本粘贴 ${name} 不丢原文、不写盘`, async ({ page, playwright }) => {
+  const source = '原文。'
+  const { agent, read, writes, revision } = await prepare(page, playwright, source)
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').click()
+    await rich(page).evaluate((root, text) => {
+      const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text)
+      root.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+    }, pasted)
+    await expect(page.getByText(/剪贴板 Markdown 无法安全保留/)).toBeVisible()
+    await expect(rich(page)).not.toContainText(guarded)
+    await page.waitForTimeout(1100)
+    expect(await read()).toEqual({ content: source, revision })
+    expect(writes).toEqual([])
+    await rich(page).locator('p').click(); await page.keyboard.press('End'); await page.keyboard.press('Enter')
+    await rich(page).evaluate(root => {
+      const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', '- 正常列表\n- 第二项\n')
+      root.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+    })
+    await expect(rich(page).locator('li')).toHaveCount(2)
+    await expect.poll(async () => (await read()).content).toContain('第二项')
+  } finally { await agent.dispose() }
+})
+
+for (const marker of ['-', '1.']) test(`富文本逐键创建 ${marker} 列表可条件保存并重新打开`, async ({ page, playwright }) => {
+  const { agent, path, read, writes } = await prepare(page, playwright, '')
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').click()
+    await page.keyboard.insertText(marker)
+    await page.keyboard.press('Space')
+    await expect(rich(page).locator('li')).toHaveCount(1)
+    await page.keyboard.insertText('新增列表项')
+    await expect.poll(async () => (await read()).content).toContain('新增列表项')
+    expect(writes.at(-1)?.match).toBeTruthy()
+    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
+    await page.reload()
+    await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(rich(page).locator('li')).toContainText('新增列表项')
+    await expect(conversion(page)).toHaveCount(0)
+  } finally { await agent.dispose() }
+})
+
+test('现有段落快捷键转换为列表可保存并重新打开', async ({ page, playwright }) => {
+  const { agent, path, read } = await prepare(page, playwright, '原文。')
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').click()
+    await page.keyboard.press('ControlOrMeta+Alt+8')
+    await expect(rich(page).locator('li')).toContainText('原文。')
+    await expect.poll(async () => (await read()).content).toMatch(/^- 原文。/)
+    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
+    await page.reload()
+    await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(rich(page).locator('li')).toContainText('原文。')
+  } finally { await agent.dispose() }
+})
+
+test('尾部占位前的空段填写文字，不把旧占位当成新增空段', async ({ page, playwright }) => {
+  const { agent, path, read } = await prepare(page, playwright, 'A')
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').click()
+    await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.press('Enter')
+    await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(1)
+    await rich(page).locator(':scope > p').nth(1).evaluate(paragraph => {
+      paragraph.closest<HTMLElement>('[contenteditable="true"]')!.focus()
+      const range = document.createRange(); range.setStart(paragraph, 0); range.collapse(true)
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    await page.evaluate(() => new Promise(requestAnimationFrame))
+    await page.keyboard.insertText('B')
+    await expect.poll(async () => (await read()).content).toMatch(/^A\n\nB\n?$/)
+    await expect(rich(page).locator(':scope > p')).toHaveCount(3)
+    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
+    await page.reload()
+    await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(rich(page)).toBeVisible()
+    await expect(conversion(page)).toHaveCount(0)
+    expect((await read()).content).not.toContain('<br')
+  } finally { await agent.dispose() }
+})
+
+test('段末 Shift+Enter 不伪装成功，段中硬换行仍可保存', async ({ page, playwright }) => {
+  const { agent, read, revision, writes } = await prepare(page, playwright, 'AB')
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').click(); await page.keyboard.press('End'); await page.keyboard.press('Shift+Enter')
+    await expect(page.getByText(/段落末尾的 Shift\+Enter 暂无法无损保存，操作未生效/)).toBeVisible()
+    await page.waitForTimeout(1100)
+    expect(await read()).toEqual({ content: 'AB', revision }); expect(writes).toEqual([])
+    await rich(page).locator('p').evaluate(paragraph => {
+      paragraph.closest<HTMLElement>('[contenteditable="true"]')!.focus()
+      const range = document.createRange(); range.setStart(paragraph.firstChild!, 1); range.collapse(true)
+      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    await page.evaluate(() => new Promise(requestAnimationFrame))
+    await page.keyboard.press('Shift+Enter')
+    await expect.poll(async () => (await read()).content).toBe('A\\\nB')
+  } finally { await agent.dispose() }
+})

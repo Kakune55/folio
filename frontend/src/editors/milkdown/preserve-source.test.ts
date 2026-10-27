@@ -7,7 +7,7 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkStringify from 'remark-stringify'
 import type { Root, RootContent } from 'mdast'
-import { createSourcePreserver, semanticDoc, type SourcePreserver } from './preserve-source'
+import { createSourcePreserver, semanticDoc, unsupportedMarkdown, type SourcePreserver } from './preserve-source'
 
 const processor = unified().use(remarkParse).use(remarkGfm).use(remarkStringify)
 const schema = new Schema({ nodes: {
@@ -31,6 +31,19 @@ const serialize = vi.fn((doc: PMNode) => {
   return processor.stringify({ type: 'root', children } as Root)
 })
 const tools = { parse, ast, serialize }
+it('源文件与粘贴共用不支持语法检查，代码块中的假定义不误报', () => {
+  for (const source of [
+    '[keep]: /important "必须保留的定义"\n',
+    '粘贴正文。\n\n[keep]: /important "必须保留的定义"\n',
+    '```js filename="important.js"\nconst keep = 1\n```\n',
+    '---\ntitle: 保留\n---\n\n正文\n',
+  ]) expect(unsupportedMarkdown(source, ast(source))).toBeTruthy()
+  for (const source of [
+    '普通段落。\n', '- 第一项\n- 第二项\n',
+    '```md\n[keep]: /只在代码里\n```\n',
+    '---\n\n合法分隔线后的正文\n',
+  ]) expect(unsupportedMarkdown(source, ast(source))).toBeUndefined()
+})
 function setup(source: string) {
   const result = createSourcePreserver(source, parse(source), tools)
   expect(result.reason).toBeUndefined()
@@ -196,6 +209,40 @@ describe('保源纯逻辑适配器', () => {
     enter.commit()
     const typed = preserver.prepare(trailingParse('intro\n\nnext'))
     expect(typed).toMatchObject({ source: 'intro\n\nnext' })
+  })
+
+  it('前一个显式空段填字后仍保留虚拟尾段身份', () => {
+    const initial = trailingParse('A')
+    const preserver = createSourcePreserver('A', initial, trailingTools).preserver!
+    expect(applyDoc(preserver, appendEmpty(initial))).toBe('A')
+    expect(applyDoc(preserver, appendEmpty(initial, 2))).toBe('A\n\n<br />')
+    const filled = appendEmpty(trailingParse('A\n\nB'))
+    expect(applyDoc(preserver, filled)).toBe('A\n\nB')
+    expect(createSourcePreserver('A\n\nB', filled, trailingTools).reason).toBeUndefined()
+    expect(applyDoc(preserver, appendEmpty(initial, 2))).toBe('A\n\n<br />')
+  })
+
+  it('超过 50 个快照后逐步撤销被淘汰的尾空段，候选均可严格重新索引', () => {
+    const initial = trailingParse('A')
+    const preserver = createSourcePreserver('A', initial, trailingTools).preserver!
+    const cache = preserver as unknown as { history: { source: string; hasVirtualTail: boolean }[] }
+    for (let i = 1; i <= 55; i++) {
+      const doc = appendEmpty(initial, i)
+      const source = applyDoc(preserver, doc)
+      expect(source).toBe(i === 1 ? 'A' : `A${'\n\n<br />'.repeat(i - 1)}`)
+      expect(createSourcePreserver(source, doc, trailingTools).reason).toBeUndefined()
+    }
+    expect(cache.history).toHaveLength(50)
+    expect(cache.history[0].source).toBe('A')
+    for (let i = 54; i >= 5; i--) {
+      const doc = appendEmpty(initial, i)
+      const candidate = preserver.prepare(doc)
+      if ('error' in candidate) throw new Error(candidate.error)
+      expect(candidate.source).toBe(`A${'\n\n<br />'.repeat(i - 1)}`)
+      expect(createSourcePreserver(candidate.source, doc, trailingTools).reason).toBeUndefined()
+      candidate.commit()
+      expect(cache.history.at(-1)?.hasVirtualTail).toBe(true)
+    }
   })
 
   it.each(['A', '\uFEFFA\r\n \r\n', '~~~~js\nold\n~~~~', '- item', '| a |\n| - |\n| b |'])(
@@ -652,6 +699,25 @@ describe('保源纯逻辑适配器', () => {
     expect(preserver.prepare(largeParse('initial'))).toMatchObject({ source: 'initial' })
     expect(preserver.prepare(largeParse('change 4'))).toMatchObject({ source: 'change 4' })
   })
+
+  it('长段落单字修改按候选而非旧稿加新稿计费，超限保持原快照', () => {
+    for (const length of [500_001, 790_000]) {
+      const original = 'a'.repeat(length)
+      const preserver = createSourcePreserver(original, trailingParse(original), trailingTools).preserver!
+      const cache = preserver as unknown as { history: { source: string }[]; bytes: number }
+      const edited = `b${original.slice(1)}`
+      expect(applyDoc(preserver, trailingParse(edited))).toBe(edited)
+      expect(createSourcePreserver(edited, trailingParse(edited), trailingTools).reason).toBeUndefined()
+      const before = [...cache.history], bytes = cache.bytes
+      const oversized = 'c'.repeat(1_000_001)
+      expect(preserver.prepare(trailingParse(oversized))).toMatchObject({ error: expect.stringMatching(/100 万字符|语义预算/) })
+      expect(cache.history).toEqual(before)
+      expect(cache.bytes).toBe(bytes)
+      expect(preserver.prepare(trailingParse(edited))).toMatchObject({ source: edited })
+    }
+    const nearLimit = 'a'.repeat(999_999)
+    expect(createSourcePreserver(nearLimit, trailingParse(nearLimit), trailingTools).reason).toMatch(/单快照 8 MiB/)
+  }, 60_000)
 
   it('资源超限与解析异常明确拒绝', () => {
     expect(createSourcePreserver('a'.repeat(1_000_001), parse('a'), tools).reason).toMatch(/限制/)

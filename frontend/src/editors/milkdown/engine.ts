@@ -9,13 +9,14 @@ import { Crepe } from '@milkdown/crepe'
 import { editorViewOptionsCtx, editorViewCtx, parserCtx, serializerCtx, remarkCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import { $view, $prose } from '@milkdown/kit/utils'
-import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
+import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
 import { codeTheme } from '../theme'
 import { imageSchema } from '@milkdown/kit/preset/commonmark'
+import { extendListItemSchemaForTask } from '@milkdown/kit/preset/gfm'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import type { CrepeBridge } from './bridge'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
-import { createSourcePreserver } from './preserve-source'
+import { createSourcePreserver, unsupportedMarkdown } from './preserve-source'
 import { createMarkdownCodeInputPlugin } from './markdown-input'
 import '@milkdown/crepe/theme/common/prosemirror.css'
 import '@milkdown/crepe/theme/common/reset.css'
@@ -104,6 +105,16 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
   }))
   crepe.editor.use($prose(() => new Plugin({ view: () => ({ destroy: mermaidPreview.destroy }) })))
   const uploads = new PluginKey<Map<symbol, number>>('folio-image-uploads')
+  const protectTransfer = (event: ClipboardEvent | DragEvent) => {
+    const transfer = event instanceof ClipboardEvent ? event.clipboardData : event.dataTransfer
+    const text = transfer?.getData('text/plain')
+    if (!text || transfer?.files.length) return false
+    const reason = unsupportedMarkdown(text, crepe.editor.action(ctx => ctx.get(remarkCtx).parse(text)))
+    if (!reason) return false
+    event.preventDefault()
+    onUnsupported?.(`剪贴板 Markdown 无法安全保留，已取消粘贴／拖入；原文未变。${reason}请切换源码后粘贴。`)
+    return true
+  }
   const handleFiles = (view: EditorView, event: ClipboardEvent | DragEvent, files: FileList | undefined) => {
     if (!bridge || !files?.length) return false
     event.preventDefault()
@@ -167,6 +178,11 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
     }))
   }
   crepe.editor.config((ctx) => {
+    ctx.update(extendListItemSchemaForTask.key, previous => context => {
+      const schema = previous(context)
+      // 新建单段列表项应是紧凑列表；解析已有宽松列表时显式 spread 仍保留。
+      return { ...schema, attrs: { ...schema.attrs, spread: { ...schema.attrs!.spread, default: false } } }
+    })
     const bullets = new Set<'-' | '*' | '+'>()
     const visit = (node: MarkdownNode) => {
       if (node.type === 'listItem' && node.position?.start.offset !== undefined) {
@@ -186,6 +202,16 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
         keydown: (view, event) => {
           // DOM 阶段先处理围栏，避免默认 Enter 分段快捷键先消费事件。
           if (codeInput.props.handleKeyDown?.call(codeInput, view, event)) { event.preventDefault(); return true }
+          if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+            const selection = view.state.selection
+            if (selection instanceof TextSelection && selection.empty && selection.$from.parent.type.name === 'paragraph'
+              && selection.$from.parentOffset === selection.$from.parent.content.size) {
+              // Milkdown 会剔除段末 hardbreak；绝不能把看似插入的换行静默保存成普通段落。
+              event.preventDefault()
+              onUnsupported?.('段落末尾的 Shift+Enter 暂无法无损保存，操作未生效；请用普通 Enter 新建段落，或切换源码编辑硬换行。')
+              return true
+            }
+          }
           if (event.key === 'Escape') { tabReleaseUntil = Date.now() + 2000; return false }
           if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey && Date.now() < tabReleaseUntil) {
             tabReleaseUntil = 0
@@ -195,7 +221,7 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
           if (!['Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) tabReleaseUntil = 0
           return false
         },
-        paste: (view, event) => handleFiles(view, event, event.clipboardData?.files),
+        paste: (view, event) => protectTransfer(event) || handleFiles(view, event, event.clipboardData?.files),
         dragover: (_view, event) => {
           if (!bridge || !hasEntryTransfer(event.dataTransfer)) return false
           event.preventDefault(); event.dataTransfer!.dropEffect = 'copy'; return true
@@ -213,7 +239,7 @@ export function createCrepe(root: HTMLElement, source: string, onChange?: (sourc
             }
             return true
           }
-          return handleFiles(view, event, event.dataTransfer?.files)
+          return protectTransfer(event) || handleFiles(view, event, event.dataTransfer?.files)
         },
         click: (_view, event) => {
           const link = (event.target as HTMLElement).closest('a')
