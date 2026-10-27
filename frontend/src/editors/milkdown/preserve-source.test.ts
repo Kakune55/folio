@@ -52,7 +52,7 @@ const trailingSchema = new Schema({ nodes: {
   hardbreak: { group: 'inline', inline: true },
   text: { group: 'inline' },
 }, marks: { strong: {} } })
-const trailingParse = (source: string) => trailingSchema.node('doc', null, ast(source).children.map(tree => {
+const trailingParse = (source: string) => trailingSchema.node('doc', null, ast(source).children.length ? ast(source).children.map(tree => {
   if (tree.type === 'code') return trailingSchema.node('code_block', { language: tree.lang ?? '' }, tree.value ? trailingSchema.text(tree.value) : undefined)
   if (tree.type === 'list' || tree.type === 'table') return trailingSchema.node(tree.type, { tree: clean(tree) })
   if (tree.type === 'html' && /^<br\s*\/?>$/.test(tree.value)) return trailingSchema.node('paragraph')
@@ -62,7 +62,7 @@ const trailingParse = (source: string) => trailingSchema.node('doc', null, ast(s
     if (child.type !== 'text') throw new Error('测试解析器不支持此行内节点')
     return trailingSchema.text(child.value)
   }))
-}))
+}) : [trailingSchema.node('paragraph')])
 const trailingSerialize = vi.fn((doc: PMNode) => {
   const blocks: string[] = []
   doc.forEach(node => {
@@ -78,6 +78,12 @@ function appendEmpty(doc: PMNode, count = 1) {
   doc.forEach(node => nodes.push(node))
   for (let i = 0; i < count; i++) nodes.push(trailingSchema.node('paragraph'))
   return trailingSchema.node('doc', null, nodes)
+}
+function applyDoc(preserver: SourcePreserver, doc: PMNode) {
+  const result = preserver.prepare(doc)
+  if ('error' in result) throw new Error(result.error)
+  result.commit()
+  return result.source
 }
 
 describe('保源纯逻辑适配器', () => {
@@ -192,6 +198,121 @@ describe('保源纯逻辑适配器', () => {
     expect(typed).toMatchObject({ source: 'intro\n\nnext' })
   })
 
+  it.each(['A', '\uFEFFA\r\n \r\n', '~~~~js\nold\n~~~~', '- item', '| a |\n| - |\n| b |'])(
+    '连续 Enter 保留真实空段，逐步与分组 undo/redo 精确对应视图：%s', source => {
+      const initial = trailingParse(source)
+      const docs = [initial, appendEmpty(initial), appendEmpty(initial, 2), appendEmpty(initial, 3)]
+      const typed = trailingSchema.node('doc', null, [initial.child(0), trailingSchema.node('paragraph'), trailingSchema.node('paragraph'), trailingParse('B').child(0)])
+      docs.push(typed)
+      const preserver = createSourcePreserver(source, initial, trailingTools).preserver!
+      const newline = source.includes('\r\n') ? '\r\n' : '\n'
+      const separator = newline.repeat(Math.max(0, 2 - (source.match(/[\t \r\n]*$/)![0].match(/\r\n|\r|\n/g)?.length ?? 0)))
+      const first = source + separator + '<br />'
+      const second = first + newline + newline + '<br />'
+      const expected = [source, source, first, second, second + newline + newline + 'B']
+      trailingSerialize.mockClear()
+      docs.forEach((doc, i) => expect(applyDoc(preserver, doc)).toBe(expected[i]))
+      expect(semanticDoc(trailingParse(expected[4]))).toBe(semanticDoc(typed))
+      trailingSerialize.mockClear()
+      for (let i = docs.length - 2; i >= 0; i--) expect(applyDoc(preserver, docs[i])).toBe(expected[i])
+      for (let i = 1; i < docs.length; i++) expect(applyDoc(preserver, docs[i])).toBe(expected[i])
+      // 第二次 Enter 的 canonical 恰为第一次 Enter 的视图，不能跨快照冒认。
+      expect(applyDoc(preserver, docs[1])).toBe(source)
+      expect(applyDoc(preserver, docs[3])).toBe(second)
+      expect(applyDoc(preserver, docs[0])).toBe(source)
+      expect(applyDoc(preserver, typed)).toBe(expected[4])
+      expect(trailingSerialize).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['', '\uFEFF\r\n \r\n'])('空文件初始默认段后的 Enter 不能吞掉真正新空段：%s', source => {
+    const initial = trailingParse(source)
+    const docs = [initial, appendEmpty(initial), appendEmpty(initial, 2)]
+    const preserver = createSourcePreserver(source, initial, trailingTools).preserver!
+    const newline = source.includes('\r\n') ? '\r\n' : '\n'
+    const expected = [source, source + '<br />', source + '<br />' + newline + newline + '<br />']
+    docs.forEach((doc, i) => expect(applyDoc(preserver, doc)).toBe(expected[i]))
+    for (let i = 1; i >= 0; i--) expect(applyDoc(preserver, docs[i])).toBe(expected[i])
+    for (let i = 1; i < docs.length; i++) expect(applyDoc(preserver, docs[i])).toBe(expected[i])
+  })
+
+  it('显式 BR 连续尾段及原始 gaps 保留，不重写已有 raw', () => {
+    const source = '\uFEFFA\r\n \r\n<br>\r\n\r\n<br>\r\n '
+    const canonical = trailingParse(source), initial = appendEmpty(canonical)
+    const preserver = createSourcePreserver(source, initial, trailingTools).preserver!
+    expect(applyDoc(preserver, initial)).toBe(source)
+    trailingSerialize.mockClear()
+    const added = applyDoc(preserver, appendEmpty(initial))
+    expect(added).toBe(source + '\r\n<br>')
+    expect(trailingSerialize).not.toHaveBeenCalled()
+    expect(createSourcePreserver(added, appendEmpty(initial), trailingTools).reason).toBeUndefined()
+    expect(applyDoc(preserver, initial)).toBe(source)
+    // 无占位的 canonical 视图不是历史中的 initial，必须保留两个显式空段。
+    expect(applyDoc(preserver, canonical)).toBe(source)
+  })
+
+  it('不同 raw 的同语义 BR 保留，新增身份有歧义时拒绝而非猜测', () => {
+    const source = 'A\n\n<br>\n \n<br />'
+    const initial = appendEmpty(trailingParse(source))
+    const preserver = createSourcePreserver(source, initial, trailingTools).preserver!
+    expect(applyDoc(preserver, appendEmpty(trailingParse(source.replace('A', 'B'))))).toBe(source.replace('A', 'B'))
+    expect(preserver.prepare(appendEmpty(initial))).toMatchObject({ error: expect.stringContaining('身份') })
+    expect(applyDoc(preserver, initial)).toBe(source)
+  })
+
+  it('中间新增默认空段可表示，后续文字编辑不吞段', () => {
+    const preserver = createSourcePreserver('A\n\nB', trailingParse('A\n\nB'), trailingTools).preserver!
+    const doc = trailingParse('A\n\n<br />\n\nB')
+    expect(applyDoc(preserver, doc)).toBe('A\n\n<br />\n\nB')
+    expect(applyDoc(preserver, trailingParse('A\n\n<br />\n\nC'))).toBe('A\n\n<br />\n\nC')
+  })
+
+  it('唯一空段被 serializer 省略时使用 sentinel，切片严格验证且不泄漏', () => {
+    const serialize = vi.fn((doc: PMNode) => doc.childCount === 1 && doc.firstChild!.childCount === 0 ? '' : trailingSerialize(doc))
+    const tools = { ...trailingTools, serialize }
+    const initial = trailingParse('A')
+    const preserver = createSourcePreserver('A', initial, tools).preserver!
+    const result = applyDoc(preserver, appendEmpty(initial, 2))
+    expect(result).toBe('A\n\n<br />')
+    expect(result).not.toContain('sentinel')
+    expect(serialize).toHaveBeenCalledTimes(2)
+    expect(serialize.mock.calls[1][0].childCount).toBe(2)
+  })
+
+  it.each(['wrong', '<br />\n\nwrong', '<br />\n\nfolio-preserve-empty-sentinel\n\nextra'])(
+    'sentinel 或空段不可严格还原时明确拒绝：%s', probe => {
+      const initial = trailingParse('A')
+      const serialize = vi.fn((doc: PMNode) => doc.childCount === 1 ? '' : probe)
+      const preserver = createSourcePreserver('A', initial, { ...trailingTools, serialize }).preserver!
+      expect(preserver.prepare(appendEmpty(initial, 2))).toMatchObject({ error: expect.stringContaining('空段落') })
+      expect(applyDoc(preserver, initial)).toBe('A')
+      expect(serialize).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('默认空段序列化成非空文字时拒绝，不使用宽泛空段语义等价', () => {
+    const initial = trailingParse('A')
+    const preserver = createSourcePreserver('A', initial, { ...trailingTools, serialize: () => 'wrong' }).preserver!
+    expect(preserver.prepare(appendEmpty(initial, 2))).toMatchObject({ error: expect.stringContaining('空段落') })
+    expect(applyDoc(preserver, initial)).toBe('A')
+  })
+
+  it('实际 viewSemantic 纳入快照预算，预检不占历史且过期 commit 拒绝', () => {
+    const initial = trailingParse('A')
+    const preserver = createSourcePreserver('A', initial, trailingTools).preserver!
+    const first = preserver.prepare(appendEmpty(initial))
+    const stale = preserver.prepare(appendEmpty(initial, 2))
+    if ('error' in first || 'error' in stale) throw new Error('预检失败')
+    const cache = preserver as unknown as { bytes: number; history: { source: string; semantic: string; viewSemantic: string; keys: string[]; raw: string[]; gaps: string[] }[] }
+    expect(cache.history).toHaveLength(1)
+    first.commit()
+    expect(() => stale.commit()).toThrow('过期')
+    expect(cache.history.at(-1)!.viewSemantic).toBe(semanticDoc(appendEmpty(initial)))
+    expect(cache.history.at(-1)!.semantic).toBe(semanticDoc(initial))
+    expect(cache.bytes).toBe(cache.history.reduce((sum, snapshot) => sum + 2 * (snapshot.source.length + snapshot.semantic.length
+      + snapshot.viewSemantic.length + snapshot.keys.join('').length + snapshot.raw.join('').length + snapshot.gaps.join('').length), 0))
+  })
+
   it.each(['', '\n', '\r\n', '\n \n', '\r\n \r\n'])('连续 Enter 虚拟尾段后键入新段，只补缺少的分隔：%s', gap => {
     const original = `编辑目标。${gap}`
     const preserver = createSourcePreserver(original, trailingParse(original), trailingTools).preserver!
@@ -243,10 +364,11 @@ describe('保源纯逻辑适配器', () => {
     if ('error' in changed) throw new Error(changed.error)
     expect(changed.source.endsWith('\n\n<br />')).toBe(true)
     expect(semanticDoc(trailingParse(changed.source))).toBe(semanticDoc(trailingParse('```js\nnew\n```\n\n<br />')))
-    expect(preserver.prepare(appendEmpty(doc))).toHaveProperty('error')
+    expect(preserver.prepare(appendEmpty(doc))).toMatchObject({ source })
+    expect(createSourcePreserver(source, appendEmpty(doc), trailingTools).reason).toBeUndefined()
   })
 
-  it('不投影连续空段、非默认属性、marks、hardbreak 或缺失块', () => {
+  it('初始化不投影多个空段，非默认属性、marks、hardbreak 或缺失块仍严格拒绝', () => {
     const source = 'intro\n\n```js\nold\n```'
     const base = trailingParse(source)
     const preserver = createSourcePreserver(source, base, trailingTools).preserver!
@@ -261,7 +383,7 @@ describe('保源纯逻辑适配器', () => {
       expect(preserver.prepare(doc)).toHaveProperty('error')
     }
     expect(createSourcePreserver(source, appendEmpty(base, 2), trailingTools).reason).toBeDefined()
-    expect(preserver.prepare(appendEmpty(base, 2))).toHaveProperty('error')
+    expect(preserver.prepare(appendEmpty(base, 2))).toMatchObject({ source: `${source}\n\n<br />` })
     expect(createSourcePreserver(source, appendEmpty(trailingParse('intro')), trailingTools).reason).toBeDefined()
   })
 
@@ -497,7 +619,7 @@ describe('保源纯逻辑适配器', () => {
   })
 
   it('接近单快照 8 MiB 时按总字节滚动，仅保留初始与当前也可继续编辑', () => {
-    const padding = 'x'.repeat(2_096_000)
+    const padding = 'x'.repeat(1_397_000)
     const largeParse = (source: string) => schema.node('doc', null,
       source ? [schema.node('paragraph', { tree: { value: source, padding: source === 'oversized' ? padding + 'x'.repeat(4000) : padding } })] : [])
     const largeTools = {

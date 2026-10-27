@@ -710,3 +710,39 @@ P3-3 按用户决定不修改，末尾换行与原文不匹配继续返回 409 p
 本次实际执行：前端 `npm run build -- --logLevel warn`、`npx oxlint src/features/auth/UserSettings.tsx tests/browser/user-settings.spec.ts` 通过；构建保留原有大分块提示。`npx playwright test tests/browser/user-settings.spec.ts` 最终 **2 项通过（19.6s）**，新增用例通过真实服务器生成全部七种有限预设、45／366 天自定义及永久共 10 个令牌，核对到期时间与权限，并清理测试凭据。空值、0、负数、小数及 367 天不发 POST；额外放宽测试 DOM 的 min 后，提交校验仍阻止自定义 0，未创建永久令牌。自定义表单明暗 × 1440／390 无横向溢出、全页 WCAG 检查通过；原令牌实际访问／撤销、存储与设置切换回归继续通过。
 
 首轮新增用例切换主题时在按钮颜色过渡中采样，出现临时对比度失败；与原用户设置用例一致启用 reducedMotion 后完整复测通过，未排除 axe 规则或修改对比度门槛。`python3 scripts/copy-dist.py` 已同步生产嵌入资源。未重复执行全量前端、Go 或生产 QA，本次浏览器使用 Vite 与隔离真实后端，未将其描述为生产包浏览器验收；其他浏览器、真实设备及客户端时钟偏差未专项验证。未重启日常服务，未创建提交。
+
+### 末尾连续回车误拦截修复（2026-10-27）
+
+用户反馈富文本末尾回车提示“未映射的额外空段落”。旧保源实现只允许前一个节点非空的单个尾占位，连续 Enter 的真实空段被统一拒绝；错误并不表示原 Markdown 非法。生产旧资源定向复现：`npx playwright test -c playwright.sse.config.ts editor-preservation.spec.ts -g '末尾连续回车 LF'` 在第二次 Enter 后仍只有两个段落，按预期失败。
+
+修复 `preserve-source.ts`：区分源码 `semantic` 和完整视图 `viewSemantic`，历史按实际视图匹配，避免真实空段与尾占位互相误命中；按已映射与目标尾空段数量投影一个多余默认占位，其他空段使用库原生标准 `<br />` 严格序列化并回验。原始显式 BR、未编辑 raw／gaps、BOM／换行不丢，非默认属性、marks、hardbreak 不降级为普通空段。无法独立输出唯一空段时使用带非空探测段的序列化结果，确认首块与探测块后只保留空段，探测文本不得泄漏。新字段计入原有缓存预算，预检／提交和滚动淘汰规则不变。
+
+本次实际验证，区分此前历史：
+
+- `npm test`：**14 文件／164 项通过**，保源专项为 82 项，新增连续 Enter、空文档／中间空段、代码／列表／表格尾、精确逐步和分组 undo／redo、显式 BR、探测回退、预算与原保护回归。
+- `npm run build -- --logLevel warn` 通过，保留既有大分块提示；`python3 scripts/copy-dist.py` 已同步修复后的生产资源。
+- `npx playwright test -c playwright.sse.config.ts editor-preservation.spec.ts`：最终生产真实服务 **21 项全部通过（1.5m）**。新增 6 项覆盖 LF／BOM CRLF 尾部连续回车，第一次占位不发请求且原文／ETag 不变，真实空段条件保存、再输入、逐步撤销重做精确源字节；代码／列表／表格后与段落间空段保存并重开，无转换提示，原文不丢。原 15 项语法／SSE／只读／语义保护继续通过。
+- `npx playwright test tests/browser/rich-drag.spec.ts tests/browser/editor-upload-guard.spec.ts`：**5 项通过（15.6s）**，真实拖拽撤销、图片拒绝及极短／极长代码拒绝恢复继续通过。
+- `npx oxlint src/editors/milkdown/preserve-source.ts src/editors/milkdown/preserve-source.test.ts tests/browser/editor-preservation.spec.ts` 通过。
+
+首轮新专项中 LF／CRLF 两项通过，但测试在代码块初始尚无 trailing 占位时等待空段超时；列表空尾段点击也落回列表内部，误插入空 list item。已改为先真实操作原块产生 trailing 事务，再明确设置空尾段光标后发送真实 Enter；没有通过伪造正文、服务器响应或删除保存断言绕过。超时轮次只完成部分用例并留下临时 18081 服务，确认其路径为本轮 `/tmp/folio-e2e-.../folio-test-server` 后清理，未触碰日常服务；最终完整 21 项重新执行通过。
+
+边界：多个真实空段使用库已有 HTML `<br />`，不是把所有额外空段从语义中移除，且不会格式化无关原文。既有 `<br>` 与 `<br />` 同语义不同 raw 时，涉及其身份歧义仍可能拒绝，优先保留正文；这类组合未追加真实浏览器专项。未重跑完整业务套件、生产无障碍／性能、后端或真实设备／IME／读屏器，旧记录不作为本次通过。原令牌有效期工作区改动保留，未提交，未重启日常 8080 服务。
+
+### 编辑器行为审查（2026-10-27，仅检查，尚未修复）
+
+用户要求检查更多异常。本轮不修改业务代码，临时探针位于 `/tmp/kilo/folio-editor-audit.spec.ts` 和同目录专用 config，不加入正式测试套件。通过 Vite、隔离真实后端和 Chromium 执行 `npx playwright test --config /tmp/kilo/folio-editor-audit.config.ts --reporter=line`，最终 14 个审查探针完成（50.6s）；其中缺陷用例的断言是确认异常存在，**不是应用功能全部通过**。原工作区未提交的回车修复保留，未重启日常服务。
+
+| 严重程度 | 实际确认行为 | 证据与根因入口 |
+| --- | --- | --- |
+| P1 | 富文本段落纯文本粘贴静默丢失引用定义／代码 meta 并保存 | 粘贴 `粘贴正文。` 加 `[keep]: /important "必须保留的定义"`，磁盘只剩正文；代码 `filename="important.js"` 消失但代码内容留下。均实际发出一次保存、无警告。engine.ts 的 paste 只处理附件，默认 clipboard 先解析丢失信息，保源检查只看后续 PM，未检查原剪贴板 AST |
+| P2 | 正常新建列表被误拦截 | 空段逐键输入 `-`＋空格、`1.`＋空格，以及正文 `Mod-Alt-8` 均不创建 li 并显示语义不一致。实际 list_item 新建默认 spread=true，而单段列表解析 spread=false；已有列表 split 与从段落新建是不同路径，不能靠删除 spread 检查掩盖 |
+| P2 | 末尾 Shift+Enter 被拒绝 | `A` 末尾 Shift+Enter 出现语义警告，正文不变；相同操作在 `AB` 中间正常保存为反斜杠硬换行。段末 hardbreak 暂时不能被当前单块序列化／解析表达，缺少与输入态一致的处理 |
+| P2 | 尾部占位会变成额外真实空段 | `A` 连续 Enter 两次后，一个真实空段加尾占位；在前一个空段填写 `B`，磁盘得到 `A\n\nB\n\n<br />`，无警告。另用真实 Crepe／PM `splitBlock` 和 `closeHistory` 分组构造 55 个尾部 Enter，撤销 49 次，原第 6 步有 5 个 BR，重建后为 6 个。mappedEmpty 数量推断与缓存淘汰都不能稳定保留占位身份 |
+| P2 | 大段落可进入富文本却不能正常改字 | 500001 个普通 `a` 的文件可正常准入，实际插入一个 `b` 被“生成块合计超过保源输入预算”阻止，磁盘与界面仍为原文、未发写请求。准入单份 100 万与编辑前后合计 100 万预算不一致，缺少提前告知或源码分流 |
+
+正常对照：已有列表退出可在外部输入且不弹拒绝；显式空段退格后撤销恢复精确源；段中 Shift+Enter、Mod-Enter 退出代码块输入、普通 Markdown 列表粘贴均可用。因此不能笼统说整个列表、换行或粘贴都失效。列表退出用例同时出现末尾 BR，与上面的占位身份问题一致，不将“未弹拒绝”扩大为完整字节无副作用。
+
+证据区分：粘贴使用浏览器 DataTransfer／ClipboardEvent 注入仅 text/plain，经过实际 clipboard handler 后由真实服务保存，不声称测试了操作系统剪贴板。历史压力使用真实浏览器 Crepe、公开 PM splitBlock／undo／closeHistory 命令，不声称按了 55 次实际键盘。其他常用输入使用实际键盘；临时配置的首轮未等待登录就绪导致全部准备请求 401，一次大请求为代理 502，修正就绪条件后重跑，不算产品缺陷。历史探针初轮光标在段首，得到的是格式重建差异；改为明确段尾后才确认 5→6 个 BR 的内容差异。
+
+边界：本轮针对当前工作区源码的 dev 浏览器交互，不是日常 8080 运行版本或生产包验收；不修改当前业务实现，不宣称上述缺陷已经修复。没有覆盖真实 IME／读屏器／移动设备、所有表格操作与富 HTML 粘贴，未复跑完整回归、性能或后端测试。后续应先修原始粘贴防丢失，再统一创建列表、段内换行和占位状态／资源准入，不应逐项关闭保源检查。

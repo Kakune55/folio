@@ -12,7 +12,7 @@ type Tools = {
   serialize: (doc: PMNode) => string
   ast: (source: string) => MarkdownAst
 }
-type Snapshot = { source: string; semantic: string; keys: string[]; raw: string[]; gaps: string[] }
+type Snapshot = { source: string; semantic: string; viewSemantic: string; keys: string[]; raw: string[]; gaps: string[] }
 type Prepared = { source: string; commit: () => void } | { error: string }
 const maxChars = 1_000_000
 const maxSnapshotBytes = 8 * 1024 * 1024
@@ -49,10 +49,9 @@ function isDefaultEmptyParagraph(node: PMNode | null) {
   return node?.type.name === 'paragraph' && node.childCount === 0 && node.eq(node.type.create())
 }
 
-// 仅投影一个额外默认尾段；连续空段、属性、marks 和 hardbreak 都不属于占位。
+// 仅投影一个额外默认尾段；其前缀是否匹配源码由调用方严格验证。
 function withoutVirtualTail(doc: PMNode): PMNode | undefined {
-  if (doc.childCount < 2 || !isDefaultEmptyParagraph(doc.lastChild)
-    || isDefaultEmptyParagraph(doc.child(doc.childCount - 2))) return
+  if (doc.childCount < 2 || !isDefaultEmptyParagraph(doc.lastChild)) return
   return doc.copy(doc.content.cut(0, doc.content.size - doc.lastChild!.nodeSize))
 }
 
@@ -90,7 +89,8 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
   const parsed = tools.parse(source)
   if (!parsed) throw new Error('原文解析失败。')
   const parsedSemantic = semanticDoc(parsed)
-  if (parsedSemantic !== semanticDoc(doc)) {
+  const viewSemantic = semanticDoc(doc)
+  if (parsedSemantic !== viewSemantic) {
     const projected = withoutVirtualTail(doc)
     if (!projected || semanticDoc(projected) !== parsedSemantic)
       throw new Error('原文解析与编辑文档语义不一致。')
@@ -103,7 +103,7 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
   // PM 常用单个空段落表示空文件；不凭 AST/PM 数量猜测其他映射。
   if (!children.length) {
     if (!/^[\s\uFEFF]*$/.test(source)) throw new Error('空 AST 含有未映射原文。')
-    return { source, semantic, raw, gaps: [source], keys }
+    return { source, semantic, viewSemantic, raw, gaps: [source], keys }
   }
   if (children.length !== doc.childCount) throw new Error('顶层 Markdown 块无法逐块映射。')
   children.forEach((child, i) => {
@@ -124,7 +124,7 @@ function index(source: string, doc: PMNode, tools: Tools): Snapshot {
   const tail = source.slice(end)
   if (!/^[\t \r\n]*$/.test(tail)) throw new Error('末尾存在未映射正文。')
   gaps.push(tail)
-  return { source, semantic, raw, gaps, keys }
+  return { source, semantic, viewSemantic, raw, gaps, keys }
 }
 
 export class SourcePreserver {
@@ -142,11 +142,12 @@ export class SourcePreserver {
   }
   private size(snapshot: Snapshot) {
     // 同时计入原文、语义键和切片，按 UTF-16 上界记账。
-    return 2 * (snapshot.source.length + snapshot.semantic.length
+    return 2 * (snapshot.source.length + snapshot.semantic.length + snapshot.viewSemantic.length
       + snapshot.keys.join('').length + snapshot.raw.join('').length + snapshot.gaps.join('').length)
   }
   prepare(doc: PMNode): Prepared {
     try {
+      const fullDoc = doc
       let semantic = semanticDoc(doc)
       if (semantic.length > 4 * maxChars) throw new Error('目标文档超过保源语义预算。')
       const base = this.current, revision = this.revision
@@ -167,20 +168,24 @@ export class SourcePreserver {
           }
         },
       })
-      let known = this.history.find(snapshot => snapshot.semantic === semantic)
+      const known = this.history.find(snapshot => snapshot.viewSemantic === semantic)
       if (known) return finish(known, false)
       const projected = withoutVirtualTail(doc)
-      // 已映射原文的显式空段必须保留，不能因它恰好在末尾而吞掉。
-      if (projected && base.keys.at(-1) !== semanticDoc(doc.lastChild!)) {
+      const emptyKey = doc.lastChild && isDefaultEmptyParagraph(doc.lastChild) ? semanticDoc(doc.lastChild) : undefined
+      let mappedEmpty = 0, targetEmpty = 0
+      if (emptyKey) {
+        for (let i = base.keys.length - 1; i >= 0 && base.keys[i] === emptyKey; i--) mappedEmpty++
+        for (let i = doc.childCount - 1; i >= 0 && isDefaultEmptyParagraph(doc.child(i)); i--) targetEmpty++
+      }
+      // 已映射的显式空段不能吞掉，只允许比基线多出的最后一个默认空段作为占位。
+      if (projected && targetEmpty > mappedEmpty) {
         doc = projected
         semantic = semanticDoc(doc)
-        known = this.history.find(snapshot => snapshot.semantic === semantic)
-        if (known) return finish(known, false)
       }
       const keys: string[] = []
       doc.forEach(node => keys.push(semanticDoc(node)))
       const empty = this.tools.parse('')
-      if (empty && semanticDoc(empty) === semantic) keys.length = 0
+      if (empty && semanticDoc(empty) === semantic && doc === fullDoc) keys.length = 0
       if (base.source.length + semantic.length > 4 * maxChars) throw new Error('保源比较超过输入预算。')
       const identities = new Map<string, string>()
       const ambiguous = new Set<string>()
@@ -216,8 +221,6 @@ export class SourcePreserver {
       for (const [a, b] of matches) {
         const generated: string[] = []
         for (; next < b; next++) {
-          if (isDefaultEmptyParagraph(doc.child(next)))
-            throw new Error('未映射的额外空段落无法安全写入源码，请保留当前正文。')
           const reused = identities.get(keys[next])
           if (reused !== undefined) {
             generatedChars += reused.length
@@ -226,11 +229,34 @@ export class SourcePreserver {
             continue
           }
           const wrapper = doc.type.create(doc.attrs, [doc.child(next)], doc.marks)
-          const serialized = this.tools.serialize(wrapper)
+          let serialized = this.tools.serialize(wrapper)
           budget(serialized)
+          let blocks = this.tools.ast(serialized).children ?? []
+          if (isDefaultEmptyParagraph(doc.child(next)) && !blocks.length && /^[\t \r\n]*$/.test(serialized)) {
+            // Milkdown 可能省略唯一空段；追加非空段触发 preserve-empty，仅取验证后的首块。
+            const sentinel = doc.child(next).type.create(null, doc.type.schema.text('folio-preserve-empty-sentinel'))
+            const probe = this.tools.serialize(doc.type.create(doc.attrs, [doc.child(next), sentinel], doc.marks))
+            budget(probe)
+            const probeBlocks = this.tools.ast(probe).children ?? []
+            const firstEnd = probeBlocks[0]?.position?.end.offset
+            const secondStart = probeBlocks[1]?.position?.start.offset
+            const secondEnd = probeBlocks[1]?.position?.end.offset
+            const second = secondStart === undefined || secondEnd === undefined ? null : this.tools.parse(probe.slice(secondStart, secondEnd))
+            if (probeBlocks.length !== 2 || firstEnd === undefined || secondStart === undefined || secondEnd === undefined
+              || firstEnd > secondStart || !/^[\t \r\n]*$/.test(probe.slice(firstEnd, secondStart))
+              || !/^[\t \r\n]*$/.test(probe.slice(secondEnd))
+              || !second || second.childCount !== 1 || semanticDoc(second.child(0)) !== semanticDoc(sentinel))
+              throw new Error('空段落的独立序列化验证失败，请保留当前正文。')
+            serialized = probe.slice(0, firstEnd)
+            blocks = this.tools.ast(serialized).children ?? []
+          }
+          if (isDefaultEmptyParagraph(doc.child(next))) {
+            const single = this.tools.parse(serialized)
+            if (!single || single.childCount !== 1 || semanticDoc(single.child(0)) !== keys[next])
+              throw new Error('空段落无法无损序列化，请保留当前正文。')
+          }
           generatedChars += serialized.length
           if (generatedChars + base.source.length > maxChars) throw new Error('生成块合计超过保源输入预算。')
-          const blocks = this.tools.ast(serialized).children ?? []
           const stop = blocks.at(-1)?.position?.end.offset
           if (blocks.length !== 1 || stop === undefined || !/^[\t \r\n]*$/.test(serialized.slice(stop)))
             throw new Error('变化块不能独立序列化，空段落或多块输出无法保源。')
@@ -250,7 +276,7 @@ export class SourcePreserver {
       }
       budget(source)
       if (base.source.length + source.length > maxChars) throw new Error('前后正文合计超过 100 万字符保源比较预算。')
-      const candidate = index(source, doc, this.tools)
+      const candidate = index(source, fullDoc, this.tools)
       if (this.size(candidate) > maxSnapshotBytes)
         throw new Error('候选保源快照超过单快照 8 MiB 预算；当前正文未变。')
       return finish(candidate, true)
