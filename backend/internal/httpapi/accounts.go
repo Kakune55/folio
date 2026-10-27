@@ -186,7 +186,7 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 }
 func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 接口契约只有静态公开定义，不打开账号工作区。
-	if r.URL.Path == "/api/v1/openapi.json" || r.URL.Path == "/api/v1/agent.md" {
+	if isApplicationDocumentation(r.URL.Path) {
 		a.base.ServeHTTP(w, r)
 		return
 	}

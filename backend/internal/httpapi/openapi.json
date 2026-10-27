@@ -36,6 +36,56 @@
     }
   ],
   "paths": {
+    "/operations": {
+      "get": {
+        "operationId": "listOperations",
+        "summary": "读取精简操作索引",
+        "description": "公开静态摘要，仅含操作标识、方法、契约相对路径、摘要、权限、公开标记与详情链接，不含参数、响应或详细说明。不访问账号或工作区，无效 Bearer 也可读取。",
+        "tags": ["接入"],
+        "security": [],
+        "x-folio-permissions": {},
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/OperationIndex"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/operations/{operationId}": {
+      "get": {
+        "operationId": "getOperation",
+        "summary": "读取单个操作的完整契约",
+        "description": "公开静态 OpenAPI 3.1.0 子文档，保留顶层 info、openapi、servers、security，paths 仅含所选操作与路径级继承字段，components 仅含递归所需本地引用及 securitySchemes。不访问账号或工作区，无效 Bearer 也可读取。未知标识返回 404 operation_not_found。",
+        "tags": ["接入"],
+        "security": [],
+        "x-folio-permissions": {},
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "description": "索引中的稳定操作标识",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/OpenAPIDocument"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/404"}
+        }
+      }
+    },
     "/application": {
       "get": {
         "operationId": "getApplication",
@@ -2049,8 +2099,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true
+                  "$ref": "#/components/schemas/OpenAPIDocument"
                 }
               }
             }
@@ -2092,6 +2141,62 @@
       }
     },
     "schemas": {
+      "OperationIndex": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {"type": "string", "const": "v1"},
+          "basePath": {"type": "string", "const": "/api/v1"},
+          "guide": {"type": "string", "const": "/api/v1/agent.md"},
+          "openapi": {"type": "string", "const": "/api/v1/openapi.json"},
+          "operations": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/OperationSummary"}
+          }
+        },
+        "required": ["apiVersion", "basePath", "guide", "openapi", "operations"],
+        "additionalProperties": false
+      },
+      "OperationSummary": {
+        "type": "object",
+        "properties": {
+          "operationId": {"type": "string", "minLength": 1},
+          "method": {"type": "string", "enum": ["GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"]},
+          "path": {"type": "string", "pattern": "^/"},
+          "summary": {"type": "string"},
+          "permissions": {
+            "type": "object",
+            "properties": {
+              "files": {"type": "string", "enum": ["none", "read", "write"]},
+              "search": {"type": "string", "enum": ["none", "read", "write"]},
+              "trash": {"type": "string", "enum": ["none", "read", "write"]}
+            },
+            "additionalProperties": false
+          },
+          "public": {"type": "boolean"},
+          "contract": {"type": "string", "pattern": "^/api/v1/operations/[^/]+$"}
+        },
+        "required": ["operationId", "method", "path", "summary", "permissions", "public", "contract"],
+        "additionalProperties": false
+      },
+      "OpenAPIDocument": {
+        "type": "object",
+        "description": "通用 OpenAPI 文档形状；完整有效性与引用闭包另由 OpenAPI 校验器验证，不嵌入元 schema。",
+        "properties": {
+          "openapi": {"type": "string", "const": "3.1.0"},
+          "info": {
+            "type": "object",
+            "properties": {"title": {"type": "string"}, "version": {"type": "string"}},
+            "required": ["title", "version"],
+            "additionalProperties": true
+          },
+          "servers": {"type": "array", "items": {"type": "object"}},
+          "security": {"type": "array", "items": {"type": "object"}},
+          "paths": {"type": "object", "additionalProperties": {"type": "object"}},
+          "components": {"type": "object", "additionalProperties": {"type": "object"}}
+        },
+        "required": ["openapi", "info", "servers", "security", "paths", "components"],
+        "additionalProperties": true
+      },
       "Permissions": {
         "type": "object",
         "properties": {

@@ -237,7 +237,11 @@ categories 固定为 documents、images、media、other、trash、shares；各�
 
 ### Agent 入口（2026-10-26）
 
-GET /api/v1/agent.md 匿名返回 text/markdown; charset=utf-8，支持 HEAD，统一 no-store／nosniff，不设置会话 Cookie、不打开用户工作区。正文源为 backend/internal/httpapi/AGENT.md，由 Go embed 提供，内容为静态接入流程、权限、任务范围、条件写入、分页／截断、原始字节和失败恢复规则；链接到同源 openapi.json。它只提供说明，不授予权限，不是服务器端执行的 Skill 或项目 AGENTS.md。OpenAPI 同步声明此公开入口。
+GET /api/v1/agent.md 匿名返回 text/markdown; charset=utf-8，支持 HEAD，统一 no-store／nosniff，不设置会话 Cookie、不打开用户工作区。正文源为 backend/internal/httpapi/AGENT.md，由 Go embed 提供精简接入及条件写入／片段／失败保护，按任务指向操作详情，不要求首先加载完整契约或人工文档。它只提供说明，不授予权限，不是服务器端执行的 Skill 或项目 AGENTS.md。
+
+GET /api/v1/operations 返回 `{apiVersion,basePath,guide,openapi,operations}`。每项为 `{operationId,method,path,summary,permissions,public,contract}`，method 大写，path 相对 basePath，contract 是同源详情路径。仅摘要发现，不返回参数或响应定义；权限表示契约要求，不是调用者能力，`public=false` 且 permissions 为空仍需有效 Token。
+
+GET /api/v1/operations/{operationId} 返回独立有效 OpenAPI 3.1.0 子文档：一个 path 下仅选定方法，保留路径级 parameters／servers、全局 servers／security 与操作级覆盖，components 仅含递归所需本地 `$ref` 与认证定义。未知 ID 为 404 operation_not_found。两入口 GET／HEAD 与完整契约一样公开，即使携带无效凭据也不初始化用户工作区，不设置 Cookie，统一 no-store／nosniff；不新增令牌业务白名单权限。由嵌入的同一 openapi.json 在启动时生成不可变响应，无法解析的静态依赖应使构建测试／启动失败，不向外部取 schema。完整 OpenAPI 继续提供全部 28 个操作，已有文件协议不变。
 
 
 ### 条件 diff 更新（2026-10-26）

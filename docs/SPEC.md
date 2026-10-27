@@ -172,7 +172,7 @@ HTTP 客户端使用 Authorization: Bearer，保留既有条件更新、文件�
 GET /api/v1/application 仅供有效访问令牌查询当前账号 ID／用户名、工作区身份、令牌元数据和权限，任何已有权限组合均可调用；不返回完整令牌、摘要、CSRF 或管理员身份。Cookie 不能代替此接口的 Bearer。现有 GET 接口的 HEAD 使用相同读取权限，无效令牌 401 提供 Bearer 认证提示。下载范围错误的标准文本响应也必须禁止缓存。完整调用规则见 APPLICATION_API.md；仍不支持目录授权、自动合并、批量事务、幂等键、OAuth 或 MCP。
 
 
-应用 API 增加公开 /api/v1/agent.md，供 Agent 先读取使用流程，再拉取同源 OpenAPI。指南不含真实账号、工作区清单或凭据，不自动注册 MCP／Skill，也不改变任务授权、令牌权限与版本保护。
+应用 API 提供公开 /api/v1/agent.md，供 Agent 首先读取精简流程与不可省略的安全规则，已知任务直接按 operationId 获取详情，不默认拉取全量契约。不确定能力时读取 /api/v1/operations 摘要索引，再取 /api/v1/operations/{operationId}；索引与可独立使用的单操作 OpenAPI 均从完整契约派生。全量 OpenAPI、人工 API 页面及说明继续保留。所有文档不含真实账号、工作区清单或凭据，不打开用户工作区，不自动注册 MCP／Skill，不改变任务授权、令牌权限与版本保护。
 
 
 ## M8 条件 diff 修改（2026-10-26，用户授权）

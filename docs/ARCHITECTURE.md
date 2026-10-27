@@ -181,7 +181,9 @@ httpapi/openapi.json 是机器接口契约的唯一源文件，由 Go embed 暴�
 前端 /api-docs 按需加载，从相同 JSON 渲染只读接口说明，不生成第二份端点列表、不接收令牌输入或执行文件操作。工作区仍保持挂载，设置顶栏共用 SettingsHeader。隔离应用演练脚本使用 Python 开发依赖校验 OpenAPI 与真实 JSON 响应，生产 Go／React 不新增运行依赖。
 
 
-Agent 指南唯一源为 httpapi/AGENT.md，Go embed 后通过 GET /api/v1/agent.md 返回 Markdown。与 openapi.json 一样由 Accounts 直接交给公共路由，携带无效 Bearer 也不访问用户数据；服务只返回静态文本，不解析执行指南。
+Agent 指南唯一源为 httpapi/AGENT.md，Go embed 后通过 GET /api/v1/agent.md 返回精简 Markdown，保留身份、凭据、ETag、片段不能覆盖全文和失败核对规则，不再要求首先加载完整契约。与 openapi.json 一样由 Accounts 直接交给公共路由，携带无效 Bearer 也不访问用户数据；服务只返回静态文本，不解析执行指南。
+
+application_docs.go 启动时从同一嵌入 OpenAPI 生成 /operations 摘要索引及 /operations/{operationId} 单操作契约缓存；索引按 operationId 稳定排序，详情保留继承的 servers／security、路径级字段和操作级覆盖，通过本地组件引用递归闭包携带实际依赖及认证定义，循环引用去重，不下载外部 schema。生成失败明确阻止启动，单元与契约演练覆盖全部派生结果。响应缓存只保存公开固定定义，不保存账号或文件数据；Accounts 精确分派文档命名空间，不把业务路由变为匿名。人工 /api-docs 仍消费完整 OpenAPI，不另维护说明副本。
 
 
 ## 条件补丁（2026-10-26）

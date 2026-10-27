@@ -23,6 +23,41 @@ ROOT = Path(__file__).resolve().parent.parent
 SPEC_FILE = ROOT / 'backend/internal/httpapi/openapi.json'
 SPEC = json.loads(SPEC_FILE.read_text())
 REGISTRY = Registry().with_resource('urn:folio:openapi', Resource.from_contents(SPEC, default_specification=DRAFT202012))
+HTTP_METHODS = {'get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'}
+
+
+def validate_operation_document(document, path, method):
+    validate_spec(document)
+    for key in ['openapi', 'info', 'servers', 'security']:
+        assert document[key] == SPEC[key], (path, method, key)
+    source = SPEC['paths'][path]
+    selected = {key: value for key, value in source.items() if key not in HTTP_METHODS or key == method}
+    assert document['paths'] == {path: selected}, (path, method, '操作或路径级继承字段不一致')
+    components = {'securitySchemes': SPEC['components']['securitySchemes']}
+    pending = [selected, components['securitySchemes']]
+    visited = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict):
+            pending.extend(value.values())
+            if '$ref' not in value:
+                continue
+            ref = value['$ref']
+            assert ref.startswith('#/components/'), ('不支持非本地组件引用', ref)
+            parts = [part.replace('~1', '/').replace('~0', '~') for part in urllib.parse.unquote(ref[2:]).split('/')]
+            resolved = document
+            for part in parts:
+                resolved = resolved[part]
+            if ref in visited:
+                continue
+            visited.add(ref)
+            _, category, name, *_ = parts
+            component = SPEC['components'][category][name]
+            components.setdefault(category, {})[name] = component
+            pending.append(component)
+    assert document['components'] == components, (path, method, '组件并非递归所需的最小闭包')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -101,6 +136,8 @@ def main():
                 route = path.split('?')[0]
                 if route.startswith('/trash/') and route.endswith('/restore'):
                     route = '/trash/{id}/restore'
+                if route.startswith('/operations/'):
+                    route = '/operations/{operationId}'
                 op = SPEC['paths'][route]['get' if method == 'HEAD' else method.lower()]
                 observed.add(op['operationId'])
                 schema_response = op['responses'][str(status)]
@@ -120,6 +157,52 @@ def main():
             body, headers = call('POST', '/auth/login', data={'username': username, 'password': password}, documented=False)
             return headers['Set-Cookie'].split(';')[0], body['csrfToken']
 
+        public, _ = call('GET', '/openapi.json')
+        assert public == SPEC
+        guide, headers = call('GET', '/agent.md')
+        assert guide == (ROOT / 'backend/internal/httpapi/AGENT.md').read_bytes()
+        assert headers.get_content_type() == 'text/markdown'
+        index, _ = call('GET', '/operations')
+        expected_index = {
+            operation['operationId']: {
+                'operationId': operation['operationId'],
+                'method': method.upper(),
+                'path': path,
+                'summary': operation['summary'],
+                'permissions': operation.get('x-folio-permissions', {}),
+                'public': operation.get('security', SPEC.get('security', [])) == [],
+                'contract': '/api/v1/operations/' + operation['operationId'],
+            }
+            for path, methods in SPEC['paths'].items()
+            for method, operation in methods.items() if method in HTTP_METHODS
+        }
+        assert {key: value for key, value in index.items() if key != 'operations'} == {
+            'apiVersion': 'v1', 'basePath': '/api/v1',
+            'guide': '/api/v1/agent.md', 'openapi': '/api/v1/openapi.json',
+        }
+        assert len(index['operations']) == len(expected_index) == 28
+        assert {entry['operationId']: entry for entry in index['operations']} == expected_index
+        # 仅遍历这份有限索引，详情即使描述索引接口也不再次递归发请求。
+        for entry in index['operations']:
+            document, _ = call('GET', entry['contract'].removeprefix('/api/v1'))
+            validate_operation_document(document, entry['path'], entry['method'].lower())
+        document_routes = ['/openapi.json', '/agent.md', '/operations', '/operations/readContent']
+        for route in document_routes:
+            anonymous, _ = call('GET', route)
+            invalid, headers = call('GET', route, token='invalid', headers={'X-Folio-Workspace': 'invalid'})
+            assert invalid == anonymous
+            assert headers.get('Set-Cookie') is None and headers.get('WWW-Authenticate') is None
+            assert headers.get('X-Content-Type-Options') == 'nosniff'
+            for credential in [None, 'invalid']:
+                empty, headers = call('HEAD', route, token=credential)
+                assert empty == b''
+                assert headers.get('Set-Cookie') is None and headers.get('WWW-Authenticate') is None
+        for credential in [None, 'invalid']:
+            error, _ = call('GET', '/operations/unknown-operation', token=credential, expected=404)
+            assert error['error']['code'] == 'operation_not_found'
+            empty, _ = call('HEAD', '/operations/unknown-operation', token=credential, expected=404)
+            assert empty == b''
+
         admin = login('admin', 'folio-application-api-password-2026')
 
         def new_token(session, permissions):
@@ -130,13 +213,6 @@ def main():
         reader = new_token(admin, {'files': 'read', 'search': 'read', 'trash': 'read'})
         searcher = new_token(admin, {'files': 'none', 'search': 'read', 'trash': 'none'})
         token = writer['token']
-        public, _ = call('GET', '/openapi.json')
-        assert public == SPEC
-        guide, headers = call('GET', '/agent.md')
-        assert guide == (ROOT / 'backend/internal/httpapi/AGENT.md').read_bytes()
-        assert headers.get_content_type() == 'text/markdown'
-        empty, _ = call('HEAD', '/agent.md', token='invalid')
-        assert empty == b'' 
         anonymous, challenge = call('GET', '/workspace/usage', expected=401)
         assert '缺少访问令牌' in anonymous['error']['message'] and 'Bearer' in challenge['WWW-Authenticate']
         call('GET', '/application', expected=401)
@@ -323,7 +399,7 @@ def main():
         call('DELETE', '/user/tokens/' + str(reader['id']), session=admin, documented=False)
         call('GET', '/application', token=reader['token'], expected=401)
 
-    expected = {operation['operationId'] for methods in SPEC['paths'].values() for operation in methods.values()}
+    expected = {operation['operationId'] for methods in SPEC['paths'].values() for method, operation in methods.items() if method in HTTP_METHODS}
     assert expected == observed, f'未覆盖操作：{expected - observed}'
     output = ROOT / 'artifacts/application-api'
     output.mkdir(parents=True, exist_ok=True)

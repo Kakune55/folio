@@ -678,3 +678,27 @@ Linux 专用备份工具在 Windows 执行 `python scripts/backup.py --help` 因
 生产 QA 的明暗主题 × 手机／桌面无障碍及四项 Mermaid 流程通过。性能样本 1202 文件，全文搜索三次约 171.13／167.65／167.60ms，超过既有 100ms 门槛；名称搜索约 2.72–3.42ms。与此前 M11 已记录的同类门槛失败分别记录，不宣称修复或完整 QA 全绿，未调整门槛或搜索实现。编辑器较大正文保存字节精确检查通过；三次输入样本不是统计 p95。原始数据为 `artifacts/qa/performance.json`。
 
 P3-3 按用户决定不修改，末尾换行与原文不匹配继续返回 409 patch_mismatch。If-Range 无运行时缺陷，本次补充 Cookie 与真实 Bearer 的日期条件验证和文档，不新增文件流 ETag；秒级修改日期不提供强内容一致性，条件写仍必须使用原强 ETag。SVG／HTML 不放开活动预览。未验证 Linux／容器备份、真实 HTTPS 代理、其他浏览器或真实移动设备；没有将这些环境限制改为通过。modelrouter 不属于本轮范围。
+
+### M12 Agent 文档渐进式发现（2026-10-27，本次实际执行）
+
+精简 `backend/internal/httpapi/AGENT.md`，新 `application_docs.go` 从唯一嵌入 OpenAPI 在启动时生成不可变操作索引和单操作契约；`application.go`／`accounts.go` 提供匿名 GET／HEAD，不初始化用户工作区。索引仅含摘要、权限／公开标识及详情地址，单操作保留 servers／security 继承和路径级字段，递归携带所需本地组件及认证方式，循环引用去重；缺失或外部引用明确报错，不执行外部 schema 请求。两项公开只读入口使契约从 26 操作增加到 28，原 24 项业务操作与权限不变。
+
+同步完整契约、真实演练脚本和 API 页面回归，保留全部旧写入、片段、If-Match／412 断言。原完整 OpenAPI、人工说明与 `/api-docs` 继续保留；不新增 MCP、客户端执行器、令牌权限或正文数据存储。
+
+本次实际结果：
+
+| 命令／范围 | 结果 |
+| --- | --- |
+| backend：`go test ./internal/httpapi -run 'TestOperationDocument\|TestApplicationContract\|TestAgentGuide' -v` | 通过；全部索引与原契约精确核对、独立子文档继承、递归闭包及体量约束 |
+| backend：`LC_ALL=C go test ./...` | 通过，部分包命中缓存 |
+| backend：`go test -race ./internal/httpapi`、`go vet ./...` | 通过 |
+| 根目录：`/tmp/kilo/folio-api-validator/bin/python scripts/application-api-test.py` | **28 个操作／151 个真实请求通过**；全部详情通过 OpenAPI 校验，索引／操作／最小引用闭包与完整源一致，JSON 响应 schema、条件写入、原始字节、Range／HEAD、回收恢复、搜索与授权隔离继续验证 |
+| frontend：`npm run build -- --logLevel warn` | 通过，保留既有大分块提示 |
+| frontend：`npx oxlint tests/browser/application-api.spec.ts` | 通过 |
+| 同步嵌入资源后：`npx playwright test -c playwright.application-api.config.ts` | **1 项通过（10.8s）**；28 操作、按路径筛选、新公开操作、错误重试与往返保留草稿／编辑实例／磁盘原文 |
+
+测量采用实际 UTF-8 响应字节，不换算或宣称固定 Token 数：指南由 15205 降为 **3828 字节（减少约 75%）**，摘要索引 **5645 字节**；完整契约扩充后为 **90736 字节**。`readContent`／`patchContent` 自包含详情分别 **7894／7108 字节**，已知读取与局部修改任务只需指南加这两份约 18.8KB，而非先读旧指南加旧完整契约约 101.5KB；未包含真实文件正文或实际任务读取量，不把体量减少冒充 AI 准确率提升。
+
+公开边界测试在无 Auth／workspace 的 Accounts 上，通过真实 httptest 服务遍历全部文档 GET／HEAD 与匿名／无效 Bearer／无效 Cookie，核对固定字节、HEAD 无正文、no-store／nosniff、不设置 Cookie。未知 ID 返回 `404 operation_not_found`，额外子路径不能访问业务资源；业务文档发现不代表令牌获权，空权限且非公开的身份查询仍需有效 Token。首轮 Go 测试将源中省略的权限字段与索引空对象直接比较导致断言失败，已按契约缺省空权限规范化，未改动业务授权。
+
+限制与未验：仅支持本地组件引用的静态契约派生，不是任意外部 OpenAPI 的通用解析器；不新增公共文档限流机制，仍使用现有 HTTP 服务边界。未重跑前端完整 125 项业务浏览器或全量前端单测，前节结果是历史；没有声称真实 HTTPS 代理、其他浏览器／真实设备、Windows／NTFS、容器／备份及现有搜索性能门槛在本次通过。验证使用隔离服务与目录，未重启日常 8080 服务，未创建 Git 提交。

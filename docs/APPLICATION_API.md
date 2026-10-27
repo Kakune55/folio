@@ -159,7 +159,21 @@ python3 -m venv /tmp/folio-api-validation
 
 ## 给 Agent 的入口
 
-先读取同源 `/api/v1/agent.md`，再读取 `/api/v1/openapi.json`。前者说明任务流程和失败恢复，后者给出精确字段与权限；两者均可匿名获取，实际操作仍需 Bearer。指南源文件为 [AGENT.md](../backend/internal/httpapi/AGENT.md)，不会覆盖项目根目录的 AGENTS.md，也不会自动安装 Skill。
+先读取同源 `/api/v1/agent.md` 的精简接入及安全底线；已知任务时直接按 operationId 获取单操作契约，不要求首先读取完整 OpenAPI 或本文。不确定操作 ID 时再取摘要索引。指南源文件为 [AGENT.md](../backend/internal/httpapi/AGENT.md)，不会覆盖项目根目录的 AGENTS.md，也不会自动安装 Skill。
+
+| 入口 | 用途 |
+| --- | --- |
+| `GET /api/v1/agent.md` | 连接、按任务选择操作、ETag／片段／失败保护 |
+| `GET /api/v1/operations` | 所有操作的 ID、方法、路径、摘要、权限、公开标识与契约链接，不含详细参数或响应 |
+| `GET /api/v1/operations/{operationId}` | 单操作 OpenAPI 3.1.0，包含继承配置及递归所需组件，可独立解析 |
+| `GET /api/v1/openapi.json` | SDK、生成器或需要全量结构时使用的完整契约 |
+| `/api-docs` 与本文 | 面向人的完整说明，网页仍需登录，不要求 Agent 重复加载 |
+
+例如局部修改只需 `/api/v1/operations/readContent` 和 `/api/v1/operations/patchContent`，先取得原文上下文及 ETag，再按详情校验 diff 和正式条件保存。不用同时加载附件或回收站协议。
+
+索引中的 `path` 相对 `basePath`，`contract` 是同源绝对路径；`public` 反映接口契约而非当前用户权限。非公开操作的 `permissions: {}` 仍可能要求有效 Token，例如身份查询，不代表匿名可用。未知 ID 返回 `404 operation_not_found`，重新读取索引，不猜测地址或回退写入。
+
+这些文档均静态公开，GET／HEAD 支持匿名或无效 Bearer，不初始化用户工作区、不创建会话，继续 no-store／nosniff。索引和详情启动时从同一完整 OpenAPI 派生，不另维护参数副本，详情只保留本操作及其所需本地组件；不支持动态外部 schema 拉取。现为 28 个契约操作，其中新增两个只是文档读取，业务令牌权限与文件行为不变。
 
 
 ## 使用 diff 局部修改

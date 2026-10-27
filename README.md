@@ -111,7 +111,7 @@ curl --fail-with-body \
 应用页的“API 文档”提供在线只读接口说明（/api-docs）。程序可先 GET /api/v1/application 核对当前令牌身份、权限和工作区，再执行操作；机器契约为 /api/v1/openapi.json。完整示例与隔离验证命令见 [应用 API 接入指南](docs/APPLICATION_API.md)。
 
 
-Agent 可先读取 `/api/v1/agent.md`，了解连接、权限、条件保存和失败恢复，再拉取 `/api/v1/openapi.json` 获取接口契约。两份说明均可匿名读取，实际文件操作仍需 Access Token。
+Agent 先读取精简 `/api/v1/agent.md`，已知任务时只取 `/api/v1/operations/{operationId}` 的单操作契约；不确定操作 ID 再读 `/api/v1/operations` 摘要索引。不必首次加载完整 `/api/v1/openapi.json` 或人工长文档；全量契约保留给 SDK／生成器。文档入口均可匿名读取，实际文件操作仍需 Access Token。
 
 
 局部修改可使用 `PATCH /api/v1/files/content?path=...` 提交单文件 unified diff，仍须原版本 `If-Match` 和文件读写权限；可先 `dryRun:true` 校验。上下文或版本不匹配时整份拒绝，详见应用 API 接入指南与 `/api/v1/agent.md`。

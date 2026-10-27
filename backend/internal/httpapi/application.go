@@ -21,6 +21,19 @@ func (a *api) registerApplication(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		_, _ = w.Write(applicationAgentGuide)
 	})
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(applicationOperationDocuments.index)
+	})
+	mux.HandleFunc("GET /api/v1/operations/{operationId}", func(w http.ResponseWriter, r *http.Request) {
+		contract, ok := applicationOperationDocuments.contracts[r.PathValue("operationId")]
+		if !ok {
+			writeError(w, 404, "operation_not_found", "接口操作不存在，请重新读取操作索引", nil)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(contract)
+	})
 	mux.HandleFunc("GET /api/v1/application", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		p, token, err := authenticateRequest(a.Auth, r)
 		if err != nil {

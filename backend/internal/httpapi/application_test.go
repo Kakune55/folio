@@ -33,7 +33,7 @@ func TestApplicationContractMatchesAuthorization(t *testing.T) {
 				t.Fatal("缺失或重复操作 ID", path, method)
 			}
 			seen[op.OperationID] = true
-			if path == "/openapi.json" || path == "/agent.md" {
+			if isApplicationDocumentation("/api/v1" + path) {
 				continue
 			}
 			key := strings.ToUpper(method) + " " + path

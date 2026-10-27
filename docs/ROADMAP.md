@@ -143,3 +143,9 @@ M10 历史 engine 实现约束：用 Milkdown `remarkCtx.parse(source)` 的真�
 退出标准：真正编辑只序列化变更顶层块，未变块／空白保留；列表、表格、引用整体容器可能规范化。parse candidate 必须匹配 actual PM 语义，`filterTransaction` 事前阻止不安全事务，禁止全文 serialize fallback。忽略 heading 派生 `id` 与 serializer 不持久化的 list_item `label/listType`，但必须比较父列表类型、起始序号、`checked`、语言、hardbreak、`spread`。frontmatter、引用定义／reference、code meta 等不可表达语法仍保留转换确认／源码；结构歧义或预算不足明确拒绝，不承诺所有 Markdown 无损。
 
 本阶段实际证据：单元 14 文件／148 项通过；功能浏览器当前 125 项分批覆盖，初轮失败修复后对应复验通过；最终生产 SSE／保源专项 46 项通过。生产明暗手机／桌面无障碍及 Mermaid 8 项通过；1202 文件性能用例两次因全文搜索约 315–322ms 超过既有 100ms 门槛失败，该测量发生在打开编辑器前，不能作为编辑器性能通过或归因证据，未改门槛。功能与性能结果分别见 TESTPLAN，不引用 M10 历史数量冒充本轮通过；本阶段无后端或 API 协议改动。
+
+## M12：Agent 文档渐进式发现（2026-10-27，用户授权）
+
+精简 `/api/v1/agent.md`，保留身份、凭据、ETag、片段不能覆盖全文及未知提交结果先核验等底线。已知任务可直接取 `/api/v1/operations/{operationId}`；不确定时先取 `/api/v1/operations` 摘要索引，不默认加载完整 OpenAPI 或人工长文。索引及可独立解析的单操作契约从同一嵌入 OpenAPI 派生，完整契约和人工页面继续保留，不新增 MCP、业务权限或正文处理方式。
+
+本次入口 3828 字节、索引 5645 字节；全文契约 90736 字节，readContent／patchContent 详情分别 7894／7108 字节。后端全量、HTTP race、vet、前端构建与 API 页面专项通过；完整契约真实演练 28 操作／151 请求通过，包含全部单操作子契约校验。具体命令、历史区分与限制见 TESTPLAN；未重启日常服务。
