@@ -31,6 +31,6 @@ COPY --from=backend --chown=1000:1000 /out/tmp /tmp
 USER 1000:1000
 ENV FOLIO_ADDR=0.0.0.0:8080 FOLIO_WORKSPACE=/workspace FOLIO_APP_DATA=/app-data FOLIO_SECURE_COOKIE=true
 EXPOSE 8080
-VOLUME ["/workspace", "/app-data"]
+# VOLUME ["/workspace", "/app-data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s CMD ["/folio", "-healthcheck"]
 ENTRYPOINT ["/folio"]
