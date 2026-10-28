@@ -1,123 +1,133 @@
-# Folio · 文件工作区
+# Folio
 
-轻量、自托管、浏览器优先的 Markdown 与开发文件工作区。真实文件是正文唯一权威；React + TypeScript + Vite、Milkdown Crepe、CodeMirror 6、Go，嵌入式 SQLite 仅保存账号/会话及可重建索引。
+[![Release](https://img.shields.io/github/v/release/Kakune55/folio?style=flat-square)](https://github.com/Kakune55/folio/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/kakune55/folio?style=flat-square&logo=docker)](https://hub.docker.com/r/kakune55/folio)
+[![Stars](https://img.shields.io/github/stars/Kakune55/folio?style=flat-square&logo=github)](https://github.com/Kakune55/folio)
+[![License](https://img.shields.io/github/license/Kakune55/folio?style=flat-square)](LICENSE)
 
-支持文件/目录整理、Markdown 与源码编辑、条件自动保存及冲突副本、附件上传/预览/下载、中英文搜索、快开、回收恢复、本机草稿和移动端抽屉。界面与项目说明统一使用简体中文。
+Folio 是一个自托管的轻量 Markdown 和开发文件工作区，可在浏览器使用，旨在提供一个简洁的文档编辑体验，并且可以灵活地管理你的文件。
 
-M0–M3 的历史验收及镜像证据可从 Git 历史查阅；旧镜像结果不能替代新构建验证。
+在 Folio 中，所有文件都是普通文件，没有专有的块数据库，也没有自定义 Markdown 语法。如果你不喜欢 Folio，可以随时停止使用，文件仍然可以用任何文本编辑器打开，也可以用常规方式备份。不造成任何负担。
 
-## 本地运行
+如果你想要尝试 Folio，请查看下面的 [快速开始](#快速开始) 了解如何安装和配置。
 
-需要 Node.js 22.12+、npm、Go 1.27+、Python 3。以下使用 Make，Windows 可直接执行等效 PowerShell 命令。
+## 功能
+
+- **文件管理**：文件树和标签页，支持新建、重命名、移动、上传、下载和回收恢复。Markdown 图片使用相对路径，不要求放进固定目录。
+- **编辑**：Markdown 有富文本和源码两种模式，支持所见即所得编辑。其他 UTF-8 文本也可以用源码模式编辑。
+- **搜索与预览**：支持文件名和正文的全文搜索，统一入口，一次输入，即可快速找到所需内容。
+- **分享**：支持方便易用的分享功能，生成只读链接，支持密码、到期时间和访问次数。如果你的朋友同样使用了来自同一 Folio 实例的链接，他们可以直接访问你分享的内容，并保存在自己的工作区中。
+- **API**：为了提供程序化访问，Folio 提供了一套完整的 API，支持文件管理、搜索、分享和回收站操作，确保外部客户端可以安全地操作你的文件。
+- **Agent**：得益于 API 功能，Folio 同时也提供了 Agent.md 便于外部Agent使用API来为你执行各种操作。
+
+## 快速开始
+
+Folio 是单个可执行文件，内置前端资源。选择下面任意一种方式运行；首次启动会自动生成管理员密码。
+
+无论哪种方式，都建议放在 HTTPS 之后：可以直接提供证书，或使用反向代理（例如 Caddy、Nginx），并把 `FOLIO_ORIGIN` 设为实际访问地址。
+
+### 二进制
+
+从 [GitHub Releases](https://github.com/Kakune55/folio/releases) 下载对应平台的压缩包（Linux amd64／arm64／armv7，Windows amd64／arm64），解压得到 `folio`（Windows 为 `folio.exe`），并用同名的 `.sha256` 文件校验。
+
+```sh
+tar -xzf folio_1.3.1_linux-amd64.tar.gz
+./folio
+```
+
+默认监听 `127.0.0.1:8080`，数据和正文分别写入当前目录的 `app-data/` 与 `workspace/`。首次生成的管理员密码在 `app-data/initial-password`，账号为 `admin`。
+
+直接提供 HTTPS：
+
+```sh
+FOLIO_ORIGIN=https://notes.example.com \
+FOLIO_TLS_CERT=/路径/fullchain.pem \
+FOLIO_TLS_KEY=/路径/privkey.pem \
+./folio
+```
+
+### Docker
+
+镜像发布在 Docker Hub 的 `kakune55/folio`。仓库中的 [docker-compose.yml](docker-compose.yml) 可直接使用：
+
+```yaml
+services:
+  folio:
+    image: kakune55/folio:latest
+    ports:
+      - "16111:8080"
+    volumes:
+      - ./workspace:/workspace
+      - ./app-data:/app-data
+    environment:
+      FOLIO_ORIGIN: https://folio.example.com
+    restart: unless-stopped
+```
+
+```sh
+docker compose up -d
+```
+
+容器内已监听 `0.0.0.0:8080` 并使用 Secure Cookie，请通过 HTTPS 反向代理访问，不要把端口直接暴露到公网。若确实要在本机用 HTTP 直连，需在回环地址下设置 `FOLIO_SECURE_COOKIE=false`。
+
+需要本地构建镜像时，可用 [compose.yaml](compose.yaml) 配合 `make image`；配置见 [Dockerfile](Dockerfile)。
+
+### 从源码运行
+
+需要 Node.js 22.12+、npm、Go 1.27+ 和 Python 3；Linux 备份工具另需 Python 3.11+。
 
 ```sh
 make install
 make run
 ```
 
-打开 <http://127.0.0.1:8080>，账号 admin。首次自动初始化的密码在 app-data/initial-password；已有账号不会因更换引导密码文件而重置。make build 构建并嵌入前端，输出 bin/folio。
+访问 <http://127.0.0.1:8080>。开发时可在两个终端分别运行 `make api` 和 `make dev`，访问 <http://127.0.0.1:5173>，`/api` 代理到 8080。`make build` 会把前端嵌入并输出 `bin/folio`。
 
-开发时在两个终端分别运行 make api 和 make dev，访问 <http://127.0.0.1:5173>，/api 代理到 8080。make run/api 使用回环 HTTP 与非 Secure Cookie；直接启动程序默认使用 Secure Cookie，正式部署须 HTTPS。容器编排见 compose.yaml 与 deploy/compose.proxy.yaml，镜像构建见 Dockerfile。
+### 配置
 
-首次初始化的 admin 是管理员，可在左下角进入 `/system-setting` 创建和管理用户；每个用户拥有独立工作区，默认配额 5 GB。管理员可改名、启用/禁用、调整配额和重置密码。开发阶段旧单账号数据不迁移，需停服后清理两数据目录重新初始化。
-
-## 数据与配置
-
-| 环境变量 | 默认值或用途 |
+| 变量 | 默认值／用途 |
 | --- | --- |
-| FOLIO_WORKSPACE | ./workspace，各用户工作区的根目录，正文与附件在 <用户ID>/ 下 |
-| FOLIO_APP_DATA | ./app-data，账号、会话、各用户索引与回收站 |
-| FOLIO_ADDR | 监听地址；本地默认 127.0.0.1:8080 |
-| FOLIO_PASSWORD_FILE | 仅首次初始化用的私有普通密码文件 |
-| FOLIO_SECURE_COOKIE | true；false 仅允许回环 IP |
-| FOLIO_TLS_CERT / FOLIO_TLS_KEY | 直接 HTTPS 证书链与私钥，须同时设置 |
-| FOLIO_ORIGIN | 代理后的精确外部来源，如 https://notes.example.com |
-| FOLIO_MAX_TEXT_BYTES | 5 MiB，文本编辑上限 |
-| FOLIO_MAX_IMAGE_BYTES | 20 MiB，图片上限 |
-| FOLIO_MAX_PDF_BYTES | 50 MiB，PDF 上限 |
-| FOLIO_MAX_ATTACHMENT_BYTES | 100 MiB，其他附件上限 |
-| FOLIO_MAX_IMAGE_PIXELS | 3200 万像素，图片预览上限 |
-| FOLIO_MAX_INDEX_BYTES | 5 MiB，正文索引上限；可设 1 字节至 100 MiB |
+| `FOLIO_WORKSPACE` | `./workspace`，正文与附件位于 `<用户ID>/` |
+| `FOLIO_APP_DATA` | `./app-data`，账号库、各用户索引、回收站和分享快照 |
+| `FOLIO_ADDR` | `127.0.0.1:8080` |
+| `FOLIO_PASSWORD_FILE` | 仅首次初始化使用的私有普通密码文件 |
+| `FOLIO_SECURE_COOKIE` | `true`；`false` 只允许回环 IP |
+| `FOLIO_TLS_CERT`／`FOLIO_TLS_KEY` | 直接 HTTPS 证书与私钥，须同时设置 |
+| `FOLIO_ORIGIN` | 精确外部来源，例如 `https://notes.example.com` |
+| `FOLIO_MAX_TEXT_BYTES` | `5 MiB`，文本编辑上限 |
+| `FOLIO_MAX_IMAGE_BYTES` | `20 MiB`，图片上限 |
+| `FOLIO_MAX_PDF_BYTES` | `50 MiB`，PDF 上限 |
+| `FOLIO_MAX_ATTACHMENT_BYTES` | `100 MiB`，其他附件上限 |
+| `FOLIO_MAX_IMAGE_PIXELS` | `3200 万`，图片像素上限 |
+| `FOLIO_MAX_INDEX_BYTES` | `5 MiB`，正文索引上限 |
 
-配置只在启动读取，GET /api/v1/settings 返回文件限制，上传总上限最大 1 GiB。workspace 与 app-data 必须独立、不能相互包含，只支持单实例写工作区。运行用户和目录权限/ACL 由部署者保护，不应与外部工具同时写同一文件。
+环境变量提供启动初值；管理员在线保存的文件／索引限制以 `app.db` 持久值为准，重启保留，索引上限变化自动重建。降低限额不会删除文件，但已有超限文本可能需恢复上限后才能编辑，仍可下载原件。
 
-Ctrl/Cmd+P 或 Ctrl/Cmd+Shift+F 打开统一搜索，其余快捷键见应用帮助。超限或二进制仅索引名称。PDF 复杂字体/大图等以下载原件核对；SVG/HTML 不活动预览。升级/关闭前保存或下载草稿及待上传原件，本机缓存不是备份。
+`workspace` 与 `app-data` 必须独立、不能相互包含，且只允许一个实例写同一工作区。运行用户、权限和 ACL 是本地信任边界，外部工具不要与 Folio 同时修改同一文件。使用代理时需允许 SSE 流式响应。
 
-## 验证
+### 升级与备份
+
+升级前保存或下载未保存草稿和待上传原件，停服并成对备份 `workspace` 与 `app-data`，再替换二进制／镜像并重启。只构建不会更新运行中的旧进程。`app-data` 不只是缓存：账号、会话、回收站和分享快照不能删除，只有搜索索引可重建；本机草稿和标签缓存不属于服务器备份。
+
+离线重置管理员密码须停服并先备份，使用同一二进制与现有 `app-data`，密码通过私有普通文件提供，不用明文命令行参数：
 
 ```sh
-make test
-make qa
+./bin/folio -reset-password -app-data ./app-data -password-file /私有路径/new-password
 ```
 
-浏览器默认 /usr/bin/google-chrome，其他路径通过 CHROME_BIN 指定。容器镜像需另运行 make container-test 与 make container-review。方法、平台差异和未验证范围见 [测试计划](docs/TESTPLAN.md)，本次执行不能沿用历史测试计数。
-
-## 文档导航
-
-| 文档 | 维护内容 |
-| --- | --- |
-| [产品规范](docs/SPEC.md) | 产品边界、技术选择与行为要求 |
-| [视觉与交互](docs/DESIGN.md) | 主题、布局、交互与无障碍设计 |
-| [架构说明](docs/ARCHITECTURE.md) | 模块、数据流、文件与恢复机制 |
-| [接口协议](docs/API.md) | 已实现路由、字段、错误与并发协议 |
-| [路线图](docs/ROADMAP.md) | 阶段范围、完成标准与待验证环境 |
-| [测试计划](docs/TESTPLAN.md) | 验证命令、覆盖矩阵及证据要求 |
-| [代理约定](AGENTS.md) | 实现与交付必须遵守的规则 |
-
-搜索索引由文件 API 变更异步更新，无定时工作区扫描或系统文件监听。直接修改宿主目录后，请在搜索窗口重建索引，或重启服务后访问工作区；启动重建同时补偿未完成的索引事件。打开文档的版本探测与 ETag 保存保护仍保留。
-
-
-## 系统设置与状态（2026-10-17）
-
-管理员可在 /system-setting 的“系统设置”在线调整文本、图片、PDF、附件、像素和正文索引限制。首次读取环境变量初始值，保存后 app.db 持久值优先，重启保留；索引上限变化自动重建。降低限制不会清理文件，但已有超限文本可能需恢复上限后编辑，原文件仍可下载。“系统状态”显示运行时指标，磁盘目录用量按需统计。
-
-
-## Mermaid 图表
-
-Markdown 富文本可直接预览标准 Mermaid 围栏，也可从代码块语言菜单选择 mermaid；代码与图表可切换显示。源码模式保留原始文本。例如：
-
-````markdown
-```mermaid
-flowchart LR
-  A[开始] --> B[完成]
-```
-````
-
-渲染失败会就地提示，编辑代码后重试。当前不支持图内交互、HTML 标签、自定义样式／配置或外部图片，单图最多 50000 字符及 Mermaid 上限 500 条边；详细边界见产品规范。
-
-刷新页面后会恢复本浏览器当前账号与工作区的文件标签、顺序和选中项；正文重新从服务器读取，未保存内容仍须通过浏览器恢复稿显式恢复。标签记录不跨设备同步。
-
-## 分享
-
-右上角“分享管理”可生成链接，支持可选六位数字密码、到期时间和最大访问次数。实时仅支持单文件；包含附件必须快照。Markdown 可递归分析本地引用，勾选确认后打包，远程图片不下载、不自动公开新增引用。单包最多 256 个文件、128 MiB，每账号最多 1000 条分享。快照计入分享者配额，过期／撤销不自动释放，删除分享才清理。
-
-访客成功进入计一次，同一浏览器在该分享 30 分钟内刷新不重复计数。登录同一站点后可“保存到我的工作区”，创建独立目录，不覆盖已有内容。已下载／转存副本无法由分享者收回。公开分享仅只读，HTML/SVG 不执行，Office／压缩包仅下载。备份仍须停写并成对保留两卷，app-data/shares/ 含真实快照与分享元数据，不可当作可重建索引删除。
-
-## API 访问令牌
-
-在左下角“用户设置 → 应用”生成 Access Token，选择文件、搜索、回收站权限和有效期。完整令牌仅生成时显示，丢失后需删除并重新生成。权限作用于本人整个工作区；默认文件和搜索只读。管理员的系统设置入口位于用户设置顶栏。
-
-通过安全的环境变量／凭据配置提供 FOLIO_ACCESS_TOKEN，使用现有 HTTP 接口：
+Linux 双卷备份工具支持 amd64／arm64，需 Python 3.11+、`openat2`／`renameat2` 和 `/proc`，不适用于 Windows：
 
 ```sh
-curl --fail-with-body \
-  -H "Authorization: Bearer $FOLIO_ACCESS_TOKEN" \
-  'https://你的域名/api/v1/workspace/tree?limit=50'
+python3 scripts/backup.py backup  --workspace ./workspace --app-data ./app-data --output /备份位置/新目录
+python3 scripts/backup.py verify  --backup /备份位置/新目录
+python3 scripts/backup.py restore --backup /备份位置/新目录 --output /恢复位置/新目录
 ```
 
-修改已有正文必须携带读取时返回的 If-Match，冲突不得盲重试；完整协议见 [接口协议](docs/API.md)。令牌不能管理账号、系统或其他令牌，也不能创建公开分享和永久删除回收记录。改密、禁用或管理员重置会撤销对应账号令牌；离线改密及备份恢复撤销全部令牌。迁移工作区根身份后需重新生成令牌。通过 HTTPS 传输凭据，避免写入 URL、日志或仓库。
+备份与恢复均须停写。恢复只发布到不存在的新目录，不覆盖原数据；保留账号密码与分享数据，清除旧登录、Access Token 及访客资格，搜索索引随后重建。核验后再切换数据目录，保留原件作为回退。
 
+宿主直接修改文件不会触发搜索更新或 SSE，需要时在搜索窗口重建索引，或重启服务后访问工作区；打开文档仍有版本核对与冲突保护。
 
-应用页的“API 文档”提供在线只读接口说明（/api-docs）。程序可先 GET /api/v1/application 核对当前令牌身份、权限和工作区，再执行操作；机器契约为 /api/v1/openapi.json。完整示例与隔离验证命令见 [应用 API 接入指南](docs/APPLICATION_API.md)。
+## 参与项目
 
-
-Agent 先读取精简 `/api/v1/agent.md`，已知任务时只取 `/api/v1/operations/{operationId}` 的单操作契约；不确定操作 ID 再读 `/api/v1/operations` 摘要索引。不必首次加载完整 `/api/v1/openapi.json` 或人工长文档；全量契约保留给 SDK／生成器。文档入口均可匿名读取，实际文件操作仍需 Access Token。
-
-
-局部修改可使用 `PATCH /api/v1/files/content?path=...` 提交单文件 unified diff，仍须原版本 `If-Match` 和文件读写权限；可先 `dryRun:true` 校验。上下文或版本不匹配时整份拒绝，详见应用 API 接入指南与 `/api/v1/agent.md`。
-
-
-文本 API 也支持 `GET /api/v1/files/content?path=...&lineCount=100`（前 100 行）与 `startLine=50&lineCount=30`。不传范围保持全文；片段携带完整文件版本，可用于 diff 修改。检查 `isPartial`，不要把片段 PUT 成整篇正文；跨段用 `If-Match` 核对同一版本。
-
-
-工作区支持 SSE 文件变更通知：API 修改后，干净会话自动核对并加载，黄／绿侧标记提示修改／新增，删除处显示红三角，约 8 秒后清除，不显示图例。有本地草稿时保留并暂停自动保存，按保存时再比较版本。断线重连重新核对，10 秒检查继续兜底；宿主直接写入不产生 SSE，代理部署需允许流式传输。
+欢迎贡献代码、报告问题或提出功能建议。本项目基于 MIT 许可证开源。
+如果 Folio 对你有帮助，欢迎点亮一个 Star。
