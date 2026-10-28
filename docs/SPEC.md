@@ -178,6 +178,8 @@ GET /api/v1/application 仅供有效访问令牌查询当前账号 ID／用户�
 
 应用 API 提供公开 /api/v1/agent.md，供 Agent 首先读取精简流程与不可省略的安全规则，已知任务直接按 operationId 获取详情，不默认拉取全量契约。不确定能力时读取 /api/v1/operations 摘要索引，再取 /api/v1/operations/{operationId}；索引与可独立使用的单操作 OpenAPI 均从完整契约派生。全量 OpenAPI、人工 API 页面及说明继续保留。所有文档不含真实账号、工作区清单或凭据，不打开用户工作区，不自动注册 MCP／Skill，不改变任务授权、令牌权限与版本保护。
 
+错误信号须区分参数缺失与非法路径：已有条目的必需 query path 或创建的 body path 缺失／空值时，返回 path_missing 并在 details.expected 标明正确位置，不猜测或从另一位置回退；真实非法路径继续 path_invalid。认证、CSRF 和 If-Match 保护不放宽，根目录列表及上传的可选目录保持原语义，错误不能附带无意义的空版本。
+
 
 ## M8 条件 diff 修改（2026-10-26，用户授权）
 

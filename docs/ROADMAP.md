@@ -149,3 +149,5 @@ M10 历史 engine 实现约束：用 Milkdown `remarkCtx.parse(source)` 的真�
 精简 `/api/v1/agent.md`，保留身份、凭据、ETag、片段不能覆盖全文及未知提交结果先核验等底线。已知任务可直接取 `/api/v1/operations/{operationId}`；不确定时先取 `/api/v1/operations` 摘要索引，不默认加载完整 OpenAPI 或人工长文。索引及可独立解析的单操作契约从同一嵌入 OpenAPI 派生，完整契约和人工页面继续保留，不新增 MCP、业务权限或正文处理方式。
 
 本次入口 3828 字节、索引 5645 字节；全文契约 90736 字节，readContent／patchContent 详情分别 7894／7108 字节。后端全量、HTTP race、vet、前端构建与 API 页面专项通过；完整契约真实演练 28 操作／151 请求通过，包含全部单操作子契约校验。具体命令、历史区分与限制见 TESTPLAN；未重启日常服务。
+
+2026-10-28 按 Hermes 实测补充参数位置与准确错误信号：必需 path 缺失／空值返回 path_missing 及 details.expected，非法路径维持 path_invalid，不再附空 currentRevision；query／body 不互代，根目录与 If-Match 保护不变。契约和两个高频操作最小 curl 示例同步，后端全量／race／vet、28 操作／232 真实请求及 API 页面专项通过，实际记录见 TESTPLAN；这不改变此前体量测量属于历史的性质，也不新增业务操作或执行器。

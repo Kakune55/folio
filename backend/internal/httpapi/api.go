@@ -61,7 +61,11 @@ func storageError(w http.ResponseWriter, err error) {
 	if status >= 500 {
 		log.Printf("文件操作未完成：%v", err)
 	}
-	writeError(w, status, problem.Code, messages[problem.Code], map[string]string{"currentRevision": problem.Revision})
+	details := map[string]string{}
+	if problem.Revision != "" {
+		details = map[string]string{"currentRevision": problem.Revision}
+	}
+	writeError(w, status, problem.Code, messages[problem.Code], details)
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -187,6 +191,9 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 		if access != nil {
 			r = withChangeSource(r, access.Name)
 		}
+		if !validateQueryPath(w, r) {
+			return
+		}
 		next(w, r)
 	}
 }
@@ -296,19 +303,26 @@ func (a *api) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/files", a.protect(func(w http.ResponseWriter, r *http.Request) { a.write(w, r, true) }))
 	mux.HandleFunc("POST /api/v1/directories", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Path string `json:"path"`
+			Path *string `json:"path"`
 		}
 		if !decodeJSON(w, r, 8192, &body) {
 			return
 		}
-		if err := a.Workspace.Mkdir(body.Path); err != nil {
+		name := ""
+		if body.Path != nil {
+			name = *body.Path
+		}
+		if !validatePathParameter(w, name, body.Path != nil, "body") {
+			return
+		}
+		if err := a.Workspace.Mkdir(name); err != nil {
 			storageError(w, err)
 			return
 		}
 		if a.Events != nil {
-			a.Events.publish(requestSource(r), body.Path)
+			a.Events.publish(requestSource(r), name)
 		}
-		writeJSON(w, 201, map[string]string{"path": body.Path})
+		writeJSON(w, 201, map[string]string{"path": name})
 	}))
 }
 func (a *api) list(w http.ResponseWriter, r *http.Request) {
@@ -334,13 +348,23 @@ func (a *api) list(w http.ResponseWriter, r *http.Request) {
 }
 func (a *api) write(w http.ResponseWriter, r *http.Request, create bool) {
 	var body struct {
-		Path     string  `json:"path,omitempty"`
+		Path     *string `json:"path,omitempty"`
 		Content  *string `json:"content"`
 		Encoding string  `json:"encoding"`
 	}
 	// JSON 对控制字符的转义最多放大六倍，真正的正文限制仍由存储层执行。
 	if !decodeJSON(w, r, a.Workspace.Limits().Text*6+16384, &body) {
 		return
+	}
+	name := r.URL.Query().Get("path")
+	if create {
+		name = ""
+		if body.Path != nil {
+			name = *body.Path
+		}
+		if !validatePathParameter(w, name, body.Path != nil, "body") {
+			return
+		}
 	}
 	if body.Content == nil {
 		writeError(w, 400, "invalid_request", "必须提供字符串 content；创建或保存空文件请显式传入空字符串", nil)
@@ -349,10 +373,6 @@ func (a *api) write(w http.ResponseWriter, r *http.Request, create bool) {
 	if body.Encoding != "" && body.Encoding != "utf-8" {
 		writeError(w, 422, "invalid_encoding", "仅支持 UTF-8", nil)
 		return
-	}
-	name := r.URL.Query().Get("path")
-	if create {
-		name = body.Path
 	}
 	revision := r.Header.Get("If-Match")
 	if !create {

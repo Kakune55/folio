@@ -7,9 +7,11 @@
 - 除登录、公开分享、静态资源与无内部信息的健康检查外，接口需要有效会话或明确获准的 Access Token（令牌路由白名单见末节）。登录与 me 返回 {id,username,admin,csrfToken,workspaceId}，登录请求为 {username:"admin",password:"..."}。
 - Cookie 会话的修改请求携带 X-CSRF-Token，并通过 Origin/Sec-Fetch-Site 校验；Bearer 请求不使用 Cookie 或 CSRF。Cookie 为 HttpOnly、SameSite Strict，默认 Secure；API 使用 Cache-Control: no-store。
 - 路径使用正确编码的工作区相对路径，不接受服务器绝对路径。元数据/文本使用 UTF-8，二进制传原始字节。
+- `path` 的位置按操作固定：定位已有条目使用 query `?path=...`；新建文件／目录使用 JSON body 的 `path`，不从另一位置回退。必需 path 缺失、body null 或空串返回 `400 path_missing`，`details.expected` 指明 `query:path` 或 `body:path`；非字符串 JSON path 是 `400 invalid_request`，真实不安全路径仍为 `path_invalid`。根目录列表的可选 path、上传目录 directory 仍允许省略或空值。
 - revision 为不透明强版本；更新、移动、删除必须提供 If-Match: "<revision>"。缺少条件返回 428，陈旧版本返回 412。新建接口始终不覆盖，同名返回 409，无需 If-None-Match。
 - 时间戳仅供参考，不是并发依据。列表仅按明确的分页/限额返回，不承诺外部变动中的一致快照。
 - 错误形状：{"error":{"code":"revision_conflict","message":"中文说明","details":{}}}，不暴露绝对路径。
+- 认证、权限和 CSRF 优先校验；必需 query path 在正文与版本检查前验证，同时缺 path／If-Match 时先报参数位置，补齐 path 后仍须提供原 ETag。`currentRevision` 仅在实际取得非空版本时附带，不再用空字符串表达“没有定位资源”；其他错误保持原有错误码与状态。
 
 ## 已实现路由
 
@@ -52,7 +54,7 @@
 
 sha256:opaque 仅示意不透明值，客户端不能解析或自行生成版本。不要通过此接口解码再编码任意二进制。
 
-PUT 使用 Content-Type: application/json、If-Match 与 CSRF 头：
+PUT 的 path 必须位于 URL（例如 `/api/v1/files/content?path=Linux%2Fnotes.md`），正文仅为要完整替换的内容，不是 append；使用 Content-Type: application/json、If-Match 与 CSRF 头：
 
 ```json
 {"content":"# 更新\n","encoding":"utf-8"}

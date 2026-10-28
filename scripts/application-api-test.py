@@ -213,6 +213,33 @@ def main():
         reader = new_token(admin, {'files': 'read', 'search': 'read', 'trash': 'read'})
         searcher = new_token(admin, {'files': 'none', 'search': 'read', 'trash': 'none'})
         token = writer['token']
+        # 鉴权和 Cookie CSRF 必须先于缺失 path、版本或正文的参数错误。
+        call('GET', '/files/content', expected=401)
+        call('PUT', '/files/content', token='invalid', data={}, expected=401)
+        call('PUT', '/files/content', token=reader['token'], data={}, expected=403)
+        call('PUT', '/files/content', session=(admin[0], ''), data={}, expected=403)
+        call('POST', '/files', token='invalid', data={}, expected=401)
+        call('POST', '/directories', token=reader['token'], data={}, expected=403)
+
+        def assert_path_missing(response, expected):
+            error = response['error']
+            assert error['code'] == 'path_missing', error
+            assert error['details']['expected'] == expected, error
+            assert 'currentRevision' not in error['details'], error
+            assert expected.split(':')[0] in error['message'], error
+
+        for endpoint in ['/files', '/directories']:
+            for misplaced in [{}, {'path': ''}, {'path': None}]:
+                for query in ['', '?path=should-not-create']:
+                    error, _ = call('POST', endpoint + query, token=token, data={'content': '禁止创建', **misplaced} if endpoint == '/files' else misplaced, expected=400)
+                    assert_path_missing(error, 'body:path')
+            error, _ = call('POST', endpoint, token=token, data={'path': 42, 'content': '禁止创建'} if endpoint == '/files' else {'path': 42}, expected=400)
+            assert error['error']['code'] == 'invalid_request', error
+            error, _ = call('POST', endpoint, token=token, data={'path': '../outside', 'content': '禁止创建'} if endpoint == '/files' else {'path': '../outside'}, expected=400)
+            assert error['error']['code'] == 'path_invalid', error
+            assert 'currentRevision' not in (error['error']['details'] or {}), error
+        call('GET', '/workspace/tree', token=token)
+        call('GET', '/workspace/tree?path=', token=token)
         anonymous, challenge = call('GET', '/workspace/usage', expected=401)
         assert '缺少访问令牌' in anonymous['error']['message'] and 'Bearer' in challenge['WWW-Authenticate']
         call('GET', '/application', expected=401)
@@ -233,6 +260,37 @@ def main():
         path = '/files/content?path=' + urllib.parse.quote('资料/笔记.md')
         disk, disk_headers = call('GET', path, token=token)
         assert disk['content'] == original
+        required_path_operations = [
+            (route, method.upper())
+            for route, methods in SPEC['paths'].items()
+            for method, operation in methods.items() if method in HTTP_METHODS
+            if any(parameter['name'] == 'path' and parameter['in'] == 'query' and parameter.get('required')
+                   for parameter in operation.get('parameters', []))
+        ]
+        assert len(required_path_operations) == 10
+        for route, method in required_path_operations:
+            for query in ['', '?path=']:
+                # body 中即使带合法 path，也不能代替 query；同时缺 If-Match 仍先报 path。
+                error, _ = call(method, route + query, token=token, data={'path': '资料/笔记.md', 'content': '禁止覆盖'}, expected=400)
+                assert_path_missing(error, 'query:path')
+                error, _ = call(method, route + query, token=token, raw=b'{', headers={'Content-Type': 'application/json', 'If-Match': disk_headers['ETag']}, expected=400)
+                assert_path_missing(error, 'query:path')
+            body = {'diff': '@@ -1 +1 @@\n-旧正文\n+禁止覆盖\n'} if method == 'PATCH' else {'content': '禁止覆盖'} if method == 'PUT' else None
+            error, _ = call(method, route + '?path=../outside', token=token, headers={'If-Match': disk_headers['ETag']}, data=body, expected=400)
+            assert error['error']['code'] == 'path_invalid', error
+            assert 'currentRevision' not in (error['error']['details'] or {}), error
+        # 修正位置后读取成功；更新仍不能绕过条件版本，也不能修改原文。
+        corrected, corrected_headers = call('GET', path, token=token)
+        assert corrected['content'] == original and corrected_headers['ETag'] == disk_headers['ETag']
+        for method, route, body in [
+            ('PUT', path, {'content': '禁止覆盖'}),
+            ('PATCH', path, {'diff': 'invalid'}),
+            ('DELETE', '/entries?path=' + urllib.parse.quote('资料/笔记.md'), None),
+        ]:
+            error, _ = call(method, route, token=token, data=body, expected=428)
+            assert error['error']['code'] == 'precondition_required', error
+        unchanged_path, _ = call('GET', path, token=token)
+        assert unchanged_path['content'] == original and unchanged_path['revision'] == disk['revision']
         for content in ({}, {'content': None}):
             call('POST', '/files', token=token, data={'path': '资料/缺失.md', **content}, expected=400)
             call('PUT', path, token=token, data=content, headers={'If-Match': disk_headers['ETag']}, expected=400)
@@ -323,6 +381,11 @@ def main():
             body = f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + payload + f'\r\n--{boundary}--\r\n'.encode()
             return body, {'Content-Type': 'multipart/form-data; boundary=' + boundary}
 
+        for suffix, name in [('', 'root-omitted.bin'), ('?directory=', 'root-empty.bin')]:
+            raw, headers = multipart(name, binary)
+            uploaded, _ = call('POST', '/uploads' + suffix, token=token, raw=raw, headers=headers, expected=201)
+            assert uploaded['path'] == name
+
         malformed_boundary = uuid.uuid4().hex
         malformed = b''
         for name in ['rejected.bin', 'extra.bin']:
@@ -353,7 +416,9 @@ def main():
             full, _ = call('GET', stream_path, token=reader['token'], headers={'Range': 'bytes=0-3', 'If-Range': 'Thu, 01 Jan 1970 00:00:00 GMT'})
             assert full == payload
         call('GET', '/files/preview?path=' + urllib.parse.quote('资料/笔记.md'), token=token, expected=415)
-        call('GET', '/files/download?path=../outside', token=token, expected=400)
+        invalid_path, _ = call('GET', '/files/download?path=../outside', token=token, expected=400)
+        assert invalid_path['error']['code'] == 'path_invalid'
+        assert 'currentRevision' not in (invalid_path['error']['details'] or {})
 
         call('PATCH', '/entries/move', token=token, data={'from': '资料/笔记.md', 'to': '资料/已移动.md'}, headers={'If-Match': '"' + changed['revision'] + '"'})
         moved_path = urllib.parse.quote('资料/已移动.md')

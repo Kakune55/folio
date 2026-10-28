@@ -191,6 +191,8 @@ Agent 指南唯一源为 httpapi/AGENT.md，Go embed 后通过 GET /api/v1/agent
 
 application_docs.go 启动时从同一嵌入 OpenAPI 生成 /operations 摘要索引及 /operations/{operationId} 单操作契约缓存；索引按 operationId 稳定排序，详情保留继承的 servers／security、路径级字段和操作级覆盖，通过本地组件引用递归闭包携带实际依赖及认证定义，循环引用去重，不下载外部 schema。生成失败明确阻止启动，单元与契约演练覆盖全部派生结果。响应缓存只保存公开固定定义，不保存账号或文件数据；Accounts 精确分派文档命名空间，不把业务路由变为匿名。人工 /api-docs 仍消费完整 OpenAPI，不另维护说明副本。
 
+path_parameter.go 在 protect 完成认证／权限／CSRF 后检查条目定位路由的必需 query path，再进入正文／If-Match／存储操作；文件和目录创建在 JSON 解码后检查 body path。区分缺失或空值 path_missing、JSON 类型 invalid_request 与存储安全边界 path_invalid，不做参数位置回退。列表根目录与上传目录不在必需 query path 集合内。位置提示属于 HTTP 请求信息，放入 details.expected；只有存储层确实给出非空版本时才在 details.currentRevision 回传，未取得版本的 storageError 仍保留 details 对象但不塞空字段。
+
 
 ## 条件补丁（2026-10-26）
 

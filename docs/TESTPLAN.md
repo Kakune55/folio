@@ -783,3 +783,21 @@ P3-3 按用户决定不修改，末尾换行与原文不匹配继续返回 409 p
 - `npx playwright test tests/browser/user-settings.spec.ts`：最终 **3 项通过（25.3s）**，包含真实服务创建用户、7 字节前端拦截、8 字节自助改密与再登录、管理员重置、既有令牌有效期和实际访问／撤销、明暗及手机布局回归。首轮新测试在登录后直接找系统设置导航失败，先转用户设置后进入系统页；再次登录仍留在用户设置页导致旧断言找不到工作区顶栏，改查真实用户设置标题，随后完整复测通过。没有减少权限或会话断言。
 
 边界：规则单位为 **UTF-8 字节**而非可见字符或口令强度评分，8 字节不保证密码强度；对可联网的实例仍建议使用更长且唯一的随机密码并保留现有限速／TLS。当前浏览器运行使用隔离 Vite 与服务端，未重启日常 8080，未重跑生产包浏览器、真实代理／其他浏览器或全部前端单元测试。本轮未创建提交。
+
+### path 参数位置与错误信号（2026-10-28，Hermes 实测反馈修复）
+
+针对 body path 被错误用于 PUT 查询定位而收到 path_invalid 的反馈，保留原参数位置协议，不做 body／query 自动回退。新增 `path_parameter.go`，在既有认证、权限、Cookie CSRF 和工作区检查后，统一验证条目定位路由的必需 query path；缺失或空值为 `400 path_missing`，`details.expected: "query:path"`，明确提示 `?path=...` 而不是 JSON body。创建文件／目录的 body path 在 JSON 解码后验证，缺失、null 或空串同码并标明 `body:path`；非字符串 JSON 字段仍为 `invalid_request`，真正非法路径仍 `path_invalid`。不是用一种错误替换另一种错误。
+
+错误参数不触碰正文，不能跳过 If-Match；同时缺 query path 和条件头时先报告参数位置，修正 path 后仍有 428／412。目录列表的可选 path 与上传 directory 保持空值根目录语义。`storageError` 保留 details 对象，仅在真实版本非空时设置 currentRevision，不再塞空字符串。精简 Agent 指南补充位置规律与纠错码；完整及单操作契约同步 minLength 与细节说明，仅 createFile／updateContent 补充短 `x-folio-example-curl`，使用环境变量 Token 与完整 ETag，并强调 PUT 为完整替换而非追加。
+
+本次实际执行：
+
+- `go test ./internal/httpapi -run TestPathParameterLocationAndErrors -v`：通过。真实 Cookie／Bearer 覆盖缺失、显式空、裸 path、重复参数首值为空、body／query 错位、null、非字符串、非法路径、错误百分号编码、根目录；无凭据 401、无文件权限 403 优先，错误输入不创建／覆盖正文。合法 query 条件更新成功，陈旧版本 412 仍提供真实 currentRevision。
+- `LC_ALL=C go test ./...`、`go test -race ./internal/httpapi`、`go vet ./...`：最终通过，部分包缓存命中。
+- `uv run --with-requirements scripts/requirements-api-test.txt python scripts/application-api-test.py`：**28 操作／232 个真实请求通过**；保留全部既有参数、响应 schema、条件读写、原始字节、Range／HEAD、回收、搜索和权限隔离演练，新增全部必需 path 操作的缺／空／错位／非法、认证与 CSRF 优先及根目录上传回归。
+- `npx playwright test -c playwright.application-api.config.ts`：**1 项通过（11.5s）**，完整／单操作契约变更不影响文档筛选、错误重试及返回工作区保留草稿、编辑器实例和磁盘原文。
+- 完整 OpenAPI 3.1.0 静态校验、Python 语法检查通过；`git diff --check` 通过。
+
+初轮 Go 用例把目录创建也发送了不支持的 content 字段，严格 JSON 解码正确返回 invalid_request，已修正为相应接口的合法正文来测缺失 path；非字符串 path 单独断言 invalid_request，不将类型错误说成缺失。首次沿用旧 `/tmp` 验证虚拟环境时目录不存在，改用项目 requirements 的 uv 隔离执行后全量演练通过。未修改安全边界、令牌权限、JSON 严格解码或正文 ETag 逻辑来迎合测试。
+
+边界：本次不统一接口参数位置，不增加通用请求自动纠错；同时出现其他 JSON／类型错误时先返回实际解码错误。只有用于条目定位的必需 path 变为明确错误码，根目录可选参数不受影响。未重跑完整前端业务浏览器／单测、备份容器或真实代理／其他浏览器／设备，旧记录不作为本次通过。使用隔离服务与临时目录，未重启日常 8080 服务，未创建提交或新 Release。

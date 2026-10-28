@@ -389,9 +389,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           }
         ]
@@ -466,9 +467,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -508,6 +510,7 @@
       "put": {
         "operationId": "updateContent",
         "summary": "条件更新已有正文",
+        "x-folio-example-curl": "# PUT 是全文完整替换，不是 append；先读取 ETag，FOLIO_ETAG 的值须包含完整的一对双引号。\ncurl --fail-with-body -X PUT \"${FOLIO_URL}/api/v1/files/content?path=demo.md\" -H \"Authorization: Bearer ${FOLIO_ACCESS_TOKEN}\" -H \"If-Match: ${FOLIO_ETAG}\" -H 'Content-Type: application/json' --data '{\"content\":\"# 替换后的完整正文\\n\"}'",
         "description": "必须先读取并携带版本；412 停止盲重试，保留候选正文后读取比较。超时或 durability_uncertain 可能已经提交，先核对结果。不得无意丢失 BOM、换行或未修改的 Markdown 内容。 content 必须显式为字符串，空字符串合法；缺失或 null 返回 400 invalid_request，且不改正文。",
         "tags": [
           "文件"
@@ -576,9 +579,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -689,9 +693,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -799,9 +804,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           }
         ]
@@ -867,9 +873,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           }
         ]
@@ -879,6 +886,7 @@
       "post": {
         "operationId": "createFile",
         "summary": "不覆盖地新建文本",
+        "x-folio-example-curl": "# path 位于 JSON body；同名文件返回 409，永不覆盖。\ncurl --fail-with-body -X POST \"${FOLIO_URL}/api/v1/files\" -H \"Authorization: Bearer ${FOLIO_ACCESS_TOKEN}\" -H 'Content-Type: application/json' --data '{\"path\":\"demo.md\",\"content\":\"# 新建正文\\n\"}'",
         "description": "父目录须存在，同名返回 409，永不覆盖。不需要 If-None-Match；成功后异步通知搜索索引。 content 必须显式为字符串，空字符串合法；缺失或 null 返回 400 invalid_request，且不改正文。",
         "tags": [
           "文件"
@@ -944,7 +952,9 @@
                 "type": "object",
                 "properties": {
                   "path": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "必需的非空 JSON body 字符串 path，不从 query 回退；缺失、null 或空串返回 400 path_missing，details.expected 为 body:path；非字符串类型返回 400 invalid_request。"
                   },
                   "content": {
                     "type": "string"
@@ -1031,7 +1041,9 @@
                 "type": "object",
                 "properties": {
                   "path": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "必需的非空 JSON body 字符串 path，不从 query 回退；缺失、null 或空串返回 400 path_missing，details.expected 为 body:path；非字符串类型返回 400 invalid_request。"
                   }
                 },
                 "required": [
@@ -1210,9 +1222,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -1555,9 +1568,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -1848,9 +1862,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -2058,9 +2073,10 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "description": "经 URL 编码的工作区相对路径；拒绝绝对路径、穿越、链接与特殊文件。",
+            "description": "必需的非空 query 参数 path（不是 JSON body 字段），经 URL 编码的工作区相对路径；不从 body 回退。缺失或空串返回 400 path_missing，details.expected 为 query:path；拒绝绝对路径、穿越、链接与特殊文件。",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           {
@@ -2334,6 +2350,18 @@
                   "object",
                   "null"
                 ],
+                "properties": {
+                  "expected": {
+                    "type": "string",
+                    "enum": ["query:path", "body:path"],
+                    "description": "path_missing 时必需 path 的正确位置；不会从另一位置回退。"
+                  },
+                  "currentRevision": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "仅取得真实且非空的当前版本时附带；无版本或 path_missing 时不包含此属性。"
+                  }
+                },
                 "additionalProperties": true
               }
             },
@@ -3039,7 +3067,7 @@
     },
     "responses": {
       "400": {
-        "description": "参数、JSON 或路径不安全；invalid_patch 表示补丁语法、计数、顺序或文件头无效；invalid_line_range 表示行号或行数参数不合法",
+        "description": "参数、JSON 或路径不安全。path_missing 表示必需 path 缺失、null 或空串，details.expected 为 query:path 或 body:path，明确正确位置且不从另一位置回退；非字符串 body path 为 invalid_request，其他非法路径仍为 path_invalid。认证／CSRF 先于参数校验，必需 query path 先于 If-Match 和 body 校验，同时缺 path 与 If-Match 先返回 400，补齐 path 后仍须版本否则返回 428。workspace/tree 的 path 与 uploads 的 directory 允许省略或空串表示根目录。details.currentRevision 仅真实版本非空时附带。invalid_patch 表示补丁语法、计数、顺序或文件头无效；invalid_line_range 表示行号或行数参数不合法",
         "content": {
           "application/json": {
             "schema": {

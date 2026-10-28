@@ -171,6 +171,8 @@ python3 -m venv /tmp/folio-api-validation
 
 例如局部修改只需 `/api/v1/operations/readContent` 和 `/api/v1/operations/patchContent`，先取得原文上下文及 ETag，再按详情校验 diff 和正式条件保存。不用同时加载附件或回收站协议。
 
+参数位置不要从新建接口类推：`createFile`／`createDirectory` 的 `path` 在 JSON body，`readContent`／`updateContent`／`patchContent` 等已有条目定位在 query。返回 `400 path_missing` 时按 `error.details.expected` 的 `query:path`／`body:path` 补值或修正位置；空串和 null 不满足必需路径，JSON 非字符串类型仍为 `invalid_request`，真正非法的路径才用 `path_invalid`。不会把 body 的 path 自动搬到 query，根目录可选参数也不因此变为必填。单操作契约中有非空约束及位置说明，`createFile` 和 `updateContent` 另提供简短 `x-folio-example-curl`；更新示例需要先读取完整正文和完整带引号 ETag，PUT 不能当作追加接口。
+
 索引中的 `path` 相对 `basePath`，`contract` 是同源绝对路径；`public` 反映接口契约而非当前用户权限。非公开操作的 `permissions: {}` 仍可能要求有效 Token，例如身份查询，不代表匿名可用。未知 ID 返回 `404 operation_not_found`，重新读取索引，不猜测地址或回退写入。
 
 这些文档均静态公开，GET／HEAD 支持匿名或无效 Bearer，不初始化用户工作区、不创建会话，继续 no-store／nosniff。索引和详情启动时从同一完整 OpenAPI 派生，不另维护参数副本，详情只保留本操作及其所需本地组件；不支持动态外部 schema 拉取。现为 28 个契约操作，其中新增两个只是文档读取，业务令牌权限与文件行为不变。
