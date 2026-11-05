@@ -36,6 +36,57 @@ async function prepare(page: Page, playwright: Playwright, source: string) {
   return { agent, url, path, revision, writes, read }
 }
 
+test('连续空格及空白段落可保存，模式切换和刷新保留', async ({ page, playwright }) => {
+  const prefix = '保留标题\r\n========\r\n\r\n'
+  const { agent, path, read } = await prepare(page, playwright, `${prefix}编辑目标。`)
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Space')
+    await page.keyboard.press('Space')
+    await expect.poll(async () => (await read()).content).toBe(`${prefix}编辑目标。&#32;&#32;`)
+    await page.keyboard.insertText('后续')
+    await expect.poll(async () => (await read()).content).toBe(`${prefix}编辑目标。  后续`)
+    await page.keyboard.press('Home')
+    await page.keyboard.down('Shift')
+    await page.keyboard.press('End')
+    await page.keyboard.up('Shift')
+    await page.keyboard.insertText('   ')
+    const expected = `${prefix}&#32;&#32;&#32;`
+    await expect.poll(async () => (await read()).content).toBe(expected)
+    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
+    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toContainText('&#32;&#32;&#32;')
+    await page.getByRole('button', { name: '富文本', exact: true }).click()
+    await expect(rich(page).locator('p').first()).toHaveText('   ')
+    await page.reload()
+    await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(rich(page).locator('p').first()).toHaveText('   ')
+    expect((await read()).content).toBe(expected)
+  } finally { await agent.dispose() }
+})
+
+test('空文件逐键输入空格后可撤销、重做并继续输入', async ({ page, playwright }) => {
+  const { agent, read } = await prepare(page, playwright, '')
+  try {
+    await expect(rich(page)).toBeVisible()
+    await rich(page).click()
+    await page.keyboard.press('Space')
+    await page.keyboard.press('Space')
+    await expect.poll(async () => (await read()).content).toBe('&#32;&#32;')
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect.poll(async () => (await read()).content).toBe('')
+    await page.keyboard.press('ControlOrMeta+Shift+z')
+    await expect.poll(async () => (await read()).content).toBe('&#32;&#32;')
+    await page.keyboard.insertText('正文')
+    // Milkdown 已能用十六进制字符引用保留段首空格时，沿用库的标准输出。
+    await expect.poll(async () => (await read()).content).toBe('&#x20; 正文')
+    await expect(rich(page).locator('p').first()).toHaveText('  正文')
+    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
+  } finally { await agent.dispose() }
+})
+
 async function append(page: Page, text = '新增') {
   await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).click()
   await page.keyboard.press('End')

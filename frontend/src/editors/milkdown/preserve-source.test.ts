@@ -99,6 +99,19 @@ function applyDoc(preserver: SourcePreserver, doc: PMNode) {
   return result.source
 }
 
+it('普通段落的连续空格、首尾空格与制表符严格往返，其他块保持原字节', () => {
+  const source = '保留正文。\r\n\r\n目标\r\n'
+  const preserver = createSourcePreserver(source, trailingParse(source), trailingTools).preserver!
+  for (const text of [' ', '  ', '   ', ' 前后 ', '\t正文\t', '目标 ', '目标  ', '目标  后续']) {
+    const doc = trailingSchema.node('doc', null, [trailingParse('保留正文。').firstChild!,
+      trailingSchema.node('paragraph', null, trailingSchema.text(text))])
+    const saved = applyDoc(preserver, doc)
+    expect(saved.startsWith('保留正文。\r\n\r\n')).toBe(true)
+    expect(semanticDoc(trailingParse(saved))).toBe(semanticDoc(doc))
+  }
+  expect(applyDoc(preserver, trailingParse(source))).toBe(source)
+})
+
 describe('保源纯逻辑适配器', () => {
   it('list_item 仅忽略派生 label/listType，持久化属性及父列表语义仍严格比较', () => {
     const listSchema = new Schema({ nodes: {

@@ -248,6 +248,25 @@ export class SourcePreserver {
           const wrapper = doc.type.create(doc.attrs, [doc.child(next)], doc.marks)
           let serialized = this.tools.serialize(wrapper)
           budget(serialized)
+          const node = doc.child(next)
+          // Markdown 会剥离段首／段尾空格；用标准字符引用保留真实输入，不能当成空段吞掉。
+          if (node.type.name === 'paragraph' && node.childCount > 0
+            && Array.from({ length: node.childCount }, (_, i) => node.child(i)).every(child => child.isText && !child.marks.length)
+            && /^[\t ]|[\t ]$/.test(node.textContent)) {
+            const single = this.tools.parse(serialized)
+            if (!single || single.childCount !== 1 || semanticDoc(single.child(0)) !== keys[next]) {
+              const text = node.textContent
+              const leading = text.match(/^[\t ]*/)?.[0] ?? ''
+              const rest = text.slice(leading.length)
+              const trailing = rest.match(/[\t ]*$/)?.[0] ?? ''
+              const middle = rest.slice(0, rest.length - trailing.length)
+              const encode = (value: string) => value.replace(/[\t ]/g, char => `&#${char.charCodeAt(0)};`)
+              const content = middle ? this.tools.serialize(doc.type.create(doc.attrs,
+                [node.type.create(node.attrs, doc.type.schema.text(middle), node.marks)], doc.marks)).replace(/[\r\n]+$/, '') : ''
+              serialized = encode(leading) + content + encode(trailing)
+              budget(serialized)
+            }
+          }
           let blocks = this.tools.ast(serialized).children ?? []
           if (isDefaultEmptyParagraph(doc.child(next)) && !blocks.length && /^[\t \r\n]*$/.test(serialized)) {
             // Milkdown 可能省略唯一空段；追加非空段触发 preserve-empty，仅取验证后的首块。
