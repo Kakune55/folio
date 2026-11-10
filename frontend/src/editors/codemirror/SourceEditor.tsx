@@ -21,6 +21,8 @@ import { markdownLivePreview } from './live-preview'
 import { markdownPreviewBlocks } from './preview-blocks'
 import { codeBlockControls } from './code-blocks'
 import { createCodeLanguages } from './code-languages'
+import { TableControls } from './TableControls'
+import { tableNavigation } from './tables'
 import { markdownCommands, markdownFormatKeymap } from './markdown-commands'
 import { Bold, Italic, Code, Link2, List, ListTodo, Quote } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -32,6 +34,18 @@ const formats = [
   { label: '引用', icon: Quote, run: markdownCommands.quote },
 ]
 const editorAttributes = (preview: boolean) => EditorView.contentAttributes.of({ 'aria-label': preview ? 'Markdown 编辑器' : '源码编辑器', 'aria-multiline': 'true', 'aria-description': '按 Escape 后再按 Tab 或 Shift+Tab 离开编辑器。' })
+function tableNavigationKeys(options: { canEdit: () => boolean; onBoundary: () => void; onBlocked?: (message: string) => void }) {
+  const navigate = (backward: boolean) => (view: EditorView) => {
+    if (view.composing || view.compositionStarted) return false
+    const result = tableNavigation(view.state, backward)
+    if (!result) return false
+    if (!options.canEdit() || view.state.readOnly || !view.state.facet(EditorView.editable)) { options.onBlocked?.('当前不能编辑表格，请先处理未确认输入或文件操作。'); return true }
+    if ('error' in result) { options.onBlocked?.(result.error); return true }
+    if ('boundary' in result) { options.onBoundary(); return true }
+    view.dispatch(result); return true
+  }
+  return keymap.of([{ key: 'Tab', run: navigate(false) }, { key: 'Shift-Tab', run: navigate(true) }])
+}
 
 export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen }: { navigationOpen?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: EditorBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
   const [navigationView, setNavigationView] = useState<EditorView | null>(null)
@@ -111,7 +125,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
       extensions: [sourceChangeMarks(session.externalUpdate), lineNumbers(), highlightSpecialChars(), drawSelection(), dropCursor(), history(), bracketMatching(),
-        lineEndings.extension, codeTheme, isMarkdown ? keymap.of(markdownFormatKeymap) : [], keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
+        lineEndings.extension, codeTheme, isMarkdown ? [tableNavigationKeys({ canEdit: canEditWidget, onBlocked, onBoundary: () => host.current?.parentElement?.querySelector<HTMLButtonElement>('[data-table-trigger]')?.focus() }), keymap.of(markdownFormatKeymap)] : [], keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         preview.current.of(rendering()),
         editable.current.of([EditorState.readOnly.of(session.locked), EditorView.editable.of(!session.locked)]),
         EditorState.transactionFilter.of(transaction => {
@@ -219,5 +233,5 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     }
     onSearchLocated?.(searchTarget, !!range)
   }, [searchTarget, onSearchLocated, session, session.locked])
-  return <div className="editor-with-navigation"><div className="editor-content-column">{isMarkdown && <div className="editor-formatbar" role="toolbar" aria-label="Markdown 格式">{formats.map(({ label, icon: Icon, run }) => <Button key={label} size="icon" aria-label={label} title={label} disabled={session.locked || session.composing} onMouseDown={event => event.preventDefault()} onClick={() => { if (editorView.current) run(editorView.current) }}><Icon size={15} /></Button>)}</div>}<div className={`source-host ${isMarkdown ? 'markdown-host' : ''} ${isMarkdown && session.mode === 'rich' ? 'live-preview-host' : ''}`} data-mode={isMarkdown ? session.mode : 'source'} ref={host} /></div>{navigationOpen && navigationView && <SourceNavigation view={navigationView} markdown={isMarkdown} />}</div>
+  return <div className="editor-with-navigation"><div className="editor-content-column">{isMarkdown && <div className="editor-formatbar" role="toolbar" aria-label="Markdown 格式">{formats.map(({ label, icon: Icon, run }) => <Button key={label} size="icon" aria-label={label} title={label} disabled={session.locked || session.composing} onMouseDown={event => event.preventDefault()} onClick={() => { if (editorView.current) run(editorView.current) }}><Icon size={15} /></Button>)}<TableControls view={navigationView} disabled={!!(session.locked || session.composing || session.compositionInterrupted)} onBlocked={onBlocked} /></div>}<div className={`source-host ${isMarkdown ? 'markdown-host' : ''} ${isMarkdown && session.mode === 'rich' ? 'live-preview-host' : ''}`} data-mode={isMarkdown ? session.mode : 'source'} ref={host} /></div>{navigationOpen && navigationView && <SourceNavigation view={navigationView} markdown={isMarkdown} />}</div>
 }

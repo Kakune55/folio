@@ -4,6 +4,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import type { SyntaxNode } from '@lezer/common'
 import type { EditorBridge } from '../bridge'
 import { createMermaidPreview } from '../mermaid-preview'
+import { tableAlignments, tableSourceRows } from './tables'
 import './preview-blocks.css'
 
 type Options = { bridge?: EditorBridge; canEdit?: () => boolean; onBlocked?: (message: string) => void; revealTables?: () => boolean }
@@ -87,7 +88,8 @@ class TableWidget extends WidgetType {
   readonly rows: Cell[][]
   readonly raw: string
   readonly options: Options
-  constructor(rows: Cell[][], raw: string, options: Options) { super(); this.rows = rows; this.raw = raw; this.options = options }
+  readonly alignments: NonNullable<ReturnType<typeof tableAlignments>>
+  constructor(rows: Cell[][], raw: string, options: Options, alignments: NonNullable<ReturnType<typeof tableAlignments>>) { super(); this.rows = rows; this.raw = raw; this.options = options; this.alignments = alignments }
   eq(other: TableWidget) { return this.raw === other.raw && JSON.stringify(this.rows) === JSON.stringify(other.rows) && this.options === other.options }
   get estimatedHeight() { return this.rows.length * 38 + 16 }
   toDOM(view: EditorView) {
@@ -95,9 +97,11 @@ class TableWidget extends WidgetType {
     root.className = 'folio-preview-table'
     for (const [index, row] of this.rows.entries()) {
       const tr = document.createElement('tr')
-      for (const cell of row) {
+      for (const [column, cell] of row.entries()) {
         const td = document.createElement(index === 0 ? 'th' : 'td')
         td.textContent = cell.text
+        if (!cell.text) td.setAttribute('aria-label', index === 0 ? `第 ${column + 1} 列` : `第 ${index} 行，第 ${column + 1} 列，空单元格`)
+        td.style.textAlign = this.alignments[column] === 'none' ? 'left' : this.alignments[column] ?? 'left'
         td.tabIndex = 0
         const focus = () => {
           if (view.composing || view.compositionStarted) { this.options.onBlocked?.('请先确认或取消输入法候选，再定位表格源码。'); return }
@@ -119,24 +123,9 @@ class TableWidget extends WidgetType {
 
 function tableRows(state: EditorState, node: SyntaxNode): Cell[][] | undefined {
   if (node.to - node.from > MAX_TABLE) return
-  const rows: Cell[][] = []
-  let count = 0
-  for (let row = node.firstChild; row; row = row.nextSibling) {
-    if (row.name === 'TableDelimiter') continue
-    if (row.name !== 'TableHeader' && row.name !== 'TableRow') return
-    const cells: Cell[] = []
-    for (let cell = row.firstChild; cell; cell = cell.nextSibling) {
-      if (cell.name === 'TableDelimiter') continue
-      if (cell.name !== 'TableCell' || ++count > 500) return
-      const text = state.sliceDoc(cell.from, cell.to)
-      // 首版仅预览可直接映射的纯文本，复杂行内结构继续显示源码。
-      if (cell.firstChild || /[\\`*_[\]<>!&]/.test(text)) return
-      cells.push({ from: cell.from, to: cell.to, text })
-    }
-    if (!cells.length || (rows.length && cells.length !== rows[0].length)) return
-    rows.push(cells)
-  }
-  return rows.length ? rows : undefined
+  const rows = tableSourceRows(state, node.from)
+  // 与工具共用源码分段；空单元格可预览，复杂行内格式仍留在源码中。
+  return rows?.some(row => row.some(cell => /[\\`*_[\]<>!&]/.test(cell.text))) ? undefined : rows
 }
 
 function blocks(state: EditorState, options: Options): DecorationSet {
@@ -153,7 +142,7 @@ function blocks(state: EditorState, options: Options): DecorationSet {
       const selected = state.selection.ranges.some(range => range.from <= node.to && range.to >= node.from)
       if (!selected) {
         const rows = tableRows(state, node)
-        if (rows) ranges.push(Decoration.replace({ block: true, widget: new TableWidget(rows, state.sliceDoc(node.from, node.to), options) }).range(node.from, node.to))
+        if (rows) ranges.push(Decoration.replace({ block: true, widget: new TableWidget(rows, state.sliceDoc(node.from, node.to), options, tableAlignments(state, node.from) ?? []) }).range(node.from, node.to))
       }
       return false
     }

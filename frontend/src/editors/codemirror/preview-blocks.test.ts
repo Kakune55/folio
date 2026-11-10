@@ -75,11 +75,18 @@ describe('CM6 块预览', () => {
   it('解析预算外的资源保持源码', () => {
     expect(decorations(state(`${'正文\n\n'.repeat(26000)}![说明](./a.png)`))).toHaveLength(0)
   })
+  it('空表头和空正文单元格仍有可定位的源码范围及列对齐', () => {
+    const source = '前言\n\n|  | B |\n| :--- | ---: |\n|  | x |\n\n尾部'
+    const current = state(source), widget = decorations(current)[0].value.spec.widget
+    expect(widget.rows.map((row: { text: string }[]) => row.map(cell => cell.text))).toEqual([['', 'B'], ['', 'x']])
+    expect(widget.alignments).toEqual(['left', 'right'])
+    expect(current.doc.toString()).toBe(source)
+  })
   it('只读表格点击 cell 仅定位精确源码范围，不写正文', () => {
-    type Stub = { tagName: string; textContent: string; children: Stub[]; listeners: Record<string, (event: unknown) => void>; append: (...nodes: Stub[]) => void; addEventListener: (name: string, callback: (event: unknown) => void) => void }
+    type Stub = { tagName: string; textContent: string; style: Record<string, string>; children: Stub[]; listeners: Record<string, (event: unknown) => void>; append: (...nodes: Stub[]) => void; addEventListener: (name: string, callback: (event: unknown) => void) => void }
     const nodes: Stub[] = []
     vi.stubGlobal('document', { createElement: (tagName: string) => {
-      const node: Stub = { tagName, textContent: '', children: [], listeners: {}, append(...children) { this.children.push(...children) }, addEventListener(name, callback) { this.listeners[name] = callback } }
+      const node: Stub = { tagName, textContent: '', style: {}, children: [], listeners: {}, append(...children) { this.children.push(...children) }, addEventListener(name, callback) { this.listeners[name] = callback } }
       nodes.push(node)
       return node
     } })
