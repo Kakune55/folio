@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
-for (const mode of ['富文本', '源码']) {
+for (const mode of ['实时预览', '源码']) {
   test(`${mode}侧栏真实拖拽插入引用，不移动或重新上传文件`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
@@ -22,7 +22,7 @@ for (const mode of ['富文本', '源码']) {
     await page.getByRole('button', { name: '刷新文件列表' }).click()
     await row(folder).click(); await row('记录.md').click()
     if (mode === '源码') await page.getByRole('button', { name: '源码', exact: true }).click()
-    const editor = page.getByRole('textbox', { name: mode === '源码' ? '源码编辑器' : 'Markdown 富文本编辑器' })
+    const editor = page.getByRole('textbox', { name: mode === '源码' ? '源码编辑器' : 'Markdown 编辑器', exact: true })
     await expect(editor).toContainText('保留原有正文')
     let uploads = 0, moves = 0
     page.on('request', request => { if (request.url().includes('/uploads?')) uploads++; if (request.url().includes('/entries/move')) moves++ })
@@ -47,7 +47,7 @@ for (const mode of ['富文本', '源码']) {
     })
     expect((await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(note)}`)).json()).content).toBe(before)
     await editor.dispatchEvent('dragleave')
-    await page.getByRole('button', { name: mode === '源码' ? '富文本' : '源码', exact: true }).click()
+    await page.getByRole('button', { name: mode === '源码' ? '实时预览' : '源码', exact: true }).click()
     await page.getByRole('button', { name: mode, exact: true }).click()
     await expect(editor).toBeVisible()
     await page.waitForTimeout(80) // 覆盖拖放指示器卸载后的延迟回调窗口。

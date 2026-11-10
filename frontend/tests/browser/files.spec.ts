@@ -22,7 +22,7 @@ test('真实目录、Markdown 与 JSON 自动保存，刷新后重新读取', as
   const folder = `日常笔记-${Date.now()}`
   await create(page, '文件夹', folder)
   await create(page, '笔记', '第一篇.md')
-  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
   await rich.fill('中文正文，保存到真实文件。')
   await expect(page.locator('.save-status')).toHaveText('已保存')
   await create(page, '笔记', '配置.json')
@@ -78,7 +78,7 @@ test('陈旧版本冲突可比较并另存本地副本，原磁盘版本不覆�
 })
 
 for (const conflict of [false, true]) {
-  test(`有损转换预览不写入磁盘，确认后${conflict ? '遵循陈旧 ETag 冲突保护' : '自动保存预览结果'}`, async ({ page }) => {
+  test(`疑难语法实时预览不写入磁盘，编辑后${conflict ? '遵循陈旧 ETag 冲突保护' : '原样保存'}`, async ({ page }) => {
     await login(page)
     const name = `转换-${conflict}-${Date.now()}.md`
     const original = '---\ntitle: 保留原文\n---\n\n正文\n'
@@ -92,10 +92,13 @@ for (const conflict of [false, true]) {
     page.on('request', (request) => { if (request.method() === 'PUT') writes++ })
     await page.getByRole('button', { name, exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '富文本转换预览' })
-    await expect(dialog).toBeVisible()
-    const converted = await dialog.getByLabel('转换后 Markdown').inputValue()
-    expect(converted).not.toBe(original)
-    // 覆盖自动保存防抖窗口，确认预览本身不触发写入。
+    await expect(dialog).toHaveCount(0)
+    const editor = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
+    await expect(editor).toBeVisible()
+    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await page.getByRole('button', { name: '实时预览', exact: true }).click()
+    const edited = original + '新增'
+    // 覆盖自动保存防抖窗口，确认显示和切换本身不触发写入。
     await page.waitForTimeout(1100)
     expect(writes).toBe(0)
     expect((await (await page.request.get(url)).json()).content).toBe(original)
@@ -108,13 +111,13 @@ for (const conflict of [false, true]) {
     })
     const pendingResponse = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().includes('/files/content?'))
     const pendingWrite = page.waitForRequest((request) => request.method() === 'PUT' && request.url().includes('/files/content?'))
-    await dialog.getByRole('button', { name: '确认转换并编辑' }).click()
+    await editor.focus(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('新增')
     const write = await pendingWrite
     expect(write.headers()['if-match']).toBe(`"${initial.revision}"`)
-    expect(write.postDataJSON().content).toBe(converted)
+    expect(write.postDataJSON().content).toBe(edited)
     expect((await pendingResponse).status()).toBe(conflict ? 412 : 200)
     await expect(page.locator('.save-status')).toContainText(conflict ? '版本冲突' : '已保存')
-    expect((await (await page.request.get(url)).json()).content).toBe(conflict ? remote : converted)
-    await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
+    expect((await (await page.request.get(url)).json()).content).toBe(conflict ? remote : edited)
+    await expect(editor).toBeVisible()
   })
 }

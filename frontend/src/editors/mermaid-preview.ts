@@ -14,18 +14,16 @@ export function mermaidSourceError(source: string) {
   return undefined
 }
 
-type BlockPreview = { image?: HTMLImageElement; active?: Preview }
-type Preview = { source: string; theme?: string; version: number; due: number; block?: BlockPreview; host?: HTMLElement; message?: string; state?: string }
+type Preview = { source: string; theme?: string; version: number; due: number; image?: HTMLImageElement; host: HTMLElement }
 const EDIT_DELAY = 600
 export function createMermaidPreview(root: HTMLElement) {
   const entries = new Map<string, Preview>()
-  const blocks = new WeakMap<Element, BlockPreview>()
   let disposed = false, timer: ReturnType<typeof setTimeout> | undefined
-  const getHost = (id: string) => root.querySelector<HTMLElement>(`[data-mermaid-preview="${id}"]`)
+  const getHost = (id: string) => { const host = entries.get(id)?.host; return host && root.contains(host) ? host : null }
   const theme = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
   const status = (host: HTMLElement, entry: Preview, message: string, state: string) => {
-    entry.message = message; entry.state = state
-    const image = entry.block?.image
+    const image = entry.image ?? host.querySelector('img') ?? undefined
+    entry.image = image
     const text = document.createElement('span')
     text.className = 'mermaid-status'; text.textContent = message
     if (image) image.alt = state === 'ready' ? 'Mermaid 图表（图表代码见上方代码块）' : '上次成功渲染的 Mermaid 图表，当前代码尚未更新成功'
@@ -38,22 +36,11 @@ export function createMermaidPreview(root: HTMLElement) {
     const pending = [...entries.values()].filter(entry => entry.theme !== theme())
     if (pending.length) timer = setTimeout(refresh, Math.max(0, Math.min(...pending.map(entry => entry.due)) - Date.now()))
   }
-  // Crepe 会清洗并克隆返回节点；在浏览器绘制前把已加载的旧图片移入新占位符。
   const synchronize = () => {
     if (disposed) return
     for (const [id, entry] of entries) {
       const host = getHost(id)
-      if (!host) { if (entry.block || Date.now() >= entry.due) { entry.version++; entries.delete(id) }; continue }
-      if (entry.block) {
-        if (entry.host !== host) { entry.host = host; status(host, entry, entry.message ?? '', entry.state ?? 'pending') }
-        continue
-      }
-      const container = host.closest('.milkdown-code-block') ?? host
-      let block = blocks.get(container)
-      if (!block) { block = {}; blocks.set(container, block) }
-      if (block.active) block.active.version++
-      block.active = entry; entry.block = block; entry.host = host
-      status(host, entry, block.image ? '图表待更新（显示上次结果）' : '正在准备 Mermaid 图表…', 'pending')
+      if (!host && Date.now() >= entry.due) { entry.version++; entries.delete(id) }
     }
     schedule()
   }
@@ -62,12 +49,13 @@ export function createMermaidPreview(root: HTMLElement) {
     for (const [id, entry] of entries) {
       const host = getHost(id)
       if (!host) { entry.version++; entries.delete(id); continue }
-      if (!entry.block || entry.theme === theme() || entry.due > Date.now()) continue
+      if (entry.theme === theme() || entry.due > Date.now()) continue
       entry.theme = theme()
+      status(host, entry, entry.image || host.querySelector('img') ? '图表待更新（显示上次结果）' : '正在准备 Mermaid 图表…', 'pending')
       const version = ++entry.version, selectedTheme = entry.theme
       const error = mermaidSourceError(entry.source)
       if (error) { status(host, entry, error, 'error'); continue }
-      const current = () => !disposed && entries.get(id) === entry && entry.version === version && entry.block?.active === entry && !!getHost(id)
+      const current = () => !disposed && entries.get(id) === entry && entry.version === version && !!getHost(id)
       queue = queue.catch(() => {}).then(async () => {
         if (!current()) return
         try {
@@ -85,7 +73,7 @@ export function createMermaidPreview(root: HTMLElement) {
           image.dataset.theme = selectedTheme
           await image.decode()
           if (!current()) return
-          entry.block!.image = image
+          entry.image = image
           const host = getHost(id)!
           status(host, entry, '', 'ready')
         } catch (error) {
@@ -104,7 +92,7 @@ export function createMermaidPreview(root: HTMLElement) {
     for (const [id, entry] of entries) {
       entry.version++; entry.theme = undefined; entry.due = Math.max(entry.due, Date.now() + 120)
       const host = getHost(id)
-      if (host) status(host, entry, entry.block?.image ? '图表待更新（显示上次结果）' : '正在准备 Mermaid 图表…', 'pending')
+      if (host) status(host, entry, entry.image ? '图表待更新（显示上次结果）' : '正在准备 Mermaid 图表…', 'pending')
     }
     schedule()
   })
@@ -113,8 +101,9 @@ export function createMermaidPreview(root: HTMLElement) {
     render: (language: string, content: string) => {
       if (language.trim().toLowerCase() !== 'mermaid') return null
       const id = `folio-mermaid-${crypto.randomUUID()}`
-      entries.set(id, { source: content, version: 0, due: Date.now() + EDIT_DELAY })
+      if (disposed) return null
       const host = document.createElement('div')
+      entries.set(id, { source: content, version: 0, due: Date.now() + EDIT_DELAY, host })
       host.className = 'mermaid-preview'; host.dataset.mermaidPreview = id
       host.setAttribute('role', 'group'); host.setAttribute('aria-label', 'Mermaid 图表预览'); host.tabIndex = 0
       host.textContent = '正在准备 Mermaid 图表…'

@@ -59,7 +59,7 @@ test('1200 文件分页、中文全文搜索及较大正文实际交互测量', 
     }
     const openStart = performance.now()
     await page.getByRole('button', { name: 'large.md', exact: true }).click()
-    const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+    const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
     await expect(rich).toBeVisible({ timeout: 20_000 })
     const richOpenMs = performance.now() - openStart
     const input = async (editor: Locator, markers: string[]) => {
@@ -76,7 +76,7 @@ test('1200 文件分页、中文全文搜索及较大正文实际交互测量', 
     const richInputMs = await input(rich, ['甲', '乙', '丙'])
     await expect(page.locator('.save-status')).toHaveText('已保存', { timeout: 15_000 })
     const richSaved = await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(folder + '/large.md')}`)).json()
-    expect(richSaved.content).toBe(richSource.slice(0, -1) + '甲乙丙\n')
+    expect(richSaved.content).toBe(richSource + '甲乙丙')
     const sourceStart = performance.now()
     await page.getByRole('button', { name: 'large.log', exact: true }).click()
     const source = page.getByRole('textbox', { name: '源码编辑器' })

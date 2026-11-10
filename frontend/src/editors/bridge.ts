@@ -1,6 +1,6 @@
-import type { Entry } from '../../services/api'
+import type { Entry } from '../services/api'
 export type FileReference = { url: string; alt: string; image: boolean }
-export type CrepeBridge = {
+export type EditorBridge = {
   reference: (entry: Entry) => FileReference | undefined
   upload: (file: File) => Promise<string>
   imageURL: (url: string) => string

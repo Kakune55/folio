@@ -38,7 +38,7 @@ test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路�
   await create(folder, true); await create(parent, true); await create(note)
   await page.getByRole('button', { name: '刷新文件列表' }).click()
   await row(note).click()
-  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
   await rich.fill('拖拽前的最后一笔输入')
   await dragAcrossList(page, row(note), row(folder))
   await expect(page.locator('.breadcrumb span:last-child')).toHaveText(`${folder}/${note}`)
@@ -52,16 +52,11 @@ test('真实鼠标拖拽移动文件及目录，脏正文保存后使用新路�
   await expect(page.locator('.breadcrumb span:last-child')).toHaveText(`${folder}/${note}`)
   expect((await file(`${folder}/${note}`)).content).toContain('目录移动后继续输入')
   await page.getByRole('button', { name: '源码', exact: true }).click()
-  const markdown = await page.evaluate(async (source) => {
-    // 视觉样本采用当前 Crepe 的序列化格式；兼容性判断另有独立的固定原文语料。
-    // @ts-expect-error 由 Vite 提供浏览器模块。
-    const { inspectRoundTrip } = await import('/src/editors/milkdown/engine.ts')
-    return (await inspectRoundTrip(source)).serialized as string
-  }, '# 工作流验收\n\n中文正文与 `request_id`。\n\n> 变更有迹可循。\n\n| 文件 | 状态 |\n| -- | -- |\n| 笔记 | 已保存 |\n\n```json\n{"ready":true}\n```\n')
+  const markdown = '# 工作流验收\n\n中文正文与 `request_id`。\n\n> 变更有迹可循。\n\n| 文件 | 状态 |\n| -- | -- |\n| 笔记 | 已保存 |\n\n```json\n{"ready":true}\n```\n'
   await page.getByRole('textbox', { name: '源码编辑器' }).fill(markdown)
   await expect(page.locator('.save-status')).toHaveText('已保存')
-  await page.getByRole('button', { name: '富文本', exact: true }).click()
-  await expect(rich.getByRole('heading', { name: '工作流验收' })).toBeVisible()
+  await page.getByRole('button', { name: '实时预览', exact: true }).click()
+  await expect(rich.locator('.cm-line').filter({ hasText: '工作流验收' })).toBeVisible()
   for (const width of [1440, 1024, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : 900 })
     if (width === 390) await page.getByRole('button', { name: '关闭文件列表' }).click()
@@ -137,7 +132,7 @@ test('键盘浏览、重命名、菜单移动及标签快捷键，保存冲突�
   await expect(page.getByRole('tab', { name: `${name}-配置.json`, exact: true })).not.toBeVisible()
   const remote = await file(other), principal = await (await page.request.get('/api/v1/auth/me')).json()
   expect((await page.request.put(`/api/v1/files/content?path=${encodeURIComponent(other)}`, { headers: { 'X-CSRF-Token': principal.csrfToken, 'If-Match': `"${remote.revision}"` }, data: { content: '其他版本' } })).status()).toBe(200)
-  await page.getByRole('textbox', { name: 'Markdown 富文本编辑器' }).fill('我的草稿')
+  await page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true }).fill('我的草稿')
   await page.keyboard.press('Control+Alt+w')
   await expect(page.locator('.save-status')).toContainText('版本冲突')
   await expect(page.getByRole('tab', { name: other })).toBeVisible()

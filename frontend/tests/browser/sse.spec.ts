@@ -62,8 +62,12 @@ test('Agent 更新即时加载、黄绿标记与删除红三角、接受清除�
     await mkdir(output, { recursive: true })
     for (const width of [1440, 1024, 390]) {
       await page.setViewportSize({ width, height: 900 })
-      const closeDrawer = page.getByRole('button', { name: '关闭文件列表', exact: true })
-      if (await closeDrawer.isVisible()) await closeDrawer.click()
+      if (width < 768) {
+        const drawer = page.getByRole('dialog', { name: '文件列表', exact: true })
+        await expect(drawer).toBeVisible()
+        await drawer.getByRole('button', { name: '关闭文件列表', exact: true }).click()
+        await expect(drawer).toBeHidden()
+      }
       for (const theme of ['light', 'dark']) {
         await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -294,24 +298,27 @@ test('通知倒计时期间本地输入暂停接受，后续远程变化和接�
   } finally { await agent.dispose() }
 })
 
-test('富文本按块提示三类变化，不安全转换退回源码保留原文', async ({ page, playwright }) => {
-  const old = '# 标题\n\n第一段。\n\n保留段。\n\n待删段。\n\n末段。\n'
-  const next = '# 标题\n\n修改段。\n\n新增段。\n\n保留段。\n\n末段。\n'
+test('实时预览按源码行提示三类变化，外部疑难语法原样保留且无回写', async ({ page, playwright }) => {
+  const old = '# 标题\n第一段。\n保留段。\n待删段。\n末段。\n'
+  const next = '# 标题\n修改段。\n新增段。\n保留段。\n末段。\n'
   const { agent, url, revision } = await prepare(page, playwright, old, 'md')
   try {
-    await expect(page.locator('.rich-host .ProseMirror')).toContainText('第一段')
+    await expect(page.locator('.cm-content')).toContainText('第一段')
+    const writes = contentWrites(page)
     expect((await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: next } })).status()).toBe(200)
-    await expect(page.locator('.rich-host .ProseMirror')).toContainText('新增段', { timeout: 4000 })
-    await expect(page.locator('.external-rich-modified')).toHaveCount(1)
-    await expect(page.locator('.external-rich-inserted')).toHaveCount(1)
-    await expect(page.locator('.external-rich-deleted-before')).toHaveCount(1)
+    await expect(page.locator('.cm-content')).toContainText('新增段', { timeout: 4000 })
+    await expect(page.locator('.external-gutter-mark.external-modified')).toHaveCount(1)
+    await expect(page.locator('.external-gutter-mark.external-inserted')).toHaveCount(1)
+    await expect(page.locator('.external-gutter-mark.external-deleted')).toHaveCount(1)
     await mkdir(output, { recursive: true }); await page.screenshot({ path: `${output}/rich-dark.png` })
     const current = await (await agent.get(url)).json()
     const unsafe = '---\ntitle: 必须保留的元数据\n---\n\n# 新正文\n'
     expect((await agent.put(url, { headers: { 'If-Match': `"${current.revision}"` }, data: { content: unsafe } })).status()).toBe(200)
-    await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('必须保留的元数据', { timeout: 5000 })
-    await expect(page.getByText(/外部更新的 Markdown 需要转换/)).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })).toContainText('必须保留的元数据', { timeout: 5000 })
+    await expect(page.locator('.source-host')).toHaveAttribute('data-mode', 'rich')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     expect((await (await agent.get(url)).json()).content).toBe(unsafe)
+    expect(writes).toEqual([])
   } finally { await agent.dispose() }
 })
 
@@ -340,13 +347,13 @@ test('接收更新读取期间继续输入，拒绝迟到正文覆盖', async ({
 
 for (const mode of ['source', 'rich'] as const) {
   for (const decision of ['wait', 'automatic'] as const) {
-    test(`${mode === 'source' ? '源码' : '富文本'}标记和展开详情${decision === 'wait' ? '等待 20 秒后保留，接受立即清除' : '随 10 秒自动接受清除'}`, async ({ page, playwright }) => {
+    test(`${mode === 'source' ? '源码' : '实时预览'}标记和展开详情${decision === 'wait' ? '等待 20 秒后保留，接受立即清除' : '随 10 秒自动接受清除'}`, async ({ page, playwright }) => {
       await page.clock.setFixedTime(new Date())
       const before = mode === 'source' ? '首行\n旧正文\n末行\n' : '# 标题\n\n旧正文\n\n末段\n'
       const after = before.replace('旧正文', '远程新正文')
       const { agent, url, revision } = await prepare(page, playwright, before, mode === 'source' ? 'txt' : 'md')
       try {
-        const editor = page.locator(mode === 'source' ? '.cm-content' : '.rich-host .ProseMirror')
+        const editor = page.locator('.cm-content')
         await expect(editor).toContainText('旧正文')
         const writes = contentWrites(page)
         const response = await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: after } })
@@ -354,10 +361,8 @@ for (const mode of ['source', 'rich'] as const) {
         const savedRevision = (await response.json()).revision
         await expect(editor).toContainText('远程新正文', { timeout: 4000 })
         const notice = page.locator('.remote-notice')
-        const marks = page.locator(mode === 'source' ? '.external-gutter-mark' : '.external-rich-change-button')
-        const modified = mode === 'source'
-          ? page.locator('.external-gutter-mark.external-modified[role="button"]')
-          : page.getByRole('button', { name: '查看外部修改详情', exact: true })
+        const marks = page.locator('.external-gutter-mark')
+        const modified = page.locator('.external-gutter-mark.external-modified[role="button"]')
         const peek = page.getByRole('region', { name: '外部修改详情', exact: true })
         await expect(modified).toHaveCount(1)
         if (decision === 'wait') await notice.getByRole('button', { name: '等待', exact: true }).click()
@@ -383,15 +388,15 @@ for (const mode of ['source', 'rich'] as const) {
       } finally { await agent.dispose() }
     })
   }
-  test(`${mode === 'source' ? '源码' : '富文本'}替换伴随末尾删除时，红三角展开完整旧内容`, async ({ page, playwright }) => {
+  test(`${mode === 'source' ? '源码' : '实时预览'}替换伴随末尾删除时，红三角展开完整旧内容`, async ({ page, playwright }) => {
     const before = mode === 'source' ? '替换之前\n被删除的末尾\n' : '替换之前\n\n被删除的末尾\n'
     const after = '替换之后\n'
     const { agent, url, revision } = await prepare(page, playwright, before, mode === 'source' ? 'txt' : 'md')
     try {
-      await expect(mode === 'source' ? page.locator('.cm-content') : page.locator('.rich-host .ProseMirror')).toContainText('被删除的末尾')
+      await expect(page.locator('.cm-content')).toContainText('被删除的末尾')
       const writes = contentWrites(page)
       expect((await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: after } })).status()).toBe(200)
-      const deleted = mode === 'source' ? page.locator('.external-gutter-mark.external-deleted.external-after') : page.locator('.external-rich-change-button-deleted.external-rich-change-button-after')
+      const deleted = page.locator('.external-gutter-mark.external-deleted.external-after')
       await expect(deleted).toHaveCount(1)
       await deleted.click()
       const peek = page.getByRole('region', { name: '外部修改详情', exact: true })
@@ -403,7 +408,7 @@ for (const mode of ['source', 'rich'] as const) {
     } finally { await agent.dispose() }
   })
   for (const width of [1440, 390]) {
-    test(`${mode === 'source' ? '源码' : '富文本'}内联详情支持展开、收起和键盘且不改正文（${width}px）`, async ({ page, playwright }) => {
+    test(`${mode === 'source' ? '源码' : '实时预览'}内联详情支持展开、收起和键盘且不改正文（${width}px）`, async ({ page, playwright }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.clock.setFixedTime(new Date())
       const before = mode === 'source'
@@ -414,7 +419,7 @@ for (const mode of ['source', 'rich'] as const) {
         : '# 内联详情\n\n修改后的最新内容\n\n共同中段\n\n共同末段\n'
       const { agent, url, revision } = await prepare(page, playwright, before, mode === 'source' ? 'txt' : 'md')
       try {
-        const editor = mode === 'source' ? page.locator('.cm-content') : page.locator('.rich-host .ProseMirror')
+        const editor = page.locator('.cm-content')
         await expect(editor).toContainText('修改前的独立内容')
         const closeDrawer = page.getByRole('button', { name: '关闭文件列表', exact: true })
         if (await closeDrawer.isVisible()) await closeDrawer.click()
@@ -422,12 +427,8 @@ for (const mode of ['source', 'rich'] as const) {
         const response = await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: after } })
         expect(response.status()).toBe(200)
         const savedRevision = (await response.json()).revision
-        const modified = mode === 'source'
-          ? page.locator('.external-gutter-mark.external-modified[role="button"]')
-          : page.getByRole('button', { name: '查看外部修改详情', exact: true })
-        const deleted = mode === 'source'
-          ? page.locator('.external-gutter-mark.external-deleted[role="button"]')
-          : page.getByRole('button', { name: /^查看外部删除详情/ })
+        const modified = page.locator('.external-gutter-mark.external-modified[role="button"]')
+        const deleted = page.locator('.external-gutter-mark.external-deleted[role="button"]')
         await expect(modified).toHaveCount(1)
         await expect(deleted).toHaveCount(1)
         await page.locator('.remote-notice').getByRole('button', { name: '等待', exact: true }).click()
@@ -436,7 +437,7 @@ for (const mode of ['source', 'rich'] as const) {
         await expect(editor).not.toContainText('删除前的独立内容')
         const bodyText = () => editor.evaluate(element => {
           const copy = element.cloneNode(true) as HTMLElement
-          copy.querySelectorAll('.external-change-peek, .external-rich-change-button').forEach(node => node.remove())
+           copy.querySelectorAll('.external-change-peek').forEach(node => node.remove())
           return copy.textContent
         })
         const latestBody = await bodyText()
@@ -505,7 +506,7 @@ for (const mode of ['source', 'rich'] as const) {
         await page.locator('.remote-notice').getByRole('button', { name: '接受', exact: true }).click()
         await expect(page.locator('.remote-notice')).toHaveCount(0)
         await expect(peek).toHaveCount(0)
-        await expect(page.locator(mode === 'source' ? '.external-gutter-mark' : '.external-rich-change-button')).toHaveCount(0)
+        await expect(page.locator('.external-gutter-mark')).toHaveCount(0)
         expect(await bodyText()).toBe(latestBody)
         await expect(page.getByRole('dialog')).toHaveCount(0)
         expect(writes).toEqual([])

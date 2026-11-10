@@ -5,7 +5,7 @@ const editable = (session: Session) => ['markdown', 'text'].includes(session.vie
 const checkpoint = (session: Session) => ({ session, path: session.path, revision: session.revision, generation: session.generation })
 type Checkpoint = ReturnType<typeof checkpoint>
 function current(sessions: WorkspaceSessions, check: Checkpoint) {
-  return sessions.has(check.path) && sessions.get(check.path) === check.session && check.session.revision === check.revision && check.session.generation === check.generation && !check.session.locked && !check.session.pendingUploads && check.session.state !== 'saving'
+  return sessions.has(check.path) && sessions.get(check.path) === check.session && check.session.revision === check.revision && check.session.generation === check.generation && !check.session.composing && !check.session.locked && !check.session.pendingUploads && check.session.state !== 'saving'
 }
 
 // 探测结果只能作用于同一个版本的会话；晚到响应不能把自己的保存误判为外部修改。

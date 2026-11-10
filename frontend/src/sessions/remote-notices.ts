@@ -38,7 +38,7 @@ export class RemoteNotices {
   }
   async check(session: Session, signal?: AbortSignal, source?: string) {
     const path = session.path, revision = session.revision, generation = session.generation, baseline = session.original
-    const valid = () => this.sessions.has(path) && this.sessions.get(path) === session && session.path === path && session.revision === revision && session.generation === generation && !session.locked && !session.pendingUploads && session.state !== 'saving'
+    const valid = () => this.sessions.has(path) && this.sessions.get(path) === session && session.path === path && session.revision === revision && session.generation === generation && !session.composing && !session.locked && !session.pendingUploads && session.state !== 'saving'
     const result = await api.textRevision(path, signal)
     if (!valid()) return
     const existing = this.entries.get(path)
@@ -76,6 +76,7 @@ export class RemoteNotices {
     if (this.entries.get(entry.path) !== entry || !this.valid(entry) || entry.busy) return
     this.wait(entry)
     const session = entry.session
+    if (session.composing) { entry.error = '请先确认或取消输入法候选，再处理远程版本。'; this.emit(); return }
     if (session.dirty || ['error', 'conflict'].includes(session.state)) return 'conflict'
     if (session.locked || session.pendingUploads || session.state === 'saving') { entry.error = '文件操作尚未结束，请稍后重试。'; this.emit(); return }
     this.sessions.clearExternalUpdate(entry.path)

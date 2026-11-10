@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createMermaidPreview } from '../../editors/milkdown/mermaid-preview'
+import { createMermaidPreview } from '../../editors/mermaid-preview'
 import { Button } from '../../components/ui/button'
 
 export default function SharedMarkdown({ html }: { html: string }) {

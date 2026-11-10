@@ -12,7 +12,7 @@ export function RemoteChangeNotices({ notices, onConflict }: { notices: RemoteNo
       const time = Date.now(); setNow(time); notices.prune()
       for (const entry of notices.list()) {
         if (entry.deadline === null || entry.busy) continue
-        if (entry.session.dirty || ['error', 'conflict'].includes(entry.session.state)) notices.wait(entry)
+        if (entry.session.composing || entry.session.dirty || ['error', 'conflict'].includes(entry.session.state)) notices.wait(entry)
         else if (entry.deadline <= time) void notices.accept(entry)
       }
     }, 250)

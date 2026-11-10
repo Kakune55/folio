@@ -11,8 +11,21 @@ async function openDiagram(page: Page, body: string) {
   expect((await page.request.post('/api/v1/files', { headers, data: { path, content: body } })).status()).toBe(201)
   await page.getByRole('button', { name: '刷新文件列表' }).click()
   await page.getByRole('button', { name: path, exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })).toBeVisible()
   return { path, read: async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(path)}`)).json()).content }
+}
+
+async function editDiagram(page: Page, index: number, body: string) {
+  const lines = page.locator('.cm-content .cm-line')
+  const text = await lines.allTextContents()
+  const start = text.flatMap((line, index) => line === '```mermaid' ? [index] : [])[index]
+  const end = text.findIndex((line, position) => position > start && line === '```')
+  expect(start).toBeDefined(); expect(end).toBeGreaterThan(start + 1)
+  await lines.nth(start + 1).click(); await page.keyboard.press('Home')
+  await page.keyboard.down('Shift')
+  for (let i = start + 2; i < end; i++) await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('End'); await page.keyboard.up('Shift')
+  await page.keyboard.insertText(body)
 }
 
 test('Mermaid 流程图/时序图预览、主题、编辑与源码保留', async ({ page }) => {
@@ -26,7 +39,7 @@ test('Mermaid 流程图/时序图预览、主题、编辑与源码保留', async
   const svg = decodeURIComponent((await previews.locator('img').first().getAttribute('src'))!.split(',').slice(1).join(','))
   expect(svg).toContain('开始'); expect(svg).toContain('结束')
   expect(await read()).toBe(original)
-  await page.locator('.ProseMirror').evaluate(el => el.setAttribute('data-instance-test', '保留实例'))
+  await page.locator('.cm-content').evaluate(el => el.setAttribute('data-instance-test', '保留实例'))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
@@ -39,16 +52,17 @@ test('Mermaid 流程图/时序图预览、主题、编辑与源码保留', async
       await page.screenshot({ path: `../artifacts/mermaid/mermaid-${theme}-${width}.png` })
     }
   }
-  await expect(page.locator('.ProseMirror')).toHaveAttribute('data-instance-test', '保留实例')
+  await expect(page.locator('.cm-content')).toHaveAttribute('data-instance-test', '保留实例')
   expect(await read()).toBe(original)
   await page.setViewportSize({ width: 1440, height: 900 })
-  const code = page.locator('.milkdown-code-block .cm-content').first()
-  await code.fill('flowchart LR\nA[修改后] --> B[确认]')
+  await editDiagram(page, 0, 'flowchart LR\nA[修改后] --> B[确认]')
   await expect.poll(async () => decodeURIComponent((await previews.locator('img').first().getAttribute('src')) ?? '')).toContain('修改后')
   await expect.poll(read).toContain('A[修改后]')
   await page.getByRole('button', { name: '源码', exact: true }).click()
   await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('A[修改后]')
-  await page.getByRole('button', { name: '富文本', exact: true }).click()
+  await expect(previews).toHaveCount(0)
+  await expect(page.locator('.cm-content')).toHaveAttribute('data-instance-test', '保留实例')
+  await page.getByRole('button', { name: '实时预览', exact: true }).click()
   await expect(page.locator('.mermaid-preview img')).toHaveCount(2)
   expect(errors).toEqual([])
 })
@@ -60,30 +74,33 @@ test('错误 Mermaid 明确提示并可修复，活动资源不加载', async ({
   const preview = page.locator('.mermaid-preview')
   await expect(preview).toContainText('Mermaid 渲染失败')
   expect(await read()).toBe(original)
-  const code = page.locator('.milkdown-code-block .cm-content')
   for (const malicious of ['flowchart LR\nA@{img: "https://evil.test/a.png"}', '%%{init: {"securityLevel":"loose"}}%%\nflowchart LR\nA-->B', 'flowchart LR\nA["<img src=x onerror=alert(1)>"]']) {
-    await code.fill(malicious)
+    await editDiagram(page, 0, malicious)
     await expect(preview).toContainText('暂不支持 Mermaid')
     await expect(preview.locator('img')).toHaveCount(0)
   }
-  await code.fill('flowchart LR\nA[修复]-->B[完成]')
+  await editDiagram(page, 0, 'flowchart LR\nA[修复]-->B[完成]')
   await expect(preview.locator('img')).toBeVisible()
   expect(external).toEqual([])
   // 新旧异步任务交错与卸载不能恢复过期图表或改写正文。
-  await code.fill('flowchart LR\nA[过期]-->B')
-  await code.fill('flowchart LR\nA[最新]-->B')
+  await editDiagram(page, 0, 'flowchart LR\nA[过期]-->B')
+  await editDiagram(page, 0, 'flowchart LR\nA[最新]-->B')
   await expect.poll(async () => decodeURIComponent((await preview.locator('img').getAttribute('src')) ?? '')).toContain('最新')
   await page.getByRole('button', { name: '源码', exact: true }).click()
   await expect(page.getByRole('textbox', { name: '源码编辑器' })).toContainText('最新')
 })
 
 
-test('代码块语言菜单可以选择 Mermaid', async ({ page }) => {
-  await openDiagram(page, '```text\nflowchart LR\nA[菜单插入]-->B\n```\n')
-  await page.locator('.milkdown-code-block .language-button').click()
-  await page.getByPlaceholder('搜索语言').fill('mermaid')
-  await page.locator('.language-list-item[data-language="mermaid"]').click()
+test('直接编辑围栏语言创建 Mermaid 预览，原文只改变语言标记', async ({ page }) => {
+  const original = '```text\nflowchart LR\nA[围栏插入]-->B\n```\n'
+  const { read } = await openDiagram(page, original)
+  await expect(page.locator('.mermaid-preview')).toHaveCount(0)
+  await page.locator('.cm-line').first().click(); await page.keyboard.press('Home')
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Shift+End'); await page.keyboard.insertText('mermaid')
   await expect(page.locator('.mermaid-preview img')).toBeVisible()
+  await expect.poll(read).toBe(original.replace('```text', '```mermaid'))
+  await expect(page.locator('.cm-editor')).toHaveCount(1)
 })
 
 
@@ -110,16 +127,15 @@ test('连续输入防抖只渲染最终代码，等待期间保留原图且各�
     }
     requestAnimationFrame(frame)
   })
-  const code = page.locator('.milkdown-code-block .cm-content')
   for (const text of ['第一笔', '第二笔', '第三笔', '最终结果']) {
-    await code.nth(0).fill(`flowchart LR\nA[${text}]-->B`)
+    await editDiagram(page, 0, `flowchart LR\nA[${text}]-->B`)
     await page.waitForTimeout(180) // 每笔间隔小于 600ms，整个输入序列超过 600ms。
     await expect(first.locator('img')).toHaveAttribute('src', original!)
     expect(Math.abs(await first.evaluate(el => el.getBoundingClientRect().height) - originalHeight)).toBeLessThan(1)
   }
   expect(await page.evaluate(() => (window as unknown as { mermaidDebounceProbe: { renders: number } }).mermaidDebounceProbe.renders)).toBe(0)
   // 编辑另一代码块不会重置第一块的等待时间。
-  await code.nth(1).fill('flowchart LR\nC[独立更新]-->D')
+  await editDiagram(page, 1, 'flowchart LR\nC[独立更新]-->D')
   await expect.poll(async () => decodeURIComponent(await first.locator('img').getAttribute('src') ?? '')).toContain('最终结果')
   await expect.poll(async () => decodeURIComponent(await second.locator('img').getAttribute('src') ?? '')).toContain('独立更新')
   const result = await page.evaluate(() => {
@@ -128,13 +144,8 @@ test('连续输入防抖只渲染最终代码，等待期间保留原图且各�
   })
   expect(result.renders).toBe(2)
   expect(result.blankFrames).toBe(0)
-  const toggle = page.locator('.milkdown-code-block').first().locator('.preview-toggle-button')
-  await toggle.click()
-  await expect(first.locator('img')).toBeVisible()
-  await toggle.click()
-  await expect(first.locator('img')).toBeVisible()
   await expect.poll(read).toContain('最终结果')
-  await code.nth(0).fill('flowchart LR\nA[未闭合')
+  await editDiagram(page, 0, 'flowchart LR\nA[未闭合')
   await expect(first).toContainText('Mermaid 渲染失败')
   await expect(first.locator('img')).toHaveAttribute('alt', /上次成功/)
   await expect.poll(async () => decodeURIComponent(await first.locator('img').getAttribute('src') ?? '')).toContain('最终结果')

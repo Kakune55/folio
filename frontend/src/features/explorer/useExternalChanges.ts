@@ -38,7 +38,7 @@ export function useExternalChanges(workspaceId: string) {
           for (const session of workspace.list()) {
             if (!all && !affected.some(path => session.path === path || session.path.startsWith(`${path}/`))) continue
             if (signal.aborted) { failed = true; break }
-            if (session.locked || session.pendingUploads || session.state === 'saving') { busy = true; continue }
+            if (session.composing || session.locked || session.pendingUploads || session.state === 'saving') { busy = true; continue }
             const checkedPath = session.path, generation = session.generation, revision = session.revision
             try {
               if (['markdown', 'text'].includes(session.viewer)) await notices.check(session, signal, origins.get(session.path))

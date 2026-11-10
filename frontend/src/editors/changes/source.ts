@@ -19,7 +19,7 @@ export function sourceChangeMarks(update?: ExternalUpdate) {
         const mark = update?.marks[effect.value]
         if (!mark || update?.previousSource === undefined || !transaction.startState.field(markerField).size) return value
         const before = update.previousSource
-        const details = changeDetails(before.replace(/\r\n|\r/g, '\n'), transaction.state.doc.toString())
+        const details = changeDetails(before.replace(/^\ufeff/, '').replace(/\r\n|\r/g, '\n'), transaction.state.doc.toString())
         const lastLine = transaction.state.doc.lines
         const lastContentLine = Math.max(1, lastLine - (transaction.state.doc.line(lastLine).length === 0 ? 1 : 0))
         const detail = details.find(detail => mark.kind === 'deleted'
