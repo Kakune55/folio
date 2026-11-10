@@ -5,7 +5,7 @@ import { SourceNavigation } from '../navigation/SourceNavigation'
 import { literalRange } from '../../features/search/location'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
 import { useEffect, useRef, useState } from 'react'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, LanguageDescription } from '@codemirror/language'
@@ -19,6 +19,8 @@ import { imageMarkdown, referenceMarkdown, resolveFileLink } from '../bridge'
 import { preserveLineEndings } from './line-endings'
 import { markdownLivePreview } from './live-preview'
 import { markdownPreviewBlocks } from './preview-blocks'
+import { codeBlockControls } from './code-blocks'
+import { createCodeLanguages } from './code-languages'
 import { markdownCommands, markdownFormatKeymap } from './markdown-commands'
 import { Bold, Italic, Code, Link2, List, ListTodo, Quote } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -38,6 +40,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
   const host = useRef<HTMLDivElement>(null)
   const preview = useRef(new Compartment()), editable = useRef(new Compartment())
   const displayedMode = useRef(session.mode)
+  const codeControls = useRef<Extension>([])
   const isMarkdown = session.viewer === 'markdown'
   useEffect(() => {
     if (!session.externalUpdate) editorView.current?.dispatch({ effects: clearSourceChangeMarks.of() })
@@ -51,6 +54,10 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     const canEdit = () => !disposed && current() && !session.locked && !sessions.isLocked(path)
     const canEditWidget = () => canEdit() && !session.composing && !session.compositionInterrupted
     const lineEndings = preserveLineEndings(session.source)
+    const codeLanguages = createCodeLanguages(name => {
+      if (!disposed) onBlocked?.(`${name} 语法高亮加载失败，原文仍可编辑和复制；请保存或下载草稿后刷新页面重试。`)
+    })
+    codeControls.current = codeBlockControls({ slice: lineEndings.slice, onBlocked })
     const finishComposition = (view: EditorView) => {
       clearTimeout(compositionTimer)
       const deadline = performance.now() + 1000
@@ -99,7 +106,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       return true
     }
     const rendering = () => [editorAttributes(isMarkdown && session.mode === 'rich'), ...(isMarkdown && session.mode === 'rich'
-      ? [markdownLivePreview({ canEdit: canEditWidget, onBlocked }), markdownPreviewBlocks({ bridge, canEdit: canEditWidget, onBlocked, revealTables: () => !!session.externalUpdate })] : [])]
+      ? [markdownLivePreview({ canEdit: canEditWidget, onBlocked }), markdownPreviewBlocks({ bridge, canEdit: canEditWidget, onBlocked, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]
     displayedMode.current = session.mode
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
@@ -173,7 +180,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     }
     editorView.current = view
     setNavigationView(view)
-    if (session.viewer === 'markdown') view.dispatch({ effects: language.reconfigure(markdown({ base: commonmarkLanguage, extensions: GFM, codeLanguages: languages, pasteURLAsLink: false })) })
+    if (session.viewer === 'markdown') view.dispatch({ effects: language.reconfigure(markdown({ base: commonmarkLanguage, extensions: GFM, codeLanguages, pasteURLAsLink: false })) })
     else {
       const description = LanguageDescription.matchFilename(languages, session.path)
       if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
@@ -193,7 +200,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     displayedMode.current = session.mode
     const canEdit = () => !session.composing && !session.compositionInterrupted && !session.locked && !sessions.isLocked(session.path)
     view.dispatch({ effects: preview.current.reconfigure([editorAttributes(isMarkdown && session.mode === 'rich'), ...(isMarkdown && session.mode === 'rich'
-      ? [markdownLivePreview({ canEdit, onBlocked }), markdownPreviewBlocks({ bridge, canEdit, onBlocked, revealTables: () => !!session.externalUpdate })] : [])]) })
+      ? [markdownLivePreview({ canEdit, onBlocked }), markdownPreviewBlocks({ bridge, canEdit, onBlocked, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]) })
     view.requestMeasure()
   }, [session.mode, isMarkdown, session, sessions, bridge, onBlocked])
   useEffect(() => {

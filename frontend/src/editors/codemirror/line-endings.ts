@@ -68,5 +68,18 @@ export function preserveLineEndings(source: string) {
       pieces.push(text.slice(position).replace(/\n/g, preferred))
       return pieces.join('')
     },
+    slice(state: EditorState, from: number, to: number) {
+      if (from < 0 || to < from || to > state.doc.length) throw new Error('复制范围已失效，未复制片段')
+      const text = state.doc.toString(), pieces: string[] = []
+      let position = from
+      for (const cursor = state.field(field).iter(from); cursor.value && cursor.from < to; cursor.next()) {
+        if (cursor.from < from) continue
+        if (cursor.to !== cursor.from + 1 || text[cursor.from] !== '\n') throw new Error('原始换行映射不一致，未复制')
+        pieces.push(text.slice(position, cursor.from).replace(/\n/g, preferred), cursor.value.separator)
+        position = cursor.to
+      }
+      pieces.push(text.slice(position, to).replace(/\n/g, preferred))
+      return pieces.join('')
+    },
   }
 }

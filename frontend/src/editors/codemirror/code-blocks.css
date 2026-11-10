@@ -1,0 +1,7 @@
+.source-host .cm-line.folio-code-opening { position: relative; min-height: 32px; padding-inline-end: 168px; }
+.folio-code-tools { position: absolute; inset-inline-end: 8px; top: 0; display: inline-flex; align-items: center; gap: 8px; max-width: 156px; height: 30px; color: var(--muted-foreground); font: 12px/1.5 var(--font-ui); }
+.folio-code-language { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.folio-code-tools button { flex: none; padding: 3px 8px; min-height: 28px; border: 1px solid var(--border); border-radius: 4px; color: var(--foreground); background: var(--background); cursor: pointer; font: inherit; }
+.folio-code-tools button:hover { background: var(--surface-hover); }
+.folio-code-tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 767px) { .source-host .cm-line.folio-code-opening { min-height: 40px; padding-inline-end: 148px; } .folio-code-tools { max-width: 136px; height: 40px; } .folio-code-tools button { min-height: 40px; } }
