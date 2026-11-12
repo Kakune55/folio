@@ -18,7 +18,15 @@ Folio 是一个自托管的轻量 Markdown 和开发文件工作区，可在浏�
 - **搜索与预览**：支持文件名和正文的全文搜索，统一入口，一次输入，即可快速找到所需内容。
 - **分享**：支持方便易用的分享功能，生成只读链接，支持密码、到期时间和访问次数。如果你的朋友同样使用了来自同一 Folio 实例的链接，他们可以直接访问你分享的内容，并保存在自己的工作区中。
 - **API**：为了提供程序化访问，Folio 提供了一套完整的 API，支持文件管理、搜索、分享和回收站操作，确保外部客户端可以安全地操作你的文件。
-- **Agent**：得益于 API 功能，Folio 同时也提供了 Agent.md 便于外部Agent使用API来为你执行各种操作。
+- **Agent**：提供 MCP 远程入口与精简的 `AGENT.md` 接入指南，保留 REST API。
+
+### Agent 接入
+
+MCP 客户端连接 `https://你的站点/mcp`，在客户端安全配置中设置 `Authorization: Bearer <Access Token>`，不把令牌放入 URL 或工具参数。入口与 Folio 同进程，采用无状态、JSON 响应的 Streamable HTTP，复用现有令牌权限、撤销及工作区绑定；不提供旧 SSE／stdio 或 OAuth，也不提供 OAuth 发现元数据。
+
+仅操作已保存文件，首轮支持浏览、按行读取、严格条件 diff 修改、新建、移动、回收恢复和搜索，不提供全文更新、上传或下载 MCP 工具，相关 REST 能力保留。工具选择、版本保护与安全行为见站点 `/api/v1/agent.md`（[源码](backend/internal/httpapi/AGENT.md)）。
+
+反向代理须转发 `/mcp` 与 `Authorization`，将 `FOLIO_ORIGIN` 设为精确的外部来源（如 `https://notes.example.com`）；客户端发送 `Origin` 时须与其匹配，不要通过移除或伪造 `Origin` 绕过校验。此 JSON 响应入口不依赖旧 MCP SSE 传输，浏览器事件通知仍需下文的 SSE 代理支持。
 
 ## 快速开始
 

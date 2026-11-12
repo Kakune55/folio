@@ -46,11 +46,15 @@ func writeError(w http.ResponseWriter, status int, code, message string, details
 	writeJSON(w, status, map[string]any{"error": map[string]any{"code": code, "message": message, "details": details}})
 }
 func storageError(w http.ResponseWriter, err error) {
+	status, code, message, details := storageFailure(err)
+	writeError(w, status, code, message, details)
+}
+
+func storageFailure(err error) (int, string, string, any) {
 	var problem *storage.Error
 	if !errors.As(err, &problem) {
 		log.Printf("文件操作失败：%v", err)
-		writeError(w, 500, "internal_error", "文件操作失败，草稿已保留，请检查服务日志和磁盘状态", nil)
-		return
+		return 500, "internal_error", "文件操作失败，草稿已保留，请检查服务日志和磁盘状态", nil
 	}
 	statuses := map[string]int{"already_restored": 409, "not_a_directory": 400, "trash_not_found": 404, "invalid_line_range": 400, "invalid_patch": 400, "patch_mismatch": 409, "patch_too_large": 413, "quota_exceeded": 413, "path_invalid": 400, "not_found": 404, "target_exists": 409, "forbidden": 403, "unsupported_file_type": 415, "too_large": 413, "revision_conflict": 412, "precondition_required": 428, "file_changed": 409, "durability_uncertain": 500, "preview_unavailable": 415, "operation_in_progress": 409, "trash_unavailable": 503, "trash_damaged": 422, "trash_failed": 500, "trash_incomplete": 500}
 	messages := map[string]string{"already_restored": "此回收记录已恢复，请刷新回收站并核对原路径", "not_a_directory": "路径指向文件，请选择目录", "trash_not_found": "回收记录不存在，可能已恢复或已清理，请刷新回收站", "invalid_line_range": "行读取范围不正确：起始行从 1 开始，行数须为 1–1000", "invalid_patch": "补丁格式、行数、顺序或文件头不正确，请核对单文件 unified diff", "patch_mismatch": "补丁的行号、上下文、删除内容或末尾换行与原文不匹配；未保存任何补丁内容", "patch_too_large": "补丁超过 1 MiB、20000 操作行、256 个块，或源/结果超过 200000 行", "quota_exceeded": "工作区配额不足，请清理回收站或联系管理员调整配额；草稿和待上传原件仍保留", "operation_in_progress": "文件正在上传，或目录包含未完成的临时/不支持条目，请稍后检查再操作", "trash_unavailable": "回收站尚未配置", "trash_damaged": "恢复记录或副本损坏，请保留记录并检查应用数据目录", "trash_failed": "操作未完成，原文件或恢复副本仍保留，请检查后重试", "trash_incomplete": "回收站操作未完成，恢复记录与隔离原件已保留，请打开回收站恢复或联系管理员检查", "path_invalid": "路径不安全或不受支持", "not_found": "文件或目录不存在", "target_exists": "同名文件或目录已存在", "forbidden": "没有操作权限", "unsupported_file_type": "仅支持普通 UTF-8 文本，拒绝特殊文件及硬链接", "too_large": "文件超过此类型的大小限制", "revision_conflict": "文件已被其他编辑器修改，请比较两个版本", "preview_unavailable": "此文件不支持安全预览或超过预览限制，请下载查看", "precondition_required": "保存必须携带读取时的版本", "file_changed": "读取或操作期间文件发生变化，请重试", "durability_uncertain": "操作可能已应用，但目录同步未完成；请保留草稿并刷新文件列表/回收站确认"}
@@ -65,7 +69,7 @@ func storageError(w http.ResponseWriter, err error) {
 	if problem.Revision != "" {
 		details = map[string]string{"currentRevision": problem.Revision}
 	}
-	writeError(w, status, problem.Code, messages[problem.Code], details)
+	return status, problem.Code, messages[problem.Code], details
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -198,6 +202,7 @@ func (a *api) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 func (a *api) register(mux *http.ServeMux) {
+	a.registerMCP(mux)
 	a.registerEvents(mux)
 	a.registerPatch(mux)
 	a.registerApplication(mux)

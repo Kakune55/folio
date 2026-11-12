@@ -191,14 +191,14 @@ func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 登录与静态文件使用公共路由；所有业务资源按服务端身份分派。
-	if !strings.HasPrefix(r.URL.Path, "/api/v1/public/") && strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz" {
+	if r.URL.Path == "/mcp" || (!strings.HasPrefix(r.URL.Path, "/api/v1/public/") && strings.HasPrefix(r.URL.Path, "/api/v1/") && r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/healthz") {
 		p, access, err := authenticateRequest(a.auth, r)
-		if access != nil && !authorizeToken(access, r) {
+		if access != nil && r.URL.Path != "/mcp" && !authorizeToken(access, r) {
 			w.Header().Set("Cache-Control", "no-store")
 			writeError(w, 403, "token_forbidden", "访问令牌没有此接口的权限", nil)
 			return
 		}
-		if err == nil {
+		if err == nil && (r.URL.Path != "/mcp" || access != nil) {
 			entry, err := a.get(p.ID)
 			if err != nil {
 				log.Printf("用户工作区打开失败：%v", err)

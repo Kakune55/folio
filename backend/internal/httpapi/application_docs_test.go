@@ -75,7 +75,7 @@ func TestOperationDocumentsMatchEmbeddedSource(t *testing.T) {
 	if len(applicationAgentGuide) > 5*1024 || len(applicationOperationDocuments.index) > len(applicationSpecification)/3 {
 		t.Fatal("渐进式入口体量过大", len(applicationAgentGuide), len(applicationOperationDocuments.index), len(applicationSpecification))
 	}
-	for _, required := range []string{"/operations/{operationId}", "If-Match", "412", "片段不能直接 PUT", "durability_uncertain", "数据", "凭据"} {
+	for _, required := range []string{"/mcp", "tools/list", "expectedRevision", "/operations/{operationId}", "If-Match", "412", "不能把片段当作全文覆盖", "durability_uncertain", "数据", "凭据"} {
 		if !strings.Contains(string(applicationAgentGuide), required) {
 			t.Fatal("精简指南丢失关键约定", required)
 		}

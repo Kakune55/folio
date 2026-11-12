@@ -3,6 +3,53 @@ import AxeBuilder from '@axe-core/playwright'
 import { mkdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
+test('MCP 指南提供当前站点地址、复制恢复与明暗手机布局', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  await page.getByRole('link', { name: '用户设置', exact: true }).click()
+  await page.getByRole('button', { name: '应用', exact: true }).click()
+  const mutations: string[] = []
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method())) mutations.push(request.url()) })
+  const trigger = page.getByRole('button', { name: 'MCP 指南', exact: true })
+  const endpoint = `${new URL(page.url()).origin}/mcp`
+  await expect(page.getByRole('link', { name: 'API 文档', exact: true })).toHaveAttribute('href', '/api-docs')
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 800 })
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+      await trigger.click()
+      const dialog = page.getByRole('dialog', { name: 'MCP 快速配置' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByLabel('MCP 连接地址')).toHaveValue(endpoint)
+      await expect(dialog).toContainText('Authorization: Bearer <Access Token>')
+      await expect(dialog).toContainText('初版不支持 OAuth')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      const box = await dialog.boundingBox()
+      expect(box && box.x >= 0 && box.x + box.width <= width).toBeTruthy()
+      expect((await new AxeBuilder({ page }).include('.mcp-guide').withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([])
+      await dialog.getByRole('button', { name: '复制 MCP 地址' }).click()
+      await expect(dialog.getByRole('status')).toHaveText('MCP 地址已复制。')
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(endpoint)
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+    }
+  }
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied') } } }))
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'MCP 快速配置' })
+  await dialog.getByRole('button', { name: '复制 MCP 地址' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('复制失败，请手动复制上方地址。')
+  await expect(dialog.getByLabel('MCP 连接地址')).toBeFocused()
+  expect(await dialog.getByLabel('MCP 连接地址').evaluate((input: HTMLInputElement) => input.selectionEnd! - input.selectionStart!)).toBe(endpoint.length)
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(trigger).toBeFocused()
+  expect(mutations).toEqual([])
+})
+
 test('八字节密码可创建、重置与自助改密，七字节不提交', async ({ page, browser }) => {
   await page.goto('/')
   await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')

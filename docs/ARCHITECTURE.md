@@ -85,4 +85,4 @@ Accounts 每次验证账号启用状态与 Cookie／Token，再分派本人资�
 
 公开 Markdown 用固定解析器生成清洗的只读产物，资源 URL 重写为白名单 ID；活动 HTML／SVG 不执行。Mermaid 限制配置与资源、串行渲染为隔离图片，不注入活动 SVG 或执行图内回调，错误保留旧图及提示。
 
-应用 OpenAPI 是字段与权限契约唯一来源；Agent 指南是精简启动说明，索引与单操作文档从 OpenAPI 静态派生，不读取用户资源或外部 schema。HTTP 参数层区分位置缺失与非法路径，不从 body／query 互相回退。私有浏览器及共享 HTTP 规则见 [API](API.md)，运维见 [README](../README.md#快速开始)。
+REST 应用 OpenAPI 是其字段与权限契约唯一来源；Agent 指南是精简启动说明，索引与单操作文档从 OpenAPI 静态派生，不读取用户资源或外部 schema。`/mcp` 使用官方 Go SDK，以请求级无状态 Streamable HTTP 适配同一存储、索引及变更通知逻辑；工具 Schema 由 Go 输入类型生成，每次请求重新验证 Bearer、工作区与现有路由权限，不跨请求保存身份。HTTP 参数层区分位置缺失与非法路径，不从 body／query 互相回退。私有浏览器及共享 HTTP 规则见 [API](API.md)，运维见 [README](../README.md#快速开始)。
