@@ -47,7 +47,7 @@ TanStack Query 管远端元数据，Zustand 管界面状态；正文不进入 Re
 
 同一文件的模式变化使用 `Compartment` 切换显示扩展，组件 key 不含模式，保留选区和撤销历史。内部 `rich`／`source` 值保留已有偏好，界面标签为“实时预览”／“源码”。换文件或真正接纳外部正文仍按 generation 重建，旧实例异步回调不能写入新代数。
 
-[live-preview.ts](../frontend/src/editors/codemirror/live-preview.ts) 基于语法树和可见范围装饰文本；[preview-blocks.ts](../frontend/src/editors/codemirror/preview-blocks.ts) 提供图片、Mermaid 与简单表格的只读块预览。任务勾选等显式操作使用原文事务；表格点击仅回到源码位置，不做富单元格编辑。解析和渲染工作有界，超预算降级显示源码，不以预览预算阻止文本编辑。
+[live-preview.ts](../frontend/src/editors/codemirror/live-preview.ts) 基于语法树和可见范围装饰文本；[preview-blocks.ts](../frontend/src/editors/codemirror/preview-blocks.ts) 提供图片、Mermaid 与简单表格的块预览。表格由 [table-widget.ts](../frontend/src/editors/codemirror/table-widget.ts) 在活动单元格内提供临时 CM6 编辑视图，每次输入经范围、结构及当前文档身份验证，以最小事务同步到外层原文；外层保有唯一保存缓冲与撤销历史，不从 DOM 重建表格。输入法候选沿用会话保存保护，外层撤销／重做可同步回单元格。交互与输入边界见[设计规范](DESIGN.md#保存与恢复)。解析和渲染工作有界，超预算降级显示源码，不以预览预算阻止文本编辑。
 
 资源仍通过 [bridge.ts](../frontend/src/editors/bridge.ts) 校验与授权，不将任意 URL 或 HTML 注入预览。上传保留原件恢复链，迟到结果核对会话、路径与代数；已上传但未插入时显示路径和恢复入口，不重复上传。
 

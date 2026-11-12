@@ -22,6 +22,7 @@ import { markdownPreviewBlocks } from './preview-blocks'
 import { codeBlockControls } from './code-blocks'
 import { createCodeLanguages } from './code-languages'
 import { TableControls } from './TableControls'
+import { focusTableCell, type TableWidgetOptions } from './table-widget'
 import { tableNavigation } from './tables'
 import { markdownCommands, markdownFormatKeymap } from './markdown-commands'
 import { Bold, Italic, Code, Link2, List, ListTodo, Quote } from 'lucide-react'
@@ -55,6 +56,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
   const preview = useRef(new Compartment()), editable = useRef(new Compartment())
   const displayedMode = useRef(session.mode)
   const codeControls = useRef<Extension>([])
+  const cellOptions = useRef<TableWidgetOptions>({})
   const isMarkdown = session.viewer === 'markdown'
   useEffect(() => {
     if (!session.externalUpdate) editorView.current?.dispatch({ effects: clearSourceChangeMarks.of() })
@@ -119,8 +121,19 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       }
       return true
     }
+    cellOptions.current = {
+      canEdit: canEditWidget,
+      canEditCell: () => canEdit() && !session.compositionInterrupted,
+      onBlocked,
+      onCellComposition: (active, view, interrupted) => {
+        if (!current()) return
+        if (active) { clearTimeout(compositionTimer); sessions.setComposing(path, true) }
+        else if (interrupted) { clearTimeout(compositionTimer); sessions.setComposing(path, false, true) }
+        else finishComposition(view)
+      },
+    }
     const rendering = () => [editorAttributes(isMarkdown && session.mode === 'rich'), ...(isMarkdown && session.mode === 'rich'
-      ? [markdownLivePreview({ canEdit: canEditWidget, onBlocked }), markdownPreviewBlocks({ bridge, canEdit: canEditWidget, onBlocked, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]
+      ? [markdownLivePreview({ canEdit: canEditWidget, onBlocked }), markdownPreviewBlocks({ ...cellOptions.current, bridge, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]
     displayedMode.current = session.mode
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
@@ -135,6 +148,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
           catch (error) { queueMicrotask(() => onBlocked?.(error instanceof Error ? error.message : '原始字节映射校验失败，未应用编辑。')); return [] }
         }),
         EditorView.domEventHandlers({
+          focus: (_event, view) => { queueMicrotask(() => { if (!disposed && view.hasFocus) focusTableCell(view) }) },
           compositionstart: () => { if (canEdit()) sessions.setComposing(path, true) },
           compositionend: (_event, view) => finishComposition(view),
           blur: (_event, view) => { if (session.composing) finishComposition(view) },
@@ -174,6 +188,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
             return handleFiles(event, view, event.dataTransfer?.files)
           } }),
         EditorView.updateListener.of((update) => {
+          if (update.selectionSet && update.view.hasFocus) queueMicrotask(() => { if (!disposed && update.view.hasFocus) focusTableCell(update.view) })
           if (update.docChanged || update.viewportChanged || update.selectionSet) update.view.dom.dispatchEvent(new Event('folio-navigation'))
           if (update.docChanged) {
             for (const [id, position] of uploads) uploads.set(id, update.changes.mapPos(position))
@@ -214,7 +229,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     displayedMode.current = session.mode
     const canEdit = () => !session.composing && !session.compositionInterrupted && !session.locked && !sessions.isLocked(session.path)
     view.dispatch({ effects: preview.current.reconfigure([editorAttributes(isMarkdown && session.mode === 'rich'), ...(isMarkdown && session.mode === 'rich'
-      ? [markdownLivePreview({ canEdit, onBlocked }), markdownPreviewBlocks({ bridge, canEdit, onBlocked, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]) })
+      ? [markdownLivePreview({ canEdit, onBlocked }), markdownPreviewBlocks({ ...cellOptions.current, bridge, revealTables: () => !!session.externalUpdate }), codeControls.current] : [])]) })
     view.requestMeasure()
   }, [session.mode, isMarkdown, session, sessions, bridge, onBlocked])
   useEffect(() => {

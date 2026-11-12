@@ -22,13 +22,13 @@ function decorations(state: EditorState) {
 afterEach(() => vi.unstubAllGlobals())
 describe('CM6 块预览', () => {
   const table = '前言\n\n| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 2 |\n\n末尾'
-  it('通过 StateField 提供表格 block decoration，进入任意选区恢复源码', () => {
+  it('单元格内选区保持表格，跨格或全文选区恢复源码', () => {
     let current = state(table)
     const [item] = decorations(current)
     expect(item.value.spec.block).toBe(true)
     expect(current.sliceDoc(item.from, item.to)).toContain('| 苹果 |')
     current = current.update({ selection: { anchor: table.indexOf('苹果') } }).state
-    expect(decorations(current)).toHaveLength(0)
+    expect(decorations(current)).toHaveLength(1)
     current = current.update({ selection: { anchor: 0, head: table.indexOf('末尾') } }).state
     expect(decorations(current)).toHaveLength(0)
     current = current.update({ selection: { anchor: 0 } }).state
@@ -36,15 +36,18 @@ describe('CM6 块预览', () => {
     expect(current.doc.toString()).toBe(table)
   })
   it('相同尺寸、不同内容或位置的表格不能错误复用', () => {
-    const first = decorations(state(table))[0].value.spec.widget
+    const current = state(table), first = decorations(current)[0].value.spec.widget
     const second = decorations(state(table.replace('苹果', '香蕉')))[0].value.spec.widget
     expect(first.eq(second)).toBe(false)
     const moved = decorations(state(`增加\n\n${table}`))[0].value.spec.widget
     expect(first.eq(moved)).toBe(false)
-    expect(first.eq(decorations(state(table))[0].value.spec.widget)).toBe(true)
+    expect(first.eq(decorations(current.update({ selection: { anchor: 1 } }).state)[0].value.spec.widget)).toBe(true)
+    const after = current.update({ changes: { from: current.doc.length, insert: '!' } }).state
+    expect(first.eq(decorations(after)[0].value.spec.widget)).toBe(false)
   })
-  it('复杂 cell、列数不齐和嵌套表格保守显示源码', () => {
-    for (const text of [table.replace('苹果', '**苹果**'), table.replace('苹果', '<img src=x>'), table.replace('| 苹果 | 2 |', '| 苹果 |'), table.split('\n').map(line => `> ${line}`).join('\n')]) expect(decorations(state(text))).toHaveLength(0)
+  it('行内 Markdown 与 HTML 显示为字面源码，列数不齐和嵌套表格保留源码', () => {
+    for (const text of [table.replace('苹果', '**苹果**'), table.replace('苹果', '<img src=x>')]) expect(decorations(state(text))).toHaveLength(1)
+    for (const text of [table.replace('| 苹果 | 2 |', '| 苹果 |'), table.split('\n').map(line => `> ${line}`).join('\n')]) expect(decorations(state(text))).toHaveLength(0)
   })
   it('图片及 Mermaid 附加在原文之后，不替换可编辑源码', () => {
     for (const doc of ['![说明](./a.png)', '```mermaid\nflowchart LR\nA-->B\n```']) {
@@ -82,24 +85,10 @@ describe('CM6 块预览', () => {
     expect(widget.alignments).toEqual(['left', 'right'])
     expect(current.doc.toString()).toBe(source)
   })
-  it('只读表格点击 cell 仅定位精确源码范围，不写正文', () => {
-    type Stub = { tagName: string; textContent: string; style: Record<string, string>; children: Stub[]; listeners: Record<string, (event: unknown) => void>; append: (...nodes: Stub[]) => void; addEventListener: (name: string, callback: (event: unknown) => void) => void }
-    const nodes: Stub[] = []
-    vi.stubGlobal('document', { createElement: (tagName: string) => {
-      const node: Stub = { tagName, textContent: '', style: {}, children: [], listeners: {}, append(...children) { this.children.push(...children) }, addEventListener(name, callback) { this.listeners[name] = callback } }
-      nodes.push(node)
-      return node
-    } })
+  it('只读表格仍保留预览且不改变正文', () => {
     const current = EditorState.create({ doc: table, extensions: [EditorState.readOnly.of(true), markdown({ extensions: [GFM] }), markdownPreviewBlocks({ canEdit: () => false })] })
-    const dispatch = vi.fn(), focus = vi.fn()
-    decorations(current)[0].value.spec.widget.toDOM({ dispatch, focus })
-    const cell = nodes.find(node => node.tagName === 'td' && node.textContent === '苹果')!
-    cell.listeners.click({})
-    expect(dispatch).toHaveBeenCalledWith({ selection: { anchor: table.indexOf('苹果'), head: table.indexOf('苹果') + 2 }, scrollIntoView: true })
-    expect(dispatch.mock.calls[0][0]).not.toHaveProperty('changes')
-    expect(focus).toHaveBeenCalledOnce()
+    expect(decorations(current)).toHaveLength(1)
     expect(current.doc.toString()).toBe(table)
-    expect(nodes.some(node => 'contentEditable' in node || 'innerHTML' in node)).toBe(false)
   })
   it('图片只使用 bridge 授权 URL；外部地址不能绕过，错误保持可见', () => {
     const elements: { tagName: string; children: unknown[]; textContent: string; src?: string; onerror?: () => void }[] = []

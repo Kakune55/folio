@@ -70,6 +70,55 @@ test('代码复制保留原始空白和混合换行，不包含围栏或文件BO
   expect(writes).toHaveLength(1)
 })
 
+test('JSON 语义与括号配色区分，明暗和手机代码选区不被底色遮住', async ({ page }) => {
+  const source = '```json\n{\n  "name": "John",\n  "items": [30, false, null]\n}\n```\n'
+  const { editor, read, writes, revision } = await prepare(page, source)
+  const token = (text: string) => editor.locator('.cm-line span').filter({ hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).last()
+  await expect(token('"name"')).toHaveCount(1)
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    const closeFiles = page.getByRole('button', { name: '关闭文件列表', exact: true })
+    if (width < 768) await closeFiles.click()
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
+      const colors = await Promise.all(['{', '[', '"name"', '"John"', '30', 'false'].map(text => token(text).evaluate(element => getComputedStyle(element).color)))
+      expect(new Set(colors).size).toBe(6)
+      await token('{').click(); await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight')
+      await expect(page.locator('.cm-matchingBracket')).toHaveCount(2)
+      await page.keyboard.press('ControlOrMeta+a')
+      const selection = page.locator('.cm-selectionBackground').first()
+      await expect(selection).toBeVisible()
+      const line = editor.locator('.folio-md-code-line').filter({ hasText: '"name"' })
+      const background = await line.evaluate(element => getComputedStyle(element).backgroundColor)
+      // 代码行在选区层之上，只能用透明底色，否则即使选区 DOM 存在也看不见。
+      expect(background).toMatch(/\/\s*0\.09\)/)
+      expect(await selection.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(background)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+  }
+  expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
+})
+
+test('同型括号按深度变色，配对颜色一致，模式切换保留彩虹与原文', async ({ page }) => {
+  const source = '```js\n((((1))))\n```\n'
+  const { editor, read, writes, revision } = await prepare(page, source)
+  for (const mode of ['实时预览', '源码']) {
+    await page.getByRole('button', { name: mode, exact: true }).click()
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate(value => document.documentElement.dataset.theme = value, theme)
+      const colors: string[] = []
+      for (let depth = 0; depth < 4; depth++) {
+        const pair = editor.locator(`.folio-rainbow-${depth}`)
+        await expect(pair).toHaveCount(2)
+        const computed = await pair.evaluateAll(elements => elements.map(element => getComputedStyle(element).color))
+        expect(computed[0]).toBe(computed[1]); colors.push(computed[0])
+      }
+      expect(new Set(colors).size).toBe(4)
+    }
+  }
+  expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
+})
+
 test('代码复制失败明确提示，手机控件可用且正文版本不变', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const source = '~~~go\npackage main\n~~~\n'

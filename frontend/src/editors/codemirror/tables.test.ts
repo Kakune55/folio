@@ -5,7 +5,7 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { GFM } from '@lezer/markdown'
 import { describe, expect, it, vi } from 'vitest'
 import { preserveLineEndings } from './line-endings'
-import { insertTableTransaction, tableAlignments, tableContext, tableNavigation, tableTransaction, type TableAction } from './tables'
+import { insertTableTransaction, tableAlignments, tableCellTransaction, tableContext, tableNavigation, tableSourceRows, tableTransaction, type TableAction } from './tables'
 
 vi.mock('@codemirror/language', async importOriginal => {
   const actual = await importOriginal<typeof import('@codemirror/language')>()
@@ -18,12 +18,12 @@ function editor(source: string, needle: string, readOnly = false) {
   return {
     get state() { return state },
     text: () => format.serialize(state),
-    apply(spec: TransactionSpec | { error: string } | { boundary: true } | undefined) {
+    apply(spec: TransactionSpec | { error: string } | { boundary: true } | undefined, userEvent = 'input.table') {
       expect(spec).toBeDefined()
       expect(spec).not.toHaveProperty('error')
       expect(spec).not.toHaveProperty('boundary')
       const transaction = state.update(spec as TransactionSpec)
-      expect(transaction.annotation(Transaction.userEvent)).toBe('input.table')
+      expect(transaction.annotation(Transaction.userEvent)).toBe(userEvent)
       state = transaction.state
     },
     select(needle: string, length = 0, reverse = false) {
@@ -35,6 +35,156 @@ function editor(source: string, needle: string, readOnly = false) {
   }
 }
 const source = 'before\n\n  | H  |Long| Z |\n  | :---- |---:| :-----: |\n  | a\\|b |`code`| [x](url) |\n  | d | e  |f|\n\nafter'
+
+describe('单元格直接编辑纯事务', () => {
+  for (const [text, offset, removed, insert] of [['abXYef', 2, 2, 'XY'], ['abcXYdef', 3, 0, 'XY'], ['abef', 2, 2, '']] as const) it(`表头编辑 ${text} 仅提交公共前后缀之间的最小 diff`, () => {
+    const original = '| abcdef | V |\n| --- | --- |\n| x | y |', view = editor(original, 'x')
+    const cell = tableSourceRows(view.state, 0)![0][0]
+    const spec = tableCellTransaction(view.state, cell.from, cell.to, text)
+    expect(spec).not.toHaveProperty('error')
+    const edits: unknown[] = []
+    view.state.changes((spec as TransactionSpec).changes).iterChanges((from, to, _fromB, _toB, inserted) => edits.push([from, to, inserted.toString()]))
+    expect(edits).toEqual([[cell.from + offset, cell.from + offset + removed, insert]])
+    view.apply(spec, 'input.type')
+    expect(view.text()).toBe(original.replace('abcdef', text))
+    expect(tableSourceRows(view.state, 0)![0][0]).toEqual({ from: cell.from, to: cell.from + text.length, text })
+  })
+
+  it('只修改差异字符，保留 BOM、混合 EOL、其他单元格与 padding，并可撤销重做', () => {
+    const original = '\ufeff前言\r\n\r\n  | H | V |\n  | --- | --- |\r  |  hello world   | a\\|b |\r\n\n尾部'
+    const view = editor(original, '前言'), state = view.state
+    const start = state.doc.toString().indexOf('  | H')
+    const cell = tableSourceRows(state, start)![1][0]
+    const spec = tableCellTransaction(state, cell.from, cell.to, 'hello WORLD')
+    expect(spec).not.toHaveProperty('error')
+    expect(view.state).toBe(state)
+    expect(view.text()).toBe(original)
+    const edits: unknown[] = []
+    state.changes((spec as TransactionSpec).changes).iterChanges((from, to, _fromB, _toB, insert) => edits.push([from, to, insert.toString()]))
+    expect(edits).toEqual([[cell.from + 6, cell.to, 'WORLD']])
+    view.apply(spec, 'input.type')
+    const expected = original.replace('hello world', 'hello WORLD')
+    expect(view.text()).toBe(expected)
+    expect(view.state.selection.main).toMatchObject({ from: cell.from, to: cell.from + 11 })
+    expect(tableSourceRows(view.state, start)![1][0]).toEqual({ from: cell.from, to: cell.from + 11, text: 'hello WORLD' })
+    expect(view.undo()).toBe(true); expect(view.text()).toBe(original); expect(view.state.selection).toEqual(state.selection)
+    expect(view.redo()).toBe(true); expect(view.text()).toBe(expected)
+  })
+
+  it('填入和清空空格单元格时保留原 padding 与精确范围', () => {
+    const original = '| H | V |\n| --- | --- |\n|    | z |'
+    const view = editor(original, 'H')
+    const cell = tableSourceRows(view.state, 0)![1][0]
+    expect(cell.from).toBe(cell.to)
+    view.apply(tableCellTransaction(view.state, cell.from, cell.to, 'a b'), 'input.type')
+    expect(view.text()).toBe(original.replace('|    |', '| a b   |'))
+    expect(tableSourceRows(view.state, 0)![1][0]).toEqual({ from: cell.from, to: cell.from + 3, text: 'a b' })
+    view.apply(tableCellTransaction(view.state, cell.from, cell.from + 3, ''), 'input.type')
+    expect(view.text()).toBe(original)
+    expect(view.state.selection.main).toMatchObject({ from: cell.from, to: cell.from })
+  })
+
+  it('清空后允许 trim 范围漂移，保留原 padding 并从本地范围继续输入', () => {
+    const original = '| H |\n| --- |\n|   value |'
+    const view = editor(original, 'value'), cell = tableSourceRows(view.state, 0)![1][0]
+    view.apply(tableCellTransaction(view.state, cell.from, cell.to, ''), 'input.type')
+    expect(view.text()).toBe(original.replace('value', ''))
+    expect(view.state.selection.main).toMatchObject({ from: cell.from, to: cell.from })
+    expect(tableSourceRows(view.state, 0)![1][0].from).not.toBe(cell.from)
+    view.apply(tableCellTransaction(view.state, cell.from, cell.from, 'next'), 'input.type')
+    expect(view.text()).toBe(original.replace('value', 'next'))
+  })
+
+  it('接受同格内覆盖完整内容的范围，拒绝部分内容和跨格范围，不依赖当前选区', () => {
+    const original = '| H | V |\n| --- | --- |\n| value | other |\n\n尾部'
+    const view = editor(original, '尾部'), cell = tableSourceRows(view.state, 0)![1][0]
+    for (const [from, to] of [[cell.from + 1, cell.to], [cell.from, cell.to - 1], [cell.from - 2, cell.to + 1], [cell.from, cell.from], [cell.from, cell.to + 5], [cell.to, cell.from], [-1, 0], [0, original.length + 1], [NaN, 1], [1.5, 2], [Infinity, Infinity], [original.indexOf('---'), original.indexOf('---') + 3], [original.indexOf('尾部'), original.length]]) {
+      expect(tableCellTransaction(view.state, from, to, 'new')).toHaveProperty('error')
+    }
+    view.apply(tableCellTransaction(view.state, cell.from, cell.to, 'new'), 'input.type')
+    expect(view.text()).toBe(original.replace('value', 'new'))
+    expect(tableCellTransaction(view.state, cell.from, cell.to, 'stale')).toHaveProperty('error')
+    const padded = editor(original, '尾部')
+    padded.apply(tableCellTransaction(padded.state, cell.from - 1, cell.to + 1, ' new '), 'input.type')
+    expect(padded.text()).toBe(original.replace('value', 'new'))
+    expect(padded.state.selection.main).toMatchObject({ from: cell.from - 1, to: cell.from + 4 })
+  })
+
+  for (const text of [' leading', 'trailing ', ' ', '  both  ', '']) it(`支持首尾空格和清空 ${JSON.stringify(text)}，选区跟踪完整输入范围`, () => {
+    const original = '| H |\n| --- |\n|  value   |', view = editor(original, 'value')
+    const cell = tableSourceRows(view.state, 0)![1][0]
+    view.apply(tableCellTransaction(view.state, cell.from, cell.to, text), 'input.type')
+    expect(view.text()).toBe(original.replace('value', text))
+    expect(view.state.selection.main).toMatchObject({ from: cell.from, to: cell.from + text.length })
+    view.apply(tableCellTransaction(view.state, cell.from, cell.from + text.length, 'next'), 'input.type')
+    expect(view.text()).toBe(original.replace('value', 'next'))
+  })
+
+  for (const initial of ['A', '   ']) it(`从 ${JSON.stringify(initial)} 逐键输入保留本地范围、padding 和撤销`, () => {
+    const original = `| H | V |\n| --- | --- |\n|  ${initial}   | other |`, view = editor(original, 'H')
+    const cell = tableSourceRows(view.state, 0)![1][0]
+    const from = initial.trim() ? cell.from : original.lastIndexOf('|  ') + 3
+    let to = from + initial.length
+    for (const text of initial.trim() ? ['A ', 'A B'] : ['    ', '  B ']) {
+      view.apply(tableCellTransaction(view.state, from, to, text), 'input.type')
+      to = from + text.length
+      expect(view.text()).toBe(original.slice(0, from) + text + original.slice(from + initial.length))
+      expect(view.state.selection.main).toMatchObject({ from, to })
+    }
+    const expected = view.text()
+    expect(view.undo()).toBe(true); expect(view.text()).toBe(original)
+    expect(view.redo()).toBe(true); expect(view.text()).toBe(expected)
+  })
+
+  for (const text of ['a\nb', 'a\rb', 'a\r\nb', 'a\tb', 'a|b', 'a\\|b', '`a|b`']) it(`拒绝非法输入 ${JSON.stringify(text)} 并提供源码入口`, () => {
+    const view = editor('| H |\n| --- |\n| value |', 'value'), state = view.state
+    const cell = tableSourceRows(state, 0)![1][0]
+    expect(tableCellTransaction(state, cell.from, cell.to, text)).toEqual({ error: expect.stringContaining('源码编辑') })
+    expect(view.state).toBe(state)
+    expect(view.text()).toBe('| H |\n| --- |\n| value |')
+  })
+
+  it('只读拒绝，连续输入使用 input.type 合并撤销且支持重做', () => {
+    const original = '| H |\n| --- |\n| a |'
+    const locked = editor(original, 'a', true), cell = tableSourceRows(locked.state, 0)![1][0]
+    expect(tableCellTransaction(locked.state, cell.from, cell.to, 'ab')).toEqual({ error: expect.stringContaining('只读') })
+    const view = editor(original, 'a'), selection = view.state.selection
+    for (const text of ['ab', 'abc', 'abcd']) {
+      const current = tableSourceRows(view.state, 0)![1][0]
+      view.apply(tableCellTransaction(view.state, current.from, current.to, text), 'input.type')
+    }
+    expect(view.text()).toBe(original.replace('| a |', '| abcd |'))
+    expect(view.undo()).toBe(true); expect(view.text()).toBe(original); expect(view.state.selection).toEqual(selection)
+    expect(view.undo()).toBe(false)
+    expect(view.redo()).toBe(true); expect(view.text()).toBe(original.replace('| a |', '| abcd |'))
+  })
+
+  for (const original of ['| A | B |\n| --- | --- |\n| ragged |', '> | A | B |\n> | --- | --- |\n> | x | y |', '- | A | B |\n  | --- | --- |\n  | x | y |', '```md\n| A | B |\n| --- | --- |\n| x | y |\n```', '| A | B |\n| --- | --- |\n| ' + 'x'.repeat(20001) + ' | y |', '| A | B |\n| --- | --- |\n' + '| x | y |\n'.repeat(251)]) it('拒绝 invalid、嵌套和超预算结构', () => {
+    const view = editor(original, 'A'), from = original.indexOf('A')
+    expect(tableCellTransaction(view.state, from, from + 1, 'new')).toHaveProperty('error')
+    expect(view.text()).toBe(original)
+  })
+
+  it('单表字符预算允许 20000，拒绝增加至 20001', () => {
+    const original = '| H |\n| --- |\n| x |', view = editor(original, 'x')
+    const cell = tableSourceRows(view.state, 0)![1][0]
+    expect(tableCellTransaction(view.state, cell.from, cell.to, 'x'.repeat(20002 - original.length))).toHaveProperty('error')
+    view.apply(tableCellTransaction(view.state, cell.from, cell.to, 'x'.repeat(20001 - original.length)), 'input.type')
+    expect(view.state.doc.length).toBe(20000)
+  })
+
+  it('末尾反斜线或空表头破坏结构时拒绝，未改变内容返回空 diff', () => {
+    const original = 'H | V\n--- | ---\nx|y', view = editor(original, 'x')
+    const cell = tableSourceRows(view.state, 0)![1][0]
+    expect(tableCellTransaction(view.state, cell.from, cell.to, 'x\\')).toHaveProperty('error')
+    const header = tableSourceRows(view.state, 0)![0][0]
+    expect(tableCellTransaction(view.state, header.from, header.to, '')).toHaveProperty('error')
+    const spec = tableCellTransaction(view.state, cell.from, cell.to, 'x')
+    expect(view.state.changes((spec as TransactionSpec).changes).empty).toBe(true)
+    view.apply(spec, 'input.type')
+    expect(view.text()).toBe(original)
+  })
+})
 
 describe('表格原文局部事务', () => {
   it('在混合换行的行后插入再删除新行，不把原行分隔符移给新行', () => {

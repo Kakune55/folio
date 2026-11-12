@@ -4,10 +4,11 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import type { SyntaxNode } from '@lezer/common'
 import type { EditorBridge } from '../bridge'
 import { createMermaidPreview } from '../mermaid-preview'
-import { tableAlignments, tableSourceRows } from './tables'
+import { tableAlignments, tableContext, tableSourceRows } from './tables'
+import { TableWidget, type TableWidgetOptions } from './table-widget'
 import './preview-blocks.css'
 
-type Options = { bridge?: EditorBridge; canEdit?: () => boolean; onBlocked?: (message: string) => void; revealTables?: () => boolean }
+type Options = TableWidgetOptions & { bridge?: EditorBridge; revealTables?: () => boolean }
 type Cell = { from: number; to: number; text: string }
 const composition = StateEffect.define<boolean>()
 const MAX_PARSE = 100000, MAX_NODES = 4000, MAX_TABLE = 20000
@@ -84,48 +85,11 @@ class ResourceWidget extends WidgetType {
   destroy(dom: HTMLElement) { widgetLives.get(dom)?.destroy(); widgetLives.delete(dom) }
 }
 
-class TableWidget extends WidgetType {
-  readonly rows: Cell[][]
-  readonly raw: string
-  readonly options: Options
-  readonly alignments: NonNullable<ReturnType<typeof tableAlignments>>
-  constructor(rows: Cell[][], raw: string, options: Options, alignments: NonNullable<ReturnType<typeof tableAlignments>>) { super(); this.rows = rows; this.raw = raw; this.options = options; this.alignments = alignments }
-  eq(other: TableWidget) { return this.raw === other.raw && JSON.stringify(this.rows) === JSON.stringify(other.rows) && this.options === other.options }
-  get estimatedHeight() { return this.rows.length * 38 + 16 }
-  toDOM(view: EditorView) {
-    const root = document.createElement('div'), table = document.createElement('table')
-    root.className = 'folio-preview-table'
-    for (const [index, row] of this.rows.entries()) {
-      const tr = document.createElement('tr')
-      for (const [column, cell] of row.entries()) {
-        const td = document.createElement(index === 0 ? 'th' : 'td')
-        td.textContent = cell.text
-        if (!cell.text) td.setAttribute('aria-label', index === 0 ? `第 ${column + 1} 列` : `第 ${index} 行，第 ${column + 1} 列，空单元格`)
-        td.style.textAlign = this.alignments[column] === 'none' ? 'left' : this.alignments[column] ?? 'left'
-        td.tabIndex = 0
-        const focus = () => {
-          if (view.composing || view.compositionStarted) { this.options.onBlocked?.('请先确认或取消输入法候选，再定位表格源码。'); return }
-          // 只读也允许定位源码；此处不发出 changes，不触碰正文或撤销历史。
-          view.dispatch({ selection: { anchor: cell.from, head: cell.to }, scrollIntoView: true })
-          view.focus()
-        }
-        td.addEventListener('mousedown', event => event.preventDefault())
-        td.addEventListener('click', focus)
-        td.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focus() } })
-        tr.append(td)
-      }
-      table.append(tr)
-    }
-    root.append(table)
-    return root
-  }
-}
-
 function tableRows(state: EditorState, node: SyntaxNode): Cell[][] | undefined {
   if (node.to - node.from > MAX_TABLE) return
   const rows = tableSourceRows(state, node.from)
-  // 与工具共用源码分段；空单元格可预览，复杂行内格式仍留在源码中。
-  return rows?.some(row => row.some(cell => /[\\`*_[\]<>!&]/.test(cell.text))) ? undefined : rows
+  // 单元格显示原文字面量，不执行 HTML，也不把行内 Markdown 重序列化。
+  return rows
 }
 
 function blocks(state: EditorState, options: Options): DecorationSet {
@@ -139,11 +103,9 @@ function blocks(state: EditorState, options: Options): DecorationSet {
     if (node.name === 'Table') {
       if (node.parent?.name !== 'Document') return false
       if (options.revealTables?.()) return false
-      const selected = state.selection.ranges.some(range => range.from <= node.to && range.to >= node.from)
-      if (!selected) {
-        const rows = tableRows(state, node)
-        if (rows) ranges.push(Decoration.replace({ block: true, widget: new TableWidget(rows, state.sliceDoc(node.from, node.to), options, tableAlignments(state, node.from) ?? []) }).range(node.from, node.to))
-      }
+      const rows = tableRows(state, node)
+      const selected = state.selection.ranges.some(range => !range.empty && range.from <= node.to && range.to >= node.from && !(state.selection.ranges.length === 1 && tableContext(state)))
+      if (rows && !selected) ranges.push(Decoration.replace({ block: true, widget: new TableWidget(rows, state.sliceDoc(node.from, node.to), options, tableAlignments(state, node.from) ?? [], state.doc) }).range(node.from, node.to))
       return false
     }
     if (node.name === 'FencedCode') {

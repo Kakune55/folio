@@ -14,7 +14,8 @@
 .folio-md-list-line { padding-inline-start: 0.5em !important; }
 .folio-md-code-line, .folio-md-inline-code {
   font-family: var(--font-code);
-  background: color-mix(in srgb, var(--muted-foreground) 9%, var(--background));
+  /* CM6 选区绘制在文字下方，底色须透明，避免遮住选择范围。 */
+  background: color-mix(in srgb, var(--muted-foreground) 9%, transparent);
 }
 .folio-md-code-line { color: var(--foreground); }
 .folio-md-inline-code { border-radius: 3px; }

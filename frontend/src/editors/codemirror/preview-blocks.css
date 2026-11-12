@@ -13,3 +13,9 @@
 .folio-preview-table th, .folio-preview-table td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; white-space: pre-wrap; min-width: 64px; }
 .folio-preview-table th { background: var(--sidebar); font-weight: 600; }
 .folio-preview-table :is(th, td):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.folio-preview-table .folio-table-active { padding: 0; outline: 2px solid var(--accent); outline-offset: -2px; }
+.source-host .folio-table-active .cm-editor { height: auto; min-width: 64px; background: transparent; font: inherit; }
+.source-host .folio-table-active .cm-content { padding: 6px 0; margin: 0; width: 100%; min-width: 2ch; font: inherit; }
+.source-host .folio-table-active .cm-line { padding: 0 12px; }
+.source-host .folio-table-active .cm-scroller { font: inherit; overflow: visible; }
+@media (max-width: 767px) { .folio-preview-table :is(th, td) { min-height: 40px; height: 40px; } }

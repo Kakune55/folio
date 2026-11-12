@@ -124,6 +124,31 @@ export function tableSourceRows(state: EditorState, from: number): { from: numbe
   return table.rows.map(row => row.cells.map(cell => ({ from: cell.from, to: cell.to, text: state.sliceDoc(cell.from, cell.to) })))
 }
 
+export function tableCellTransaction(state: EditorState, from: number, to: number, text: string): TransactionSpec | { error: string } {
+  if (state.readOnly) return readonly()
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > state.doc.length) return unsupported()
+  if (/[\n\r\t|]/.test(text)) return { error: '单元格直接编辑不支持换行、制表符或管线，请使用源码编辑。' }
+  const table = locate(state, from, true)
+  if (!table || 'error' in table) return unsupported()
+  const contains = (cell: Cell) => from >= cell.start && to <= cell.end && (cell.from === cell.to || from <= cell.from && to >= cell.to)
+  const row = table.rows.findIndex(row => row.cells.some(contains))
+  if (row < 0) return unsupported()
+  const column = table.rows[row].cells.findIndex(contains)
+  const original = state.sliceDoc(from, to), delta = text.length - original.length
+  if (table.to - table.from + delta > 20000) return unsupported()
+  let prefix = 0, suffix = 0
+  while (prefix < original.length && prefix < text.length && original[prefix] === text[prefix]) prefix++
+  while (suffix < original.length - prefix && suffix < text.length - prefix && original[original.length - suffix - 1] === text[text.length - suffix - 1]) suffix++
+  const changes = state.changes(original === text ? [] : { from: from + prefix, to: to - suffix, insert: text.slice(prefix, text.length - suffix) })
+  const spec: TransactionSpec = { changes, selection: { anchor: from, head: from + text.length }, userEvent: 'input.type', scrollIntoView: true }
+  // 删除内容或末尾反斜线可能改变 Markdown 边界；不猜测修复 padding 或管线。
+  const updated = locate(state.update({ ...spec, filter: false }).state, from, true)
+  if (!updated || 'error' in updated || updated.from !== table.from || updated.to !== table.to + delta || updated.rows.length !== table.rows.length || updated.delimiter.cells.length !== table.delimiter.cells.length) return unsupported()
+  const cell = updated.rows[row].cells[column]
+  if (from < cell.start || from + text.length > cell.end || cell.from !== cell.to && (from > cell.from || from + text.length < cell.to)) return unsupported()
+  return spec
+}
+
 function transaction(state: EditorState, edits: { from: number; to?: number; insert?: string }[], cell: { from: number; to: number }, inserted?: { at: number; offset: number; length?: number }): TransactionSpec {
   const changes = ChangeSet.of(edits, state.doc.length)
   const anchor = inserted ? changes.mapPos(inserted.at, -1) + inserted.offset : changes.mapPos(cell.from, 1)
