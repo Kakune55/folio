@@ -11,6 +11,9 @@
 .folio-md-heading-1, .folio-md-heading-2, .folio-md-heading-3,
 .folio-md-heading-4, .folio-md-heading-5, .folio-md-heading-6 { line-height: 1.7; }
 .folio-md-quote-line { border-left: 2px solid var(--border); color: var(--muted-foreground); }
+.folio-md-rule-line { position: relative; }
+.folio-md-rule { display: inline-block; width: 1px; height: 1em; vertical-align: middle; }
+.folio-md-rule::after { content: ''; position: absolute; inset-inline: 16px; top: 50%; border-top: 1px solid var(--muted-foreground); pointer-events: none; }
 .folio-md-list-line { padding-inline-start: 0.5em !important; }
 .folio-md-code-line, .folio-md-inline-code {
   font-family: var(--font-code);

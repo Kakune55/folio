@@ -2,6 +2,7 @@ import { syntaxTree } from '@codemirror/language'
 import { EditorState, type Extension, type Range, type TransactionSpec } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
+import { markdownLinkTarget, markdownReferences } from './links'
 import './live-preview.css'
 
 type PreviewOptions = { canEdit?: () => boolean; onBlocked?: (message: string) => void }
@@ -51,6 +52,37 @@ class TaskCheckbox extends WidgetType {
   }
 }
 
+class HorizontalRule extends WidgetType {
+  eq(other: WidgetType) { return other instanceof HorizontalRule }
+  ignoreEvent() { return false }
+  toDOM() {
+    const line = document.createElement('span')
+    line.className = 'folio-md-rule'
+    line.setAttribute('role', 'separator')
+    line.setAttribute('aria-label', '分割线')
+    return line
+  }
+}
+
+class EntityText extends WidgetType {
+  readonly source: string
+  constructor(source: string) { super(); this.source = source }
+  eq(other: EntityText) { return this.source === other.source }
+  ignoreEvent() { return false }
+  toDOM() {
+    const span = document.createElement('span')
+    span.className = 'folio-md-entity'
+    // 输入限定为单个实体，不接受标签；解码结果只通过 textContent 显示。
+    if (/^&(?:#[0-9]{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]+);$/i.test(this.source)) {
+      // 属性上下文不会把未知 &notreal; 按无分号的 &not 前缀部分解码。
+      const text = document.createElement('template')
+      text.innerHTML = `<span data-value="${this.source}"></span>`
+      span.textContent = text.content.firstElementChild?.getAttribute('data-value') ?? this.source
+    } else span.textContent = this.source
+    return span
+  }
+}
+
 const inlineClasses: Record<string, string> = {
   Emphasis: 'emphasis', StrongEmphasis: 'strong', InlineCode: 'inline-code', Strikethrough: 'strike', Link: 'link',
 }
@@ -60,6 +92,7 @@ export function livePreviewDecorations(state: EditorState, visible: readonly Sou
   const ranges: Range<Decoration>[] = []
   const seen = new Set<string>()
   const tree = syntaxTree(state)
+  let references: ReadonlyMap<string, string> | undefined
   let budget = 6000
   const deadline = performance.now() + 12
   const add = (decoration: Decoration, from: number, to = from) => {
@@ -102,13 +135,33 @@ export function livePreviewDecorations(state: EditorState, visible: readonly Sou
     }
     if (name === 'Blockquote') lines(node, 'quote-line', viewport)
     if (name === 'ListItem') lines(node, 'list-line', viewport)
-    const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(name)
-    if (heading) lines(node, `heading-${heading[1]}`, viewport)
+    if (name === 'HorizontalRule' && !active(node)) {
+      lines(node, 'rule-line', viewport)
+      add(Decoration.replace({ widget: new HorizontalRule() }), node.from, node.to)
+      return false
+    }
+    const heading = /^(ATX|Setext)Heading([1-6])$/.exec(name)
+    if (heading) {
+      const underline = heading[1] === 'Setext' ? node.getChildren('HeaderMark').at(-1) : undefined
+      lines(underline ? { from: node.from, to: Math.max(node.from, state.doc.lineAt(underline.from).from - 1) } : node, `heading-${heading[2]}`, viewport)
+    }
     const key = `${node.from}:${node.to}:${name}`
     if (seen.has(key)) return true
     seen.add(key)
-    const inlineClass = inlineClasses[name]
+    const bareURL = name === 'URL' && !['Link', 'Image', 'Autolink', 'LinkReference'].includes(node.parent?.name ?? '')
+    if (['LinkReference', 'LinkLabel', 'LinkTitle'].includes(name) || name === 'URL' && !bareURL) return false
+    let inlineClass = inlineClasses[name]
+    if (name === 'Link') {
+      references ??= markdownReferences(state)
+      if (markdownLinkTarget(state, node, references) === undefined) inlineClass = ''
+    } else if (name === 'Autolink' || bareURL) inlineClass = 'link'
     if (inlineClass) add(Decoration.mark({ class: `folio-md-${inlineClass}` }), node.from, node.to)
+    if (!active(node)) {
+      if (name === 'Escape') hide(node.from, node.from + 1)
+      if (name === 'HardBreak') hide(node.from, Math.min(node.to, state.doc.lineAt(node.from).to))
+      if (name === 'Entity') add(Decoration.replace({ widget: new EntityText(state.sliceDoc(node.from, node.to)) }), node.from, node.to)
+      if (name === 'Autolink') for (const mark of node.getChildren('LinkMark')) hide(mark.from, mark.to)
+    }
     if (name === 'TaskMarker' && !active(node)) {
       const disabled = state.readOnly || !state.facet(EditorView.editable) || options.canEdit?.() === false
       add(Decoration.replace({ widget: new TaskCheckbox(state.sliceDoc(node.from + 1, node.from + 2) !== ' ', options, disabled) }), node.from, node.to)

@@ -6,6 +6,7 @@ import type { EditorBridge } from '../bridge'
 import { createMermaidPreview } from '../mermaid-preview'
 import { tableAlignments, tableContext, tableSourceRows } from './tables'
 import { TableWidget, type TableWidgetOptions } from './table-widget'
+import { decodeMarkdownTarget } from './links'
 import './preview-blocks.css'
 
 type Options = TableWidgetOptions & { bridge?: EditorBridge; revealTables?: () => boolean }
@@ -121,7 +122,7 @@ function blocks(state: EditorState, options: Options): DecorationSet {
       if (url) {
         const closing = node.getChildren('LinkMark').find(mark => state.sliceDoc(mark.from, mark.to) === ']')
         const alt = state.sliceDoc(node.from + 2, closing?.from ?? node.from + 2).replace(/\\([\\[\]])/g, '$1')
-        ranges.push(Decoration.widget({ block: true, side: 1, widget: new ResourceWidget('image', state.sliceDoc(url.from, url.to).replace(/^<(.*)>$/, '$1'), alt, options) }).range(state.doc.lineAt(node.to).to))
+        ranges.push(Decoration.widget({ block: true, side: 1, widget: new ResourceWidget('image', decodeMarkdownTarget(state.sliceDoc(url.from, url.to)), alt, options) }).range(state.doc.lineAt(node.to).to))
       }
       return false
     }

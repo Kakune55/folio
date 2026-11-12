@@ -64,6 +64,12 @@ describe('CM6 块预览', () => {
     expect(item.from).toBe(inline.length)
     expect(item.value.spec.widget.label).toBe('a]b')
   })
+  it('图片地址解码 Markdown 转义与实体后仍交给资源桥接', () => {
+    for (const [source, target] of [['![图](./a\\(b\\).png)', './a(b).png'], ['![图](./a&amp;b.png)', './a&b.png']]) {
+      const [item] = decorations(state(source))
+      expect(item.value.spec.widget.source).toBe(target)
+    }
+  })
   it('远程差异待确认时表格保留源码行，清理效果不触碰正文', () => {
     let reveal = false
     const refresh = StateEffect.define<void>()
