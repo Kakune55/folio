@@ -19,6 +19,37 @@ const widgets = (state: EditorState) => {
 }
 
 describe('公式原文预览', () => {
+  it('矩阵等号行和 LaTeX 反斜杠完整交给 KaTeX，不先转成 Markdown', async () => {
+    const source = String.raw`\begin{pmatrix} a & b \\ c & d \end{pmatrix}
+\begin{pmatrix} x \\ y \end{pmatrix}
+=
+\begin{pmatrix} ax+by \\ cx+dy \end{pmatrix}`
+    const doc = `光标\n\n$$\n${source}\n$$\n\n尾部`
+    const result = widgets(stateFor(doc))
+    expect(result).toHaveLength(1)
+    expect(result[0].source).toBe(source)
+    expect(result[0].display).toBe(true)
+    expect(doc.slice(result[0].from, result[0].to)).toBe(`$$\n${source}\n$$`)
+    const html = await createMathRenderer().render(result[0].source, true)
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('<mtable')
+  })
+
+  it('保留 CodeMirror Markdown 包裹解析器时补闭合与撤回均重新识别', () => {
+    const body = 'x+y\n=\n' + 'x+'.repeat(200) + 'y'
+    const doc = '前文\n\n'.repeat(80) + `$$\n${body}\n\n尾部`
+    const before = stateFor(doc)
+    expect(widgets(before)).toEqual([])
+    const from = doc.lastIndexOf('\n\n尾部') + 1
+    const after = before.update({ changes: { from, insert: '$$\n' }, selection: { anchor: 0 } }).state
+    ensureSyntaxTree(after, after.doc.length, 100)
+    expect(widgets(after).map(widget => widget.source)).toEqual([body])
+    const restored = after.update({ changes: { from, to: from + 3 } }).state
+    ensureSyntaxTree(restored, restored.doc.length, 100)
+    expect(widgets(restored)).toEqual([])
+    expect(restored.doc.toString()).toBe(doc)
+  })
+
   it('仅装饰公式并保留金额、转义和混合上下文', () => {
     const doc = '光标\n\n价格 $5 和 $10，成对金额 $20$。\n\n公式 $E=mc^2$。\n\n$$\n\\frac{a}{b}\n$$\n\n尾部'
     const state = stateFor(doc), result = widgets(state)

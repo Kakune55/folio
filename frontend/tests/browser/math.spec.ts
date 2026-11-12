@@ -43,6 +43,49 @@ test('行内及独立LaTeX公式渲染，普通金额与转义美元保持原样
   expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
 })
 
+test('截图中的 sigmoid、softmax、矩阵等号与损失公式保留原始 LaTeX 渲染且零写入', async ({ page }) => {
+  const softmax = String.raw`\mathrm{softmax}(z_i) = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}`
+  const matrix = String.raw`\begin{pmatrix} a & b \\ c & d \end{pmatrix}
+\begin{pmatrix} x \\ y \end{pmatrix}
+=
+\begin{pmatrix} ax+by \\ cx+dy \end{pmatrix}`
+  const loss = String.raw`\mathcal{L}(\theta) = -\frac{1}{N}\sum_{i=1}^{N}\log p_\theta(y_i \mid x_i), \qquad \theta \in \Theta`
+  const source = '\ufeff光标\r\n\r\n## 4. 数学公式\n\n'
+    + String.raw`行内公式：当 $x > 0$ 时，$\sigma(x) = 1/(1+e^{-x})$ 收敛到 1。` + '\n\n'
+    + '金额不应该识别成公式：单价 $5 与总价 $10 之间不应该出现任何渲染；美元符号$100 也不该。\n\n'
+    + `$$\r\n${softmax}\r\n$$\n\n$$\n${matrix}\n$$\n\n$$\n${loss}\n$$\n\n尾部。`
+  const { editor, read, writes, revision } = await prepare(page, source)
+  await expect(page.locator('.folio-math-preview[data-state="ready"]')).toHaveCount(5)
+  await expect(page.locator('.folio-math-display')).toHaveCount(3)
+  await expect(page.locator('.folio-math-preview[data-state="error"]')).toHaveCount(0)
+  expect(await page.locator('.folio-math-display annotation[encoding="application/x-tex"]').allTextContents()).toEqual([softmax, matrix, loss])
+  await expect(editor.locator('.folio-md-heading-1')).toHaveCount(0)
+  const money = editor.locator('.cm-line').filter({ hasText: '金额不应该' })
+  await expect(money).toContainText('单价 $5 与总价 $10')
+  await expect(money.locator('.folio-math-preview')).toHaveCount(0)
+  expect(await read()).toEqual({ content: source, revision })
+  expect(writes).toEqual([])
+})
+
+test('补齐未闭合矩阵等号块时增量解析重新识别公式，撤销仍恢复原文', async ({ page }) => {
+  const source = '光标\n\n' + '前文段落。\n\n'.repeat(40) + '$$\nx+y\n=\n' + Array.from({ length: 100 }, (_, i) => `x_{${i}}`).join('+') + '\n\n尾部。'
+  const { editor, read, revision } = await prepare(page, source)
+  await expect(page.locator('.folio-math-display')).toHaveCount(0)
+  expect(await read()).toEqual({ content: source, revision })
+  await editor.focus()
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Home')
+  await page.keyboard.insertText('$$\n')
+  await page.keyboard.press('ControlOrMeta+End')
+  await expect(page.locator('.folio-math-display[data-state="ready"]')).toHaveCount(1)
+  await expect.poll(async () => (await read()).content).toBe(source.replace('\n\n尾部。', () => '\n$$\n\n尾部。'))
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator('.folio-math-display')).toHaveCount(0)
+  await expect.poll(async () => (await read()).content).toBe(source)
+})
+
 test('点击公式编辑原文，模式切换保留同View、混合换行和撤销历史', async ({ page }) => {
   const source = '\ufeff光标\r\n\r\n$x^2$\n\n$$\rx+y\r$$\n\n尾部。'
   const { editor, read, writes, revision } = await prepare(page, source)
