@@ -8,16 +8,23 @@ async function openDiagram(page: Page, body: string) {
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
   const me = await (await page.request.get('/api/v1/auth/me')).json()
   const path = `图表-${Date.now()}.md`, headers = { 'X-CSRF-Token': me.csrfToken }
-  expect((await page.request.post('/api/v1/files', { headers, data: { path, content: body } })).status()).toBe(201)
+  const created = await page.request.post('/api/v1/files', { headers, data: { path, content: body } })
+  expect(created.status()).toBe(201)
+  const revision: string = (await created.json()).revision
   await page.getByRole('button', { name: '刷新文件列表' }).click()
   await page.getByRole('button', { name: path, exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })).toBeVisible()
-  return { path, read: async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(path)}`)).json()).content }
+  return { path, revision, read: async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(path)}`)).json()).content,
+    readRevision: async () => (await (await page.request.get(`/api/v1/files/content?path=${encodeURIComponent(path)}`)).json()).revision as string }
 }
 
 async function editDiagram(page: Page, index: number, body: string) {
   const lines = page.locator('.cm-content .cm-line')
-  const text = await lines.allTextContents()
+  const text = await lines.evaluateAll(elements => elements.map(element => {
+    const copy = element.cloneNode(true) as HTMLElement
+    copy.querySelectorAll('.folio-code-tools').forEach(tool => tool.remove())
+    return copy.textContent
+  }))
   const start = text.flatMap((line, index) => line === '```mermaid' ? [index] : [])[index]
   const end = text.findIndex((line, position) => position > start && line === '```')
   expect(start).toBeDefined(); expect(end).toBeGreaterThan(start + 1)
@@ -149,4 +156,48 @@ test('连续输入防抖只渲染最终代码，等待期间保留原图且各�
   await expect(first).toContainText('Mermaid 渲染失败')
   await expect(first.locator('img')).toHaveAttribute('alt', /上次成功/)
   await expect.poll(async () => decodeURIComponent(await first.locator('img').getAttribute('src') ?? '')).toContain('最终结果')
+})
+
+test('长文滚动销毁图表控件后返回命中缓存，不重复渲染或闪加载状态', async ({ page }) => {
+  const original = '```mermaid\nflowchart LR\nA[缓存图表]-->B[返回]\n```\n\n' + '正文段落。\n\n'.repeat(1000)
+  const { read, readRevision, revision } = await openDiagram(page, original)
+  const preview = page.locator('.mermaid-preview')
+  await expect(preview).toHaveAttribute('data-state', 'ready')
+  const initial = await preview.locator('img').getAttribute('src')
+  const savedStatus = await page.locator('.save-status').textContent()
+  const writes: string[] = []
+  page.on('request', request => { if (request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/files/content') writes.push(request.postDataJSON().content) })
+  await page.evaluate(() => {
+    const result = { renders: 0, pending: 0 }
+    Object.assign(window, { mermaidCacheProbe: result })
+    new MutationObserver(records => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue
+        if (node.id.startsWith('dfolio-mermaid-')) result.renders++
+        for (const host of [node, ...node.querySelectorAll('.mermaid-preview')]) {
+          if (host.matches('.mermaid-preview') && host.getAttribute('data-state') !== 'ready') result.pending++
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  for (let iteration = 0; iteration < 2; iteration++) {
+    const previous = await preview.elementHandle()
+    await page.locator('.source-host > .cm-editor > .cm-scroller').evaluate(element => element.scrollTop = element.scrollHeight)
+    await expect.poll(() => previous!.evaluate(element => element.isConnected)).toBe(false)
+    await page.locator('.source-host > .cm-editor > .cm-scroller').evaluate(element => element.scrollTop = 0)
+    await expect(preview).toHaveAttribute('data-state', 'ready')
+    await expect(preview.locator('img')).toHaveAttribute('src', initial!)
+  }
+  await page.waitForTimeout(800) // 超过 600ms 渲染防抖窗口，确保没有偷偷排队重画。
+  expect(await page.evaluate(() => (window as unknown as { mermaidCacheProbe: { renders: number; pending: number } }).mermaidCacheProbe)).toEqual({ renders: 0, pending: 0 })
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark')
+  await expect(preview.locator('img')).toHaveAttribute('data-theme', 'dark')
+  const afterDark = await page.evaluate(() => (window as unknown as { mermaidCacheProbe: { renders: number } }).mermaidCacheProbe.renders)
+  expect(afterDark).toBe(1)
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light')
+  await expect(preview.locator('img')).toHaveAttribute('src', initial!)
+  expect(await page.evaluate(() => (window as unknown as { mermaidCacheProbe: { renders: number } }).mermaidCacheProbe.renders)).toBe(afterDark)
+  expect(await read()).toBe(original); expect(writes).toEqual([])
+  expect(await readRevision()).toBe(revision)
+  await expect(page.locator('.save-status')).toHaveText(savedStatus!)
 })

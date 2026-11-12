@@ -3,13 +3,13 @@ import { EditorState, StateEffect, StateField, type Extension, type Range } from
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import type { EditorBridge } from '../bridge'
-import { createMermaidPreview } from '../mermaid-preview'
+import { createMermaidCache, createMermaidPreview, type MermaidCache } from '../mermaid-preview'
 import { tableAlignments, tableContext, tableSourceRows } from './tables'
 import { TableWidget, type TableWidgetOptions } from './table-widget'
 import { decodeMarkdownTarget } from './links'
 import './preview-blocks.css'
 
-type Options = TableWidgetOptions & { bridge?: EditorBridge; revealTables?: () => boolean }
+type Options = TableWidgetOptions & { bridge?: EditorBridge; revealTables?: () => boolean; mermaidCache?: MermaidCache }
 type Cell = { from: number; to: number; text: string }
 const composition = StateEffect.define<boolean>()
 const MAX_PARSE = 100000, MAX_NODES = 4000, MAX_TABLE = 20000
@@ -35,11 +35,11 @@ class ResourceWidget extends WidgetType {
     const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
     resize?.observe(root)
     if (this.kind === 'mermaid') {
-      const preview = createMermaidPreview(root)
+      const preview = createMermaidPreview(root, this.options.mermaidCache)
       const render = (source: string) => {
         const oldImage = root.querySelector('img')
         const host = preview.render('mermaid', source)!
-        if (oldImage) {
+        if (oldImage && host.dataset.state !== 'ready') {
           const status = document.createElement('span')
           status.className = 'mermaid-status'; status.textContent = '图表待更新（显示上次结果）'
           host.replaceChildren(oldImage, status)
@@ -131,13 +131,14 @@ function blocks(state: EditorState, options: Options): DecorationSet {
 }
 
 export function markdownPreviewBlocks(options: Options): Extension {
+  const previewOptions = { ...options, mermaidCache: options.mermaidCache ?? createMermaidCache() }
   const field = StateField.define<{ decorations: DecorationSet; composing: boolean }>({
-    create: state => ({ decorations: blocks(state, options), composing: false }),
+    create: state => ({ decorations: blocks(state, previewOptions), composing: false }),
     update(value, transaction) {
       let composing = value.composing
       for (const effect of transaction.effects) if (effect.is(composition)) composing = effect.value
       if (composing) return { composing, decorations: value.decorations.map(transaction.changes) }
-      if (transaction.docChanged || transaction.selection || transaction.effects.length || composing !== value.composing || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)) return { composing, decorations: blocks(transaction.state, options) }
+      if (transaction.docChanged || transaction.selection || transaction.effects.length || composing !== value.composing || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)) return { composing, decorations: blocks(transaction.state, previewOptions) }
       return value
     },
     provide: field => EditorView.decorations.from(field, value => value.decorations),
