@@ -58,15 +58,45 @@ class ResourceWidget extends WidgetType {
         // URL 的授权与工作区边界由 bridge 处理，绝不回退到 Markdown href。
         const url = this.options.bridge.imageURL(this.source)
         if (!url) throw new Error('图片地址不可用，源码已保留。')
-        const image = document.createElement('img')
+        const image = document.createElement('img'), trigger = document.createElement('button'), retry = document.createElement('button')
+        trigger.type = 'button'; trigger.className = 'image-open'; trigger.disabled = true
+        trigger.setAttribute('aria-label', `放大图片：${this.label || '图片'}`)
+        retry.type = 'button'; retry.className = 'button button-outline'; retry.textContent = '重试图片'; retry.hidden = true
         image.alt = this.label
-        image.onload = measure
-        image.onerror = () => { if (active) { status.textContent = '图片加载失败，源码已保留。'; measure() } }
-        image.src = url
-        root.append(image)
-        root.addEventListener('click', event => {
-          if (event.ctrlKey || event.metaKey) { event.preventDefault(); this.options.bridge?.openLink(this.source) }
+        status.setAttribute('role', 'status'); status.textContent = '正在加载图片…'
+        image.onload = () => {
+          if (!active) return
+          image.hidden = false; trigger.disabled = !this.options.bridge?.previewImage; retry.hidden = true
+          status.setAttribute('role', 'status'); status.textContent = `${image.naturalWidth} × ${image.naturalHeight} 像素`
+          measure()
+        }
+        const fail = (message: string) => {
+          if (!active) return
+          image.hidden = true; trigger.disabled = true; retry.hidden = false
+          status.setAttribute('role', 'alert'); status.textContent = message; measure()
+        }
+        image.onerror = () => fail('图片加载失败，源码已保留；可重试或检查文件地址。')
+        const load = () => {
+          if (!active) return
+          retry.hidden = true; trigger.disabled = true
+          status.setAttribute('role', 'status'); status.textContent = '正在加载图片…'
+          try {
+            const next = this.options.bridge?.imageURL(this.source)
+            if (!next) throw new Error('图片地址不可用，请检查源码。')
+            image.src = next
+          } catch (error) { fail(error instanceof Error ? error.message : '图片预览失败，请检查源码。') }
+        }
+        trigger.addEventListener('mousedown', event => event.preventDefault())
+        retry.addEventListener('mousedown', event => event.preventDefault())
+        retry.addEventListener('click', load)
+        trigger.addEventListener('click', event => {
+          event.preventDefault()
+          if (!active) return
+          if (view.composing || view.compositionStarted) { this.options.onBlocked?.('请先确认或取消输入法候选，再放大图片。'); return }
+          if (event.ctrlKey || event.metaKey) this.options.bridge?.openLink(this.source)
+          else this.options.bridge?.previewImage?.(this.source, this.label)
         })
+        trigger.append(image); root.append(trigger, retry); image.src = url
         widgetLives.set(root, { destroy: () => { active = false; image.onload = null; image.onerror = null; observer.disconnect(); resize?.disconnect() } })
       } catch (error) {
         status.textContent = error instanceof Error ? error.message : '图片预览失败，源码已保留。'

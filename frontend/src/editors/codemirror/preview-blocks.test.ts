@@ -97,11 +97,11 @@ describe('CM6 块预览', () => {
     expect(current.doc.toString()).toBe(table)
   })
   it('图片只使用 bridge 授权 URL；外部地址不能绕过，错误保持可见', () => {
-    const elements: { tagName: string; children: unknown[]; textContent: string; src?: string; onerror?: () => void }[] = []
+    const elements: { tagName: string; children: unknown[]; textContent: string; src?: string; onerror?: () => void; listeners: Record<string, () => void> }[] = []
     vi.stubGlobal('MutationObserver', class { observe() {} disconnect() {} })
     vi.stubGlobal('ResizeObserver', undefined)
     vi.stubGlobal('document', { createElement: (tagName: string) => {
-      const node = { tagName, children: [] as unknown[], textContent: '', append(...children: unknown[]) { this.children.push(...children) }, addEventListener() {} }
+      const node = { tagName, children: [] as unknown[], textContent: '', listeners: {} as Record<string, () => void>, append(...children: unknown[]) { this.children.push(...children) }, addEventListener(name: string, listener: () => void) { this.listeners[name] = listener }, setAttribute() {} }
       elements.push(node)
       return node
     } })
@@ -117,9 +117,14 @@ describe('CM6 块预览', () => {
     expect(image.src).toBe('/api/authorized-image')
     image.onerror!()
     expect(elements.some(element => element.textContent.includes('图片加载失败'))).toBe(true)
+    const retry = elements.find(element => element.tagName === 'button' && element.textContent === '重试图片')!
+    retry.listeners.click()
+    expect(imageURL).toHaveBeenCalledTimes(2)
     // CM 可把 eq 相等的新 widget 绑定到旧 DOM，销毁仍须取消旧回调。
     make('./image.png').destroy(root)
     expect(image.onerror).toBeNull()
+    retry.listeners.click()
+    expect(imageURL).toHaveBeenCalledTimes(2)
     imageURL.mockClear()
     make('https://evil.test/image.png').toDOM(view)
     expect(imageURL).not.toHaveBeenCalled()

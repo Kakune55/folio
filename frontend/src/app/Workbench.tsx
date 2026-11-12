@@ -40,6 +40,7 @@ import type { Session } from '../sessions/workspace'
 import { DocumentEditor } from '../editors/registry'
 import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/bridge'
 import type { EditorBridge } from '../editors/bridge'
+import { ImagePreviewDialog, type ImagePreviewFile } from '../viewers/ImagePreviewDialog'
 
 const basename = (path: string) => path.split('/').at(-1) ?? path
 const isSessionBusy = (session: Session) => session.composing || session.pendingUploads > 0 || session.locked || session.state === 'saving'
@@ -63,6 +64,9 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const route = useLocation()
   const navigate = useNavigate()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
+  const imageOwner = current ? `${current.id}:${current.generation}:${current.path}:${current.mode}` : ''
+  const [imagePreview, setImagePreview] = useState<{ owner: string; file?: ImagePreviewFile }>({ owner: imageOwner })
+  if (imagePreview.owner !== imageOwner) setImagePreview({ owner: imageOwner })
   const manager = useMemo(() => getDraftManager(workspaceId, workspace), [workspaceId])
   const recovery = useSyncExternalStore(manager.subscribe, manager.snapshot)
   const [recoveryOpen, setRecoveryOpen] = useState(false)
@@ -180,6 +184,13 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       }
     },
     imageURL: (href) => { try { return fileURL(resolveFileLink(current.path, href), true) } catch { return '' } },
+    previewImage: (href, label) => {
+      if (current.composing || current.compositionInterrupted) { setNotice('请先确认或取消输入法候选，再放大图片。'); return }
+      try {
+        const path = resolveFileLink(current.path, href)
+        setImagePreview({ owner: `${current.id}:${current.generation}:${current.path}:${current.mode}`, file: { url: fileURL(path, true), downloadURL: fileURL(path), label } })
+      } catch (error) { setNotice(error instanceof Error ? error.message : '图片地址不可用。') }
+    },
     openLink: (href) => {
       try {
         if (/^https?:\/\//i.test(href)) { const url = new URL(href); window.open(url.href, '_blank', 'noopener,noreferrer'); return }
@@ -383,6 +394,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {current && <FileStatus session={current} onSearch={() => setSearchOpen(true)} />}
       <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} /><span className="recovery-label">浏览器恢复稿</span><span className="recovery-count">{recovery.entries.length || ''}</span></Button>
     </footer>
+    <ImagePreviewDialog key={imagePreview.file?.url} image={imagePreview.owner === imageOwner ? imagePreview.file : undefined} onClose={() => setImagePreview({ owner: imageOwner })} />
     <RemoteChangeNotices notices={external.notices} onConflict={session => void loadComparison(session)} />
 
     <Dialog.Root open={!!discardUpload} onOpenChange={(value) => { if (!value) setDiscardUpload(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>移除待上传原件？</Dialog.Title><Dialog.Description>「{discardUpload?.file.name}」移除后将不再由当前页面保留。请先确认已上传或已下载原件；此操作不会删除服务器文件。</Dialog.Description><div className="dialog-actions"><Button onClick={() => setDiscardUpload(undefined)}>取消</Button><Button variant="outline" onClick={() => { if (discardUpload) uploadQueue.remove(discardUpload.id); setDiscardUpload(undefined) }}>确认移除原件</Button></div></DialogContent></Dialog.Portal></Dialog.Root>

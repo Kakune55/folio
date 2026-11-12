@@ -4,6 +4,7 @@ export type EditorBridge = {
   reference: (entry: Entry) => FileReference | undefined
   upload: (file: File) => Promise<string>
   imageURL: (url: string) => string
+  previewImage?: (url: string, label: string) => void
   openLink: (url: string) => void
   beginUpload: () => boolean
   endUpload: () => void

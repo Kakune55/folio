@@ -8,6 +8,9 @@
   line-height: 1.7;
 }
 .folio-preview-image img, .folio-preview-mermaid img { display: block; max-width: 100%; height: auto; }
+.folio-preview-image img { max-height: 420px; object-fit: contain; }
+.folio-preview-image img[hidden] { display: none; }
+.folio-preview-image .button[hidden] { display: none; }
 .folio-preview-status, .folio-preview-mermaid .mermaid-status { display: block; color: var(--muted-foreground); font-size: 13px; white-space: normal; }
 .folio-preview-table table { border-collapse: collapse; min-width: 50%; background: var(--background); }
 .folio-preview-table th, .folio-preview-table td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; white-space: pre-wrap; min-width: 64px; }
