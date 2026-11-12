@@ -1,15 +1,13 @@
 import { expect, test } from '@playwright/test'
 import type { Page, Playwright } from '@playwright/test'
 
-const rich = (page: Page) => page.getByRole('textbox', { name: 'Markdown 富文本编辑器', exact: true })
-const conversion = (page: Page) => page.getByRole('dialog', { name: '富文本转换预览' })
+const editor = (page: Page) => page.locator('.source-host .cm-content')
 
 async function prepare(page: Page, playwright: Playwright, source: string) {
   await page.goto('/')
   await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
   const connected = page.waitForResponse(response => response.url().includes('/workspace/events?') && response.status() === 200)
-  await page.getByRole('button', { name: '进入工作区' }).click()
-  await connected
+  await page.getByRole('button', { name: '进入工作区' }).click(); await connected
   const me = await (await page.request.get('/api/v1/auth/me')).json()
   const headers = { 'X-CSRF-Token': me.csrfToken }
   const path = `保源-${Date.now()}-${test.info().testId.slice(-8)}.md`
@@ -21,11 +19,10 @@ async function prepare(page: Page, playwright: Playwright, source: string) {
   const url = `/api/v1/files/content?path=${encodeURIComponent(path)}`
   const writes: { content: string; match: string | undefined }[] = []
   page.on('request', request => {
-    if (new URL(request.url()).pathname === '/api/v1/files/content' && ['PUT', 'PATCH'].includes(request.method())) {
-      writes.push({ content: request.postDataJSON().content, match: request.headers()['if-match'] })
-    }
+    if (new URL(request.url()).pathname === '/api/v1/files/content' && ['PUT', 'PATCH'].includes(request.method())) writes.push({ content: request.postDataJSON().content, match: request.headers()['if-match'] })
   })
   await page.getByRole('button', { name: path, exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })).toBeVisible()
   const read = async () => {
     const response = await agent.get(url)
     expect(response.status()).toBe(200)
@@ -36,132 +33,96 @@ async function prepare(page: Page, playwright: Playwright, source: string) {
   return { agent, url, path, revision, writes, read }
 }
 
-test('连续空格及空白段落可保存，模式切换和刷新保留', async ({ page, playwright }) => {
-  const prefix = '保留标题\r\n========\r\n\r\n'
-  const { agent, path, read } = await prepare(page, playwright, `${prefix}编辑目标。`)
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).click()
-    await page.keyboard.press('End')
-    await page.keyboard.press('Space')
-    await page.keyboard.press('Space')
-    await expect.poll(async () => (await read()).content).toBe(`${prefix}编辑目标。&#32;&#32;`)
-    await page.keyboard.insertText('后续')
-    await expect.poll(async () => (await read()).content).toBe(`${prefix}编辑目标。  后续`)
-    await page.keyboard.press('Home')
-    await page.keyboard.down('Shift')
-    await page.keyboard.press('End')
-    await page.keyboard.up('Shift')
-    await page.keyboard.insertText('   ')
-    const expected = `${prefix}&#32;&#32;&#32;`
-    await expect.poll(async () => (await read()).content).toBe(expected)
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-    await page.getByRole('button', { name: '源码', exact: true }).click()
-    await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toContainText('&#32;&#32;&#32;')
-    await page.getByRole('button', { name: '富文本', exact: true }).click()
-    await expect(rich(page).locator('p').first()).toHaveText('   ')
-    await page.reload()
-    await page.getByRole('button', { name: path, exact: true }).click()
-    await expect(rich(page).locator('p').first()).toHaveText('   ')
-    expect((await read()).content).toBe(expected)
-  } finally { await agent.dispose() }
-})
-
-test('空文件逐键输入空格后可撤销、重做并继续输入', async ({ page, playwright }) => {
-  const { agent, read } = await prepare(page, playwright, '')
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).click()
-    await page.keyboard.press('Space')
-    await page.keyboard.press('Space')
-    await expect.poll(async () => (await read()).content).toBe('&#32;&#32;')
-    await page.keyboard.press('ControlOrMeta+z')
-    await expect.poll(async () => (await read()).content).toBe('')
-    await page.keyboard.press('ControlOrMeta+Shift+z')
-    await expect.poll(async () => (await read()).content).toBe('&#32;&#32;')
-    await page.keyboard.insertText('正文')
-    // Milkdown 已能用十六进制字符引用保留段首空格时，沿用库的标准输出。
-    await expect.poll(async () => (await read()).content).toBe('&#x20; 正文')
-    await expect(rich(page).locator('p').first()).toHaveText('  正文')
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-  } finally { await agent.dispose() }
-})
-
 async function append(page: Page, text = '新增') {
-  await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).click()
-  await page.keyboard.press('End')
-  await page.keyboard.insertText(text)
+  await editor(page).locator('.cm-line').filter({ hasText: /^编辑目标。$/ }).click()
+  await page.keyboard.press('End'); await page.keyboard.insertText(text)
 }
 
 const formatted = '保留标题\n========\n\n\n\n| 左 | 右 |\n| :---- | ----: |\n| 一 | 二 |\n\n\n~~~json\n{"keep":true}\n~~~\n\n`````text\n```不能闭合长围栏\n`````\n\n* 统一一\n* 统一二\n\n+ 不同顶层\n\n\n编辑目标。\n\n\n保留尾段。'
 
-for (const [name, source] of [
-  ['LF 多空行、表格对齐、setext、原有围栏与列表', formatted],
-  ['BOM、CRLF 与无末尾换行', `\uFEFF${formatted.replaceAll('\n', '\r\n')}`],
-] as const) {
-  test(`保源 ${name}：只读、刷新、焦点与模式往返无写入，编辑仅替换目标段`, async ({ page, playwright }) => {
-    const { agent, path, revision, writes, read } = await prepare(page, playwright, source)
-    try {
-      await expect(rich(page)).toBeVisible()
-      await expect(conversion(page)).toHaveCount(0)
-      await rich(page).click()
-      await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowRight')
-      await page.getByRole('button', { name: '源码', exact: true }).click()
-      await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toBeVisible()
-      await page.getByRole('button', { name: '富文本', exact: true }).click()
-      await expect(rich(page)).toBeVisible()
-      await page.reload()
-      await page.getByRole('button', { name: path, exact: true }).click()
-      await expect(rich(page)).toBeVisible()
-      await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-      await page.waitForTimeout(1100)
-      await expect(conversion(page)).toHaveCount(0)
-      expect(await read()).toEqual({ content: source, revision })
-      expect(writes).toEqual([])
-      await append(page)
-      const expected = source.replace('编辑目标。', '编辑目标。新增')
-      await expect.poll(async () => (await read()).content).toBe(expected)
-      expect(writes).toEqual([{ content: expected, match: `"${revision}"` }])
-    } finally { await agent.dispose() }
-  })
-}
+test('空文件逐键输入空格原样保存，撤销、重做与刷新不编码空白', async ({ page, playwright }) => {
+  const { agent, path, read } = await prepare(page, playwright, '')
+  try {
+    await editor(page).focus(); await page.keyboard.press('Space'); await page.keyboard.press('Space')
+    await expect.poll(async () => (await read()).content).toBe('  ')
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect.poll(async () => (await read()).content).toBe('')
+    await page.keyboard.press('ControlOrMeta+Shift+Z')
+    await expect.poll(async () => (await read()).content).toBe('  ')
+    await page.keyboard.insertText('正文  ')
+    await expect.poll(async () => (await read()).content).toBe('  正文  ')
+    await page.reload(); await page.getByRole('button', { name: path, exact: true }).click()
+    expect((await read()).content).toBe('  正文  ')
+  } finally { await agent.dispose() }
+})
 
-test('撤销恢复完整初始 source，重做继续条件保存', async ({ page, playwright }) => {
+test('连续空格及纯空白行仅改变目标行，模式切换保留 CRLF', async ({ page, playwright }) => {
+  const prefix = '保留标题\r\n========\r\n\r\n'
+  const { agent, read } = await prepare(page, playwright, `${prefix}编辑目标。`)
+  try {
+    await append(page, '  ')
+    await expect.poll(async () => (await read()).content).toBe(`${prefix}编辑目标。  `)
+    await page.keyboard.press('Home'); await page.keyboard.press('Shift+End'); await page.keyboard.insertText('   ')
+    await expect.poll(async () => (await read()).content).toBe(`${prefix}   `)
+    for (const mode of ['源码', '实时预览']) await page.getByRole('button', { name: mode, exact: true }).click()
+    expect((await read()).content).toBe(`${prefix}   `)
+  } finally { await agent.dispose() }
+})
+
+for (const [name, source] of [
+  ['LF 多空行、表格、setext、围栏与列表', formatted],
+  ['BOM、CRLF 与无末尾换行', `\uFEFF${formatted.replaceAll('\n', '\r\n')}`],
+  ['frontmatter', '---\ntitle: 保留元数据\n---\n\n编辑目标。\n'],
+  ['未使用引用定义', '[unused]: https://example.invalid/ "不能丢弃"\n\n编辑目标。\n'],
+  ['code info meta', '~~~json filename="keep.json"\n{"keep":true}\n~~~\n\n编辑目标。\n'],
+] as const) test(`保源 ${name}：查看与模式切换零写入，编辑只改目标原文`, async ({ page, playwright }) => {
+  const { agent, path, revision, writes, read } = await prepare(page, playwright, source)
+  try {
+    await editor(page).focus(); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowRight')
+    for (const mode of ['源码', '实时预览']) await page.getByRole('button', { name: mode, exact: true }).click()
+    await page.reload(); await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(editor(page)).toBeVisible()
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(1100)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
+    await append(page)
+    const expected = source.replace('编辑目标。', '编辑目标。新增')
+    await expect.poll(async () => (await read()).content).toBe(expected)
+    expect(writes).toEqual([{ content: expected, match: `"${revision}"` }])
+  } finally { await agent.dispose() }
+})
+
+test('撤销恢复完整初始 source，重做继续使用最新 ETag 条件保存', async ({ page, playwright }) => {
   const { agent, revision, writes, read } = await prepare(page, playwright, formatted)
   try {
-    await expect(rich(page)).toBeVisible()
     await append(page)
     const edited = formatted.replace('编辑目标。', '编辑目标。新增')
     await expect.poll(async () => (await read()).content).toBe(edited)
     const saved = await read()
+    await page.getByRole('button', { name: '源码', exact: true }).click(); await editor(page).focus()
     await page.keyboard.press('ControlOrMeta+z')
     await expect.poll(async () => (await read()).content).toBe(formatted)
     const undone = await read()
-    await page.keyboard.press('ControlOrMeta+Shift+z')
+    await page.getByRole('button', { name: '实时预览', exact: true }).click(); await editor(page).focus()
+    await page.keyboard.press('ControlOrMeta+Shift+Z')
     await expect.poll(async () => (await read()).content).toBe(edited)
-    expect(writes).toEqual([
-      { content: edited, match: `"${revision}"` },
-      { content: formatted, match: `"${saved.revision}"` },
-      { content: edited, match: `"${undone.revision}"` },
-    ])
+    expect(writes).toEqual([{ content: edited, match: `"${revision}"` }, { content: formatted, match: `"${saved.revision}"` }, { content: edited, match: `"${undone.revision}"` }])
   } finally { await agent.dispose() }
 })
 
-test('格式差异原文通过 SSE 更新仍驻留 rich，不回写且接续使用新 ETag', async ({ page, playwright }) => {
+test('SSE 更新不回写，接续编辑使用远端 ETag 并拒绝旧版本覆盖', async ({ page, playwright }) => {
   const { agent, url, revision, writes, read } = await prepare(page, playwright, formatted)
   try {
-    await expect(rich(page)).toBeVisible()
     const remote = formatted.replace('保留尾段。', '远程尾段。')
     const response = await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: remote } })
     expect(response.status()).toBe(200)
     const remoteRevision = (await response.json()).revision
-    await expect(rich(page)).toContainText('远程尾段。')
+    await expect(editor(page)).toContainText('远程尾段。')
     await page.locator('.remote-notice').getByRole('button', { name: '等待', exact: true }).click()
-    await expect(conversion(page)).toHaveCount(0)
-    await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toHaveCount(0)
+    await expect(page.locator('.source-host')).toHaveAttribute('data-mode', 'rich')
     await page.waitForTimeout(1100)
-    expect(await read()).toEqual({ content: remote, revision: remoteRevision })
-    expect(writes).toEqual([])
+    expect(await read()).toEqual({ content: remote, revision: remoteRevision }); expect(writes).toEqual([])
     await append(page)
     const expected = remote.replace('编辑目标。', '编辑目标。新增')
     await expect.poll(async () => (await read()).content).toBe(expected)
@@ -170,328 +131,81 @@ test('格式差异原文通过 SSE 更新仍驻留 rich，不回写且接续使�
   } finally { await agent.dispose() }
 })
 
-for (const [marker, language, trigger] of [
-  ['~~~', 'c++', 'Space'], ['~~~~~', 'c#', 'Enter'],
-  ['`````', 'shell-session', 'Space'], ['```', 'json', 'Enter'],
-] as const) {
-  test(`围栏输入 ${marker}${language} + ${trigger} 生成 Crepe 代码块并保存内容`, async ({ page, playwright }) => {
-    const prefix = '保留标题\n========\n\n\n~~~text\n原有代码\n~~~\n\n'
-    const { agent, read } = await prepare(page, playwright, `${prefix}编辑目标。\n`)
-    try {
-      await expect(rich(page)).toBeVisible()
-      const paragraph = rich(page).locator('p').filter({ hasText: /^编辑目标。$/ })
-      await paragraph.click(); await page.keyboard.press('Home'); await page.keyboard.press('Shift+End')
-      await page.keyboard.insertText(`${marker}${language}`)
-      await page.keyboard.press(trigger)
-      const blocks = page.locator('.milkdown-code-block')
-      await expect(blocks).toHaveCount(2)
-      const code = blocks.last().locator('.cm-content')
-      await expect(code).toBeVisible()
-      await code.fill('saved_code_42')
-      await expect.poll(async () => (await read()).content).toContain('saved_code_42')
-      const disk = (await read()).content
-      expect(disk.startsWith(prefix)).toBe(true)
-      expect(disk.slice(prefix.length)).toMatch(new RegExp('(?:`{3,}|~{3,})' + language.replace(/[+]/g, '\\+') + '\\n'))
-      await page.getByRole('button', { name: '源码', exact: true }).click()
-      await page.getByRole('button', { name: '富文本', exact: true }).click()
-      await expect(blocks).toHaveCount(2)
-      await expect(blocks.last().locator('.cm-content')).toContainText('saved_code_42')
-      await expect(conversion(page)).toHaveCount(0)
-    } finally { await agent.dispose() }
-  })
-}
-
-test('全角与混合围栏不触发代码输入', async ({ page, playwright }) => {
-  const { agent, read } = await prepare(page, playwright, '编辑目标。\n')
-  try {
-    await expect(rich(page)).toBeVisible()
-    for (const marker of ['～～～json', '｀｀｀json', '~~`json', '``~json']) {
-      await rich(page).locator('p').last().click()
-      await page.keyboard.press('Home'); await page.keyboard.press('Shift+End')
-      await page.keyboard.insertText(marker)
-      await page.keyboard.press('Space')
-      await expect(page.locator('.milkdown-code-block')).toHaveCount(0)
-      await expect(rich(page)).toContainText(marker)
-      await page.keyboard.press('Enter')
-      await expect(page.locator('.milkdown-code-block')).toHaveCount(0)
-    }
-    await expect.poll(async () => (await read()).content).toContain('～～～json')
-  } finally { await agent.dispose() }
-})
-
-for (const [name, source] of [
-  ['frontmatter', '---\ntitle: 保留元数据\n---\n\n正文。\n'],
-  ['未使用 reference definition', '[unused]: https://example.invalid/ "不能丢弃"\n\n正文。\n'],
-  ['code info meta', '~~~json filename="keep.json"\n{"keep":true}\n~~~\n\n正文。\n'],
-] as const) {
-  test(`保护 ${name}：拒绝静默 rich 准入并完整保留原文`, async ({ page, playwright }) => {
-    const { agent, revision, writes, read } = await prepare(page, playwright, source)
-    try {
-      await expect(conversion(page)).toBeVisible()
-      await conversion(page).getByRole('button', { name: '保留原文，使用源码', exact: true }).click()
-      await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toBeVisible()
-      await page.waitForTimeout(1100)
-      expect(await read()).toEqual({ content: source, revision })
-      expect(writes).toEqual([])
-    } finally { await agent.dispose() }
-  })
-}
-
-test('真实段落 split 保留未编辑 raw blocks，不盲目重序列化全篇', async ({ page, playwright }) => {
-  const { agent, revision, writes, read } = await prepare(page, playwright, formatted)
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).click()
-    await rich(page).locator('p').filter({ hasText: /^编辑目标。$/ }).evaluate(element => {
-      const text = element.firstChild
-      if (!(text instanceof Text)) throw new Error('测试段落缺少文本节点')
-      const range = document.createRange(); range.setStart(text, 2); range.collapse(true)
-      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-    })
-    await page.keyboard.press('Enter')
-    await expect(rich(page).locator('p').filter({ hasText: /^编辑$/ })).toBeVisible()
-    await expect(rich(page).locator('p').filter({ hasText: /^目标。$/ })).toBeVisible()
-    await expect.poll(async () => (await read()).content).not.toBe(formatted)
-    const disk = (await read()).content
-    const [prefix, suffix] = formatted.split('编辑目标。')
-    expect(disk.startsWith(prefix)).toBe(true)
-    expect(disk.endsWith(suffix)).toBe(true)
-    expect(disk.slice(prefix.length, disk.length - suffix.length)).toMatch(/^编辑\s*\n\s*\n目标。$/)
-    expect(writes).toHaveLength(1)
-    expect(writes[0].match).toBe(`"${revision}"`)
-    await page.getByRole('button', { name: '源码', exact: true }).click()
-    await page.getByRole('button', { name: '富文本', exact: true }).click()
-    await expect(conversion(page)).toHaveCount(0)
-    await expect(rich(page).locator('p').filter({ hasText: /^目标。$/ })).toBeVisible()
-  } finally { await agent.dispose() }
-})
-
-for (const marker of ['-', '1.']) test(`列表 ${marker} 回车新增项目仍可输入，保留未编辑尾段`, async ({ page, playwright }) => {
-  const { agent, read } = await prepare(page, playwright, `${marker} 原有项\n\n尾段。\n`)
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('li p').filter({ hasText: /^原有项$/ }).click()
-    await page.keyboard.press('End'); await page.keyboard.press('Enter')
-    await expect(rich(page).locator('li')).toHaveCount(2)
-    await page.keyboard.insertText('新增项')
-    await expect(rich(page).locator('li').last()).toContainText('新增项')
-    await expect.poll(async () => (await read()).content).toContain('新增项')
-    expect((await read()).content.endsWith('\n\n尾段。\n')).toBe(true)
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-  } finally { await agent.dispose() }
-})
-
-for (const [name, source] of [['LF', '# 保留标题\n\n\n原文。'], ['BOM CRLF', '\uFEFF# 保留标题\r\n\r\n\r\n原文。\r\n']] as const) {
-  test(`末尾连续回车 ${name}：真实空段可保存且逐步撤销不丢原文`, async ({ page, playwright }) => {
-    const { agent, path, read, revision, writes } = await prepare(page, playwright, source)
-    try {
-      await expect(rich(page)).toBeVisible()
-      await rich(page).locator('p').filter({ hasText: /^原文。$/ }).click()
-      await page.keyboard.press('End'); await page.keyboard.press('Enter')
-      await expect(rich(page).locator(':scope > p')).toHaveCount(2)
-      await page.waitForTimeout(1100)
-      expect(await read()).toEqual({ content: source, revision })
-      expect(writes).toEqual([])
-
-      await page.keyboard.press('Enter')
-      await expect(rich(page).locator(':scope > p')).toHaveCount(3)
-      await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(1)
-      const one = (await read()).content
-      expect(one.startsWith(source)).toBe(true)
-      await page.keyboard.press('Enter')
-      await expect(rich(page).locator(':scope > p')).toHaveCount(4)
-      await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(2)
-      const two = (await read()).content
-      expect(two.startsWith(source)).toBe(true)
-      await page.keyboard.insertText('新增尾段。')
-      await expect.poll(async () => (await read()).content).toContain('新增尾段。')
-      const typed = (await read()).content
-      expect((typed.match(/<br\s*\/?>/g) ?? []).length).toBe(2)
-      await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-      for (const expected of [two, one, source]) {
-        await page.keyboard.press('ControlOrMeta+z')
-        await expect.poll(async () => (await read()).content).toBe(expected)
-      }
-      for (const expected of [one, two, typed]) {
-        await page.keyboard.press('ControlOrMeta+Shift+z')
-        await expect.poll(async () => (await read()).content).toBe(expected)
-      }
-      await page.reload()
-      await page.getByRole('button', { name: path, exact: true }).click()
-      await expect(rich(page)).toBeVisible()
-      await expect(conversion(page)).toHaveCount(0)
-      await expect(rich(page).locator(':scope > p')).toHaveCount(4)
-      expect((await read()).content).toBe(typed)
-    } finally { await agent.dispose() }
-  })
-}
-
-for (const [name, source] of [['代码块', '~~~js\nconst keep = 1\n~~~'], ['列表', '- 原有项\n- 第二项'], ['表格', '| 保留 |\n| --- |\n| 原文 |']] as const) {
-  test(`${name}尾部连续回车保留原块与真实空段`, async ({ page, playwright }) => {
-    const { agent, path, read } = await prepare(page, playwright, source)
-    try {
-      await expect(rich(page)).toBeVisible()
-      // trailing 插件在首次真实事务后追加占位；先操作原块，再把光标准确放进空尾段。
-      if (name === '代码块') await rich(page).locator('.cm-content').click()
-      else if (name === '列表') await rich(page).locator('li p').last().click()
-      else await rich(page).locator('td p').last().click()
-      await page.keyboard.press('End'); await page.keyboard.press('ArrowLeft')
-      await expect(rich(page).locator(':scope > p')).toHaveCount(1)
-      await rich(page).locator(':scope > p').last().evaluate(element => {
-        const editor = element.closest<HTMLElement>('[contenteditable="true"]')!
-        editor.focus()
-        const range = document.createRange(); range.setStart(element, 0); range.collapse(true)
-        const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
-        document.dispatchEvent(new Event('selectionchange'))
-      })
-      await page.evaluate(() => new Promise(requestAnimationFrame))
-      await page.keyboard.press('Enter'); await page.keyboard.press('Enter')
-      await expect(rich(page).locator(':scope > p')).toHaveCount(3)
-      await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(2)
-      const saved = (await read()).content
-      expect(saved.startsWith(source)).toBe(true)
-      await page.keyboard.insertText('尾部新段。')
-      await expect.poll(async () => (await read()).content).toContain('尾部新段。')
-      const typed = (await read()).content
-      expect(typed.startsWith(source)).toBe(true)
-      await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-      await page.reload()
-      await page.getByRole('button', { name: path, exact: true }).click()
-      await expect(rich(page)).toBeVisible()
-      await expect(conversion(page)).toHaveCount(0)
-      await expect(rich(page).locator(':scope > p')).toHaveCount(3)
-      expect((await read()).content).toBe(typed)
-    } finally { await agent.dispose() }
-  })
-}
-
-test('段落间连续回车保存实际空段，不忽略中间结构', async ({ page, playwright }) => {
-  const source = '开头。\n\n结尾。\n'
-  const { agent, path, read } = await prepare(page, playwright, source)
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').filter({ hasText: /^开头。$/ }).click()
-    await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.press('Enter')
-    await expect(rich(page).locator(':scope > p')).toHaveCount(4)
-    await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(2)
-    const saved = (await read()).content
-    expect(saved.startsWith('开头。\n\n')).toBe(true)
-    expect(saved.endsWith('\n\n结尾。\n')).toBe(true)
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-    await page.reload()
-    await page.getByRole('button', { name: path, exact: true }).click()
-    await expect(rich(page)).toBeVisible()
-    await expect(conversion(page)).toHaveCount(0)
-    await expect(rich(page).locator(':scope > p')).toHaveCount(4)
-    expect((await read()).content).toBe(saved)
-  } finally { await agent.dispose() }
-})
-
-for (const [name, pasted, guarded] of [
-  ['引用定义', '粘贴正文。\n\n[keep]: /important "必须保留的定义"\n', '[keep]:'],
-  ['代码附加信息', '```js filename="important.js"\nconst keep = 1\n```\n', 'filename="important.js"'],
-] as const) test(`不安全纯文本粘贴 ${name} 不丢原文、不写盘`, async ({ page, playwright }) => {
+for (const [name, pasted] of [
+  ['空格和空白行', '  \n   \n正文  '],
+  ['frontmatter', '---\ntitle: 粘贴元数据\n---\n'],
+  ['引用定义', '粘贴正文。\n\n[keep]: /important "必须保留的定义"\n'],
+  ['代码附加信息', '```js filename="important.js"\nconst keep = 1\n```\n'],
+  ['BOM 和混合换行', '\uFEFF首行\r\n次行\r第三行\n末行'],
+] as const) test(`纯文本粘贴 ${name} 原样插入保存并可撤销重做`, async ({ page, playwright }) => {
   const source = '原文。'
-  const { agent, read, writes, revision } = await prepare(page, playwright, source)
+  const { agent, path, read, writes, revision } = await prepare(page, playwright, source)
   try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').click()
-    await rich(page).evaluate((root, text) => {
+    await editor(page).focus(); await page.keyboard.press('ControlOrMeta+End')
+    // 合成事件覆盖应用粘贴处理，不冒称系统剪贴板验证。
+    await editor(page).evaluate((root, text) => {
       const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text)
       root.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
     }, pasted)
-    await expect(page.getByText(/剪贴板 Markdown 无法安全保留/)).toBeVisible()
-    await expect(rich(page)).not.toContainText(guarded)
-    await page.waitForTimeout(1100)
-    expect(await read()).toEqual({ content: source, revision })
-    expect(writes).toEqual([])
-    await rich(page).locator('p').click(); await page.keyboard.press('End'); await page.keyboard.press('Enter')
-    await rich(page).evaluate(root => {
-      const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', '- 正常列表\n- 第二项\n')
-      root.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
-    })
-    await expect(rich(page).locator('li')).toHaveCount(2)
-    await expect.poll(async () => (await read()).content).toContain('第二项')
+    await expect.poll(async () => (await read()).content).toBe(source + pasted)
+    expect(writes[0]).toEqual({ content: source + pasted, match: `"${revision}"` })
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect.poll(async () => (await read()).content).toBe(source)
+    await page.keyboard.press('ControlOrMeta+Shift+Z')
+    await expect.poll(async () => (await read()).content).toBe(source + pasted)
+    await page.reload(); await page.getByRole('button', { name: path, exact: true }).click()
+    await expect(editor(page)).toBeVisible()
+    expect((await read()).content).toBe(source + pasted)
   } finally { await agent.dispose() }
 })
 
-for (const marker of ['-', '1.']) test(`富文本逐键创建 ${marker} 列表可条件保存并重新打开`, async ({ page, playwright }) => {
-  const { agent, path, read, writes } = await prepare(page, playwright, '')
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').click()
-    await page.keyboard.insertText(marker)
-    await page.keyboard.press('Space')
-    await expect(rich(page).locator('li')).toHaveCount(1)
-    await page.keyboard.insertText('新增列表项')
-    await expect.poll(async () => (await read()).content).toContain('新增列表项')
-    expect(writes.at(-1)?.match).toBeTruthy()
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-    await page.reload()
-    await page.getByRole('button', { name: path, exact: true }).click()
-    await expect(rich(page).locator('li')).toContainText('新增列表项')
-    await expect(conversion(page)).toHaveCount(0)
-  } finally { await agent.dispose() }
-})
+for (const marker of ['~~~c++', '~~~~~c#', '`````shell-session', '```json', '～～～json', '｀｀｀json', '~~`json', '``~json', '- ', '1. ']) {
+  test(`逐键输入 ${marker} 保留源码并遵循 Markdown 回车规则`, async ({ page, playwright }) => {
+    const { agent, read, writes } = await prepare(page, playwright, '')
+    try {
+      await editor(page).focus(); await page.keyboard.type(marker)
+      if (marker.endsWith(' ')) await expect.poll(async () => (await read()).content).toBe(marker)
+      await page.keyboard.press('Enter'); await page.keyboard.insertText('saved_text_42')
+      await expect.poll(async () => (await read()).content).toBe(marker.endsWith(' ') ? 'saved_text_42' : `${marker}\nsaved_text_42`)
+      await expect(page.locator('.cm-editor')).toHaveCount(1)
+      expect(writes.every(write => Boolean(write.match))).toBe(true)
+    } finally { await agent.dispose() }
+  })
+}
 
-test('现有段落快捷键转换为列表可保存并重新打开', async ({ page, playwright }) => {
-  const { agent, path, read } = await prepare(page, playwright, '原文。')
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').click()
-    await page.keyboard.press('ControlOrMeta+Alt+8')
-    await expect(rich(page).locator('li')).toContainText('原文。')
-    await expect.poll(async () => (await read()).content).toMatch(/^- 原文。/)
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-    await page.reload()
-    await page.getByRole('button', { name: path, exact: true }).click()
-    await expect(rich(page).locator('li')).toContainText('原文。')
-  } finally { await agent.dispose() }
-})
+for (const key of ['Enter', 'Shift+Enter']) for (const source of ['AB', '\uFEFFAB\r\n', '~~~js\nconst keep = 1\n~~~', '- 原有项\n- 第二项', '| 保留 |\n| --- |\n| 原文 |']) {
+  test(`${key} 尾部连续换行无 BR artifact ${JSON.stringify(source)}`, async ({ page, playwright }) => {
+    const { agent, path, read } = await prepare(page, playwright, source)
+    try {
+      const separator = source.includes('\r\n') ? '\r\n' : '\n'
+      const steps = key === 'Enter' && source.startsWith('- ')
+        ? [source + '\n- ', source + '\n', source + '\n\n']
+        : [1, 2, 3].map(count => source + separator.repeat(count))
+      await editor(page).focus(); await page.keyboard.press('ControlOrMeta+End')
+      for (let i = 1; i <= 3; i++) {
+        await page.keyboard.press(key)
+        await expect.poll(async () => (await read()).content).toBe(steps[i - 1])
+      }
+      await page.keyboard.insertText('新增尾段。')
+      const expected = steps[2] + '新增尾段。'
+      await expect.poll(async () => (await read()).content).toBe(expected)
+      expect(expected).not.toContain('<br')
+      await page.keyboard.press('ControlOrMeta+z')
+      await expect.poll(async () => (await read()).content).toBe(steps[2])
+      await page.keyboard.press('ControlOrMeta+Shift+Z')
+      await expect.poll(async () => (await read()).content).toBe(expected)
+      await page.reload(); await page.getByRole('button', { name: path, exact: true }).click()
+      expect((await read()).content).toBe(expected)
+    } finally { await agent.dispose() }
+  })
+}
 
-test('尾部占位前的空段填写文字，不把旧占位当成新增空段', async ({ page, playwright }) => {
-  const { agent, path, read } = await prepare(page, playwright, 'A')
+for (const key of ['Enter', 'Shift+Enter']) test(`段中 ${key} 仅插入原始换行并保留其他字节`, async ({ page, playwright }) => {
+  const { agent, read } = await prepare(page, playwright, formatted)
   try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').click()
-    await page.keyboard.press('End'); await page.keyboard.press('Enter'); await page.keyboard.press('Enter')
-    await expect.poll(async () => ((await read()).content.match(/<br\s*\/?>/g) ?? []).length).toBe(1)
-    await rich(page).locator(':scope > p').nth(1).evaluate(paragraph => {
-      paragraph.closest<HTMLElement>('[contenteditable="true"]')!.focus()
-      const range = document.createRange(); range.setStart(paragraph, 0); range.collapse(true)
-      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-    })
-    await page.evaluate(() => new Promise(requestAnimationFrame))
-    await page.keyboard.insertText('B')
-    await expect.poll(async () => (await read()).content).toMatch(/^A\n\nB\n?$/)
-    await expect(rich(page).locator(':scope > p')).toHaveCount(3)
-    await expect(page.getByText(/此操作无法安全保留 Markdown/)).toHaveCount(0)
-    await page.reload()
-    await page.getByRole('button', { name: path, exact: true }).click()
-    await expect(rich(page)).toBeVisible()
-    await expect(conversion(page)).toHaveCount(0)
-    expect((await read()).content).not.toContain('<br')
-  } finally { await agent.dispose() }
-})
-
-test('段末 Shift+Enter 不伪装成功，段中硬换行仍可保存', async ({ page, playwright }) => {
-  const { agent, read, revision, writes } = await prepare(page, playwright, 'AB')
-  try {
-    await expect(rich(page)).toBeVisible()
-    await rich(page).locator('p').click(); await page.keyboard.press('End'); await page.keyboard.press('Shift+Enter')
-    await expect(page.getByText(/段落末尾的 Shift\+Enter 暂无法无损保存，操作未生效/)).toBeVisible()
-    await page.waitForTimeout(1100)
-    expect(await read()).toEqual({ content: 'AB', revision }); expect(writes).toEqual([])
-    await rich(page).locator('p').evaluate(paragraph => {
-      paragraph.closest<HTMLElement>('[contenteditable="true"]')!.focus()
-      const range = document.createRange(); range.setStart(paragraph.firstChild!, 1); range.collapse(true)
-      const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-    })
-    await page.evaluate(() => new Promise(requestAnimationFrame))
-    await page.keyboard.press('Shift+Enter')
-    await expect.poll(async () => (await read()).content).toBe('A\\\nB')
+    await editor(page).locator('.cm-line').filter({ hasText: /^编辑目标。$/ }).click()
+    await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
+    await page.keyboard.press(key)
+    await expect.poll(async () => (await read()).content).toBe(formatted.replace('编辑目标。', '编辑\n目标。'))
   } finally { await agent.dispose() }
 })

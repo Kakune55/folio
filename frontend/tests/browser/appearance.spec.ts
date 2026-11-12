@@ -17,7 +17,7 @@ test('个性化即时应用、持久保存、移动布局与编辑器实例保�
     await page.getByRole('option').filter({ hasText: path }).click()
   }
   await openFile()
-  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器', includeHidden: true })
+  const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true, includeHidden: true })
   await expect(rich).toBeVisible()
   await rich.evaluate(el => el.setAttribute('data-instance', 'original'))
   const settings = page.getByRole('button', { name: '个性化', exact: true })

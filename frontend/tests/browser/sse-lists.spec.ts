@@ -35,7 +35,7 @@ const cases = [
 for (const [name, source] of cases) test(`列表 ${name}：只读与 Agent 更新无回写，真实编辑保留符号`, async ({ page, playwright }) => {
   const { agent, url, revision, writes } = await prepare(page, playwright, source)
   try {
-    const editor = page.getByRole('textbox', { name: 'Markdown 富文本编辑器', exact: true })
+    const editor = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
     await expect(editor).toBeVisible()
     await expect(page.getByRole('dialog', { name: '富文本转换预览' })).toHaveCount(0)
     await editor.click(); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowRight')
@@ -54,7 +54,7 @@ for (const [name, source] of cases) test(`列表 ${name}：只读与 Agent 更�
     disk = await (await agent.get(url)).json()
     expect(disk.content).toBe(remote); expect(disk.revision).toBe((await changed.json()).revision); expect(writes).toEqual([])
 
-    const paragraph = editor.locator('p').filter({ hasText: /^正文。$/ })
+    const paragraph = editor.locator('.cm-line').filter({ hasText: /^正文。$/ })
     await paragraph.click(); await page.keyboard.press('End'); await page.keyboard.insertText('新增')
     const edited = remote.replace('正文。', '正文。新增')
     await expect.poll(async () => (await (await agent.get(url)).json()).content).toBe(edited)
@@ -69,13 +69,13 @@ test('不同顶层列表 marker 安全准入，编辑别段保留原文', async 
   const source = '- 第一项\n\n+ 第二项\n\n正文。\n'
   const { agent, url, revision, writes } = await prepare(page, playwright, source)
   try {
-    const editor = page.getByRole('textbox', { name: 'Markdown 富文本编辑器', exact: true })
+    const editor = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
     await expect(editor).toBeVisible()
     await expect(page.getByRole('dialog', { name: '富文本转换预览' })).toHaveCount(0)
     await page.waitForTimeout(1000)
     const disk = await (await agent.get(url)).json()
     expect(disk.content).toBe(source); expect(disk.revision).toBe(revision); expect(writes).toEqual([])
-    await editor.locator('p').filter({ hasText: /^正文。$/ }).click()
+    await editor.locator('.cm-line').filter({ hasText: /^正文。$/ }).click()
     await page.keyboard.press('End'); await page.keyboard.insertText('新增')
     await expect.poll(async () => (await (await agent.get(url)).json()).content).toBe(source.replace('正文。', '正文。新增'))
     expect(writes).toHaveLength(1)
@@ -83,16 +83,21 @@ test('不同顶层列表 marker 安全准入，编辑别段保留原文', async 
   } finally { await agent.dispose() }
 })
 
-test('未使用的 reference definition 仍需转换确认，取消不改写原始正文', async ({ page, playwright }) => {
+test('未使用的 reference definition 直接显示和编辑，查看不改写原始正文', async ({ page, playwright }) => {
   const source = '[unused]: https://example.invalid/ "保留定义"\n\n正文。\n'
   const { agent, url, revision, writes } = await prepare(page, playwright, source)
   try {
     const dialog = page.getByRole('dialog', { name: '富文本转换预览' })
-    await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: '保留原文，使用源码', exact: true }).click()
-    await expect(page.getByRole('textbox', { name: '源码编辑器', exact: true })).toContainText('[unused]:')
+    await expect(dialog).toHaveCount(0)
+    const editor = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
+    await expect(editor).toContainText('[unused]:')
     await page.waitForTimeout(1000)
     const disk = await (await agent.get(url)).json()
     expect(disk.content).toBe(source); expect(disk.revision).toBe(revision); expect(writes).toEqual([])
+    await editor.locator('.cm-line').filter({ hasText: /^正文。$/ }).click()
+    await page.keyboard.press('End'); await page.keyboard.insertText('新增')
+    await expect.poll(async () => (await (await agent.get(url)).json()).content).toBe(source.replace('正文。', '正文。新增'))
+    expect(writes).toHaveLength(1)
+    expect((await agent.put(url, { headers: { 'If-Match': `"${revision}"` }, data: { content: '陈旧覆盖' } })).status()).toBe(412)
   } finally { await agent.dispose() }
 })

@@ -48,7 +48,7 @@ test('TXT 搜索定位远处关键词，重复搜索不重建编辑器并保留�
   await expect(source.locator('.cm-line').last()).toContainText('未保存的额外文字')
 })
 
-for (const width of [1440, 390]) test(`Markdown 富文本 ${width} 定位强调文字，未修改正文；纯文件名命中正常打开`, async ({ page }) => {
+for (const width of [1440, 390]) test(`Markdown 实时预览 ${width} 定位强调文字，未修改正文；纯文件名命中正常打开`, async ({ page }) => {
   await login(page)
   await page.setViewportSize({ width, height: 844 })
   const drawer = page.getByRole('button', { name: '关闭文件列表' })
@@ -58,10 +58,10 @@ for (const width of [1440, 390]) test(`Markdown 富文本 ${width} 定位强调�
   const original = '# 标题\n\n' + Array.from({ length: 90 }, (_, i) => i === 75 ? `前缀 **${keyword}** 后缀` : `第 ${i} 段普通正文。`).join('\n\n') + '\n'
   await create(page, name, original)
   await searchOpen(page, keyword, name)
-  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
   await expect(rich).toBeFocused()
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(keyword)
-  await expect(rich.locator('strong').filter({ hasText: keyword })).toBeInViewport()
+  await expect(rich.locator('.cm-line').filter({ hasText: keyword })).toBeInViewport()
   await rich.evaluate((element) => element.setAttribute('data-instance-probe', 'same'))
   await searchOpen(page, keyword, name)
   await expect(rich).toHaveAttribute('data-instance-probe', 'same')

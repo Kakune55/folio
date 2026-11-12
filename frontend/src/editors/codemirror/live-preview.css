@@ -1,0 +1,63 @@
+.source-host.live-preview-host .cm-content {
+  color: var(--foreground);
+  font-size: var(--editor-font-size, 16px);
+}
+
+.folio-md-heading-1 { font-size: 1.8em; font-weight: 700; }
+.folio-md-heading-2 { font-size: 1.5em; font-weight: 700; }
+.folio-md-heading-3 { font-size: 1.3em; font-weight: 650; }
+.folio-md-heading-4 { font-size: 1.15em; font-weight: 650; }
+.folio-md-heading-5, .folio-md-heading-6 { font-size: 1em; font-weight: 650; }
+.folio-md-heading-1, .folio-md-heading-2, .folio-md-heading-3,
+.folio-md-heading-4, .folio-md-heading-5, .folio-md-heading-6 { line-height: 1.7; }
+.folio-md-quote-line { border-left: 2px solid var(--border); color: var(--muted-foreground); }
+.folio-md-list-line { padding-inline-start: 0.5em !important; }
+.folio-md-code-line, .folio-md-inline-code {
+  font-family: var(--font-code);
+  /* CM6 选区绘制在文字下方，底色须透明，避免遮住选择范围。 */
+  background: color-mix(in srgb, var(--muted-foreground) 9%, transparent);
+}
+.folio-md-code-line { color: var(--foreground); }
+.folio-md-inline-code { border-radius: 3px; }
+.folio-md-emphasis { font-style: italic; }
+.folio-md-strong { font-weight: 700; }
+.folio-md-strike { text-decoration: line-through; }
+.folio-md-link { text-decoration: underline; text-underline-offset: 0.18em; }
+.folio-md-marker-slot { visibility: hidden; }
+.folio-md-list-marker { position: relative; }
+.folio-md-ordered-marker { visibility: visible; color: var(--muted-foreground); }
+.folio-md-list-marker::after {
+  content: '\2022';
+  position: absolute;
+  inset-inline-start: 0;
+  visibility: visible;
+  color: var(--muted-foreground);
+}
+.folio-md-task {
+  display: inline-flex;
+  width: 3ch;
+  height: 1.2em;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -0.15em;
+  background: transparent;
+  color: var(--foreground);
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.folio-md-task::after {
+  content: '';
+  width: 0.8em;
+  height: 0.8em;
+  border: 1px solid var(--muted-foreground);
+  border-radius: 2px;
+}
+.folio-md-task[aria-checked='true']::after {
+  content: '\2713';
+  line-height: 0.8em;
+  text-align: center;
+}
+.folio-md-task[aria-disabled='true'] { cursor: not-allowed; }
+.folio-md-task:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }

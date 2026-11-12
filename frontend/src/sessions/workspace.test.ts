@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { WorkspaceSessions } from './workspace'
 describe('编辑会话正文隔离', () => {
   it('切换文件与模式保留各自的修改，恢复原文后清除脏标记', () => {
@@ -103,4 +103,81 @@ it('异步图片追加沿用原始换行，不改写已有正文', () => {
     sessions.appendAttachment('图.md', '![图](./image.png)')
     expect(sessions.get('图.md').source).toBe(`${source}![图](./image.png)${ending}`)
   }
+})
+
+it('输入法候选保留本地但不保存，确认后才提交最终原文', async () => {
+  vi.useFakeTimers()
+  try {
+    const save = vi.fn(async () => ({ revision: 'v2' }))
+    const sessions = new WorkspaceSessions([{ path: '输入.md', source: '原文', mode: 'rich', revision: 'v1' }], save)
+    sessions.setComposing('输入.md', true)
+    sessions.update('输入.md', '原文zhong')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).not.toHaveBeenCalled()
+    expect(await sessions.save('输入.md')).toBe(false)
+    expect(sessions.get('输入.md')).toMatchObject({ source: '原文zhong', dirty: true, composing: true })
+    expect(() => sessions.lockTree('输入.md')).toThrow()
+    expect(() => sessions.acceptRemote('输入.md', '远端', 'remote')).toThrow()
+    expect(sessions.remove('输入.md')).toBe(false)
+    sessions.update('输入.md', '原文中文')
+    sessions.setComposing('输入.md', false)
+    await vi.advanceTimersByTimeAsync(801)
+    expect(save).toHaveBeenCalledWith('输入.md', '原文中文', 'v1')
+    expect(save).toHaveBeenCalledTimes(1)
+  } finally { vi.useRealTimers() }
+})
+
+it('输入法确认中断不自动写候选，仍可明确手动保存或下载', async () => {
+  vi.useFakeTimers()
+  try {
+    const save = vi.fn(async () => ({ revision: 'v2' }))
+    const sessions = new WorkspaceSessions([{ path: '输入.md', source: '原文', mode: 'rich', revision: 'v1' }], save)
+    sessions.setComposing('输入.md', true); sessions.update('输入.md', '候选')
+    sessions.setComposing('输入.md', false, true)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).not.toHaveBeenCalled()
+    expect(sessions.get('输入.md')).toMatchObject({ source: '候选', dirty: true, state: 'error', composing: false })
+    expect(await sessions.save('输入.md')).toBe(false)
+    sessions.confirmComposition('输入.md')
+    expect(await sessions.save('输入.md')).toBe(true)
+    expect(save).toHaveBeenCalledWith('输入.md', '候选', 'v1')
+  } finally { vi.useRealTimers() }
+})
+
+it('旧保存响应不能清除其后发生的输入法中断保护', async () => {
+  vi.useFakeTimers()
+  try {
+    let finish!: (result: { revision: string }) => void
+    const calls: { source: string; revision: string }[] = []
+    const sessions = new WorkspaceSessions([{ path: '输入.md', source: 'old', mode: 'rich', revision: 'v1' }], async (_path, source, revision) => {
+      calls.push({ source, revision })
+      return calls.length === 1 ? await new Promise(resolve => { finish = resolve }) : { revision: 'v3' }
+    })
+    sessions.update('输入.md', 'committed')
+    const pending = sessions.save('输入.md')
+    sessions.setComposing('输入.md', true); sessions.update('输入.md', 'committedzhong')
+    sessions.setComposing('输入.md', false, true)
+    finish({ revision: 'v2' }); await pending
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(calls).toEqual([{ source: 'committed', revision: 'v1' }])
+    expect(sessions.get('输入.md')).toMatchObject({ original: 'committed', source: 'committedzhong', revision: 'v2', state: 'error', compositionInterrupted: true })
+    sessions.confirmComposition('输入.md')
+    expect(await sessions.save('输入.md')).toBe(true)
+    expect(calls[1]).toEqual({ source: 'committedzhong', revision: 'v2' })
+  } finally { vi.useRealTimers() }
+})
+
+it('上传完成时原笔记候选尚未确认，不追加引用或改变代数', async () => {
+  vi.useFakeTimers()
+  try {
+    const save = vi.fn(async () => ({ revision: 'v2' }))
+    const sessions = new WorkspaceSessions([{ path: '输入.md', source: 'old', mode: 'rich', revision: 'v1' }], save)
+    sessions.setComposing('输入.md', true); sessions.update('输入.md', 'oldzhong')
+    expect(sessions.appendAttachment('输入.md', '![图](./image.png)')).toBe(false)
+    expect(sessions.get('输入.md')).toMatchObject({ source: 'oldzhong', generation: 0, composing: true })
+    sessions.setComposing('输入.md', false, true)
+    expect(sessions.appendAttachment('输入.md', '![图](./image.png)')).toBe(false)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).not.toHaveBeenCalled()
+  } finally { vi.useRealTimers() }
 })

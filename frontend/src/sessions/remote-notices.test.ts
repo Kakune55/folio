@@ -18,6 +18,21 @@ function setup() {
   return { sessions, session, notices, remote, read }
 }
 
+it('远程正文读到一半开始输入法候选，迟到结果不能重建视图', async () => {
+  const { sessions, session, notices, remote, read } = setup()
+  remote('远程\n', 'v2')
+  let finish!: (file: Awaited<ReturnType<typeof api.read>>) => void
+  read.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const pending = notices.check(session)
+  await Promise.resolve()
+  sessions.setComposing(session.path, true)
+  finish({ path: session.path, content: '远程\n', revision: 'v2', size: 6, kind: 'text', encoding: 'utf-8', mtime: '' })
+  await pending
+  expect(session).toMatchObject({ source: '原文\n', revision: 'v1', generation: 0, composing: true })
+  expect(notices.list()).toEqual([])
+  sessions.setComposing(session.path, false)
+})
+
 it('立即呈现远程正文，连续更新保留初始基准并重新计时，重复探测不重置', async () => {
   const { session, notices, remote } = setup()
   remote('第一次\n', 'v2'); await notices.check(session, undefined, 'Agent')

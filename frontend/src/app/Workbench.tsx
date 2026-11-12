@@ -38,11 +38,11 @@ import { TrashDialog } from '../features/explorer/TrashDialog'
 import { useEntryOperations } from '../features/explorer/useEntryOperations'
 import type { Session } from '../sessions/workspace'
 import { DocumentEditor } from '../editors/registry'
-import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/milkdown/bridge'
-import type { CrepeBridge } from '../editors/milkdown/bridge'
+import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/bridge'
+import type { EditorBridge } from '../editors/bridge'
 
 const basename = (path: string) => path.split('/').at(-1) ?? path
-const isSessionBusy = (session: Session) => session.pendingUploads > 0 || session.locked || session.state === 'saving'
+const isSessionBusy = (session: Session) => session.composing || session.pendingUploads > 0 || session.locked || session.state === 'saving'
 const saveLabels = { saved: '已保存', dirty: '未保存', saving: '正在保存…', error: '保存失败 · 草稿已保留', conflict: '版本冲突 · 草稿已保留' }
 
 class EditorBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
@@ -152,7 +152,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timeout) }
   }, [focusPath, activePath, loading, searchOpen])
 
-  const bridge = useMemo<CrepeBridge | undefined>(() => current?.viewer === 'markdown' ? {
+  const bridge = useMemo<EditorBridge | undefined>(() => current?.viewer === 'markdown' ? {
     reference: (entry) => {
       if (entry.kind !== 'file') { setNotice('请拖入文件，暂不支持插入目录引用。'); return }
       if (current.locked || workspace.isLocked(current.path) || workspace.isLocked(entry.path)) { setNotice('相关文件正在处理操作，请稍后再插入引用。'); return }
@@ -167,7 +167,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       const pending = uploadQueue.add(named, parent, true)
       pending.onUploaded = (path) => {
         if (!workspace.has(current.path) || workspace.get(current.path) !== current || current.locked) throw new Error(`图片已上传到「${path}」，原笔记已关闭或正在处理文件操作，请重新打开笔记后手动插入引用。`)
-        workspace.appendAttachment(current.path, imageMarkdown(relativeFileLink(current.path, path), file.name))
+        if (!workspace.appendAttachment(current.path, imageMarkdown(relativeFileLink(current.path, path), file.name))) throw new Error(`图片已上传到「${path}」，原笔记输入法候选尚未确认或正在处理，请确认后从文件列表插入。`)
       }
       try {
         const metadata = await uploadFile(named, parent, (percent) => setNotice(`${basename(current.path)}：正在上传图片 ${percent}%`), true)
@@ -187,7 +187,9 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
         void openFile(resolveFileLink(current.path, href))
       } catch (error) { setNotice(error instanceof Error ? error.message : '此链接不受支持') }
     },
-    detachedImage: (url, alt) => workspace.appendAttachment(current.path, imageMarkdown(url, alt)),
+    detachedImage: (url, alt) => {
+      if (!workspace.appendAttachment(current.path, imageMarkdown(url, alt))) setNotice(`图片已上传为「${alt}」，原笔记有未确认输入或正在处理，未自动插入；请从文件列表插入。`)
+    },
   } : undefined, [current, client, openFile, setNotice])
   const uploadAttachments = async (files: File[], retry?: PendingUpload[]) => {
     if (uploading || files.length === 0) return
@@ -228,7 +230,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     if (closingTabsRef.current) return
     const files = workspace.list(), index = files.indexOf(anchor)
     if (index < 0) return
-    const saved = (file: Session) => !file.dirty && file.state === 'saved' && !file.pendingUploads && !file.locked
+    const saved = (file: Session) => !file.composing && !file.dirty && file.state === 'saved' && !file.pendingUploads && !file.locked
     const targets = files.filter((file, position) => action === 'one' ? file === anchor : action === 'others' ? file !== anchor : action === 'right' ? position > index : action === 'saved' ? saved(file) : true)
     closingTabsRef.current = true; setClosingTabs(true)
     let retained = 0
@@ -260,13 +262,16 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const handleSave = useCallback(async (path: string) => {
     if (!workspace.has(path)) return
     const session = workspace.get(path)
+    if (session.composing) { setNotice('请先确认或取消输入法候选，再保存。'); return }
+    workspace.confirmComposition(path)
     const saved = await workspace.save(path)
     if (!saved && workspace.has(path) && workspace.get(path) === session && useUI.getState().activePath === path && (session.state === 'conflict' || session.external)) await loadComparison(session)
-  }, [loadComparison])
+  }, [loadComparison, setNotice])
 
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || uploads.length || workspace.list().some((session) => session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (uploading || uploads.length || workspace.list().some((session) => session.composing || session.dirty || session.pendingUploads > 0 || session.state === 'saving')) event.preventDefault() }
     const keydown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return
       if (location.pathname !== '/') return
       const key = event.key.toLowerCase(), modifier = event.ctrlKey || event.metaKey
       if (document.querySelector('[role="dialog"]')) {
@@ -356,24 +361,25 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       }}><FileIcon path={session.path} size={14} /><span>{basename(session.path)}</span>{session.dirty && <span className="dirty-dot" aria-label="未保存" />}<span className="tab-close-target" aria-hidden="true" title={`关闭 ${session.path}`}><X size={12} /></span></button></div></TabMenu>)}
     </div>{current && <Button size="icon" className="close-current-tab" aria-label={`关闭 ${current.path}`} title="保存并关闭当前标签（也可在标签上按 Delete）" onClick={() => void closeFile(current)}><X size={14} /></Button>}<span id="file-tab-help" className="visually-hidden">左右方向键切换标签，Home 和 End 跳到首尾。按 Delete 保存并关闭此标签；保存失败时保留。右键或 Shift+F10 打开标签页操作菜单。</span></div>
     <section className="document-panel" id="document-panel" role={current ? 'tabpanel' : undefined} aria-labelledby={current ? `file-tab-${workspace.list().findIndex((session) => session.path === activePath)}` : undefined}>
+      {current && <h1 className="visually-hidden">{basename(current.path)}</h1>}
       {current && <div className="document-toolbar"><div className="breadcrumb"><span>工作区</span><ChevronRight size={13} /><span title={current.path}>{current.path}</span></div><div className="document-actions">
-        {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />富文本</Button><Button title="切换保留正文，撤销历史可能重置" aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
-        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.locked || current.state === 'saving' || (!current.dirty && !current.external)} onClick={() => void handleSave(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
+        {current.viewer === 'markdown' && <div className="mode-switch" role="group" aria-label="编辑模式"><Button title="实时预览原文，切换保留选区和撤销历史" aria-pressed={current.mode === 'rich'} onClick={() => workspace.setMode(current.path, 'rich')}><BookOpen size={14} />实时预览</Button><Button title="显示全部 Markdown 标记，切换不改写正文" aria-pressed={current.mode === 'source'} onClick={() => workspace.setMode(current.path, 'source')}><Braces size={14} />源码</Button></div>}
+        {['markdown', 'text'].includes(current.viewer) && <Button size="icon" aria-label="保存当前文件" title="保存（Ctrl/Cmd+S）" disabled={current.composing || current.locked || current.state === 'saving' || (!current.dirty && !current.external)} onClick={() => void handleSave(current.path)}><Save size={16} /></Button>}{['markdown', 'text'].includes(current.viewer) ? <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿" onClick={() => downloadDraft(current.path, current.source)}><ArrowDownToLine size={16} /></Button> : <a className="button button-icon" href={fileURL(current.path)} download aria-label="下载文件"><ArrowDownToLine size={16} /></a>}
         <Button size="icon" aria-label="创建分享" title="创建分享链接" disabled={current.locked} onClick={() => setSharingPath(current.path)}><Link2 size={16} /></Button>
       </div></div>}
       <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />
       {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
       {tabRestore.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{tabRestore.warning}</span><Button onClick={tabRestore.retry}>重试标签记录</Button><Button onClick={tabRestore.reset}>仅记住当前标签</Button></div>}
       {recovery.warning && <div className="notice save-error" role="alert"><Info size={16} /><span>{recovery.warning}</span><Button onClick={() => void manager.retry().catch(() => {})}>重试本地存储</Button></div>}
-      {current?.externalUpdate && <span className="visually-hidden" role="status">已加载外部更新。临时标记将在八秒后消失。</span>}
+      {current?.externalUpdate && <span className="visually-hidden" role="status">已加载外部更新。差异标记随更新通知保留，接受或回滚后清除。</span>}
       {current?.externalUpdate?.limited && <div className="notice" role="status">已加载外部更新；修改范围较大，标记仅供参考或已省略。</div>}
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void handleSave(current.path)}>重试保存</Button>}</div>}
-      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.path + current.mode + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor navigationOpen={navigationOpen} session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.id + current.path + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor navigationOpen={navigationOpen} session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
     <footer className="statusbar" aria-label="编辑状态">
-      <div className="statusbar-left"><span className="save-status" role="status">{current ? current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state" data-phase={current?.dirty ? recovery.phase : undefined}>{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
+      <div className="statusbar-left"><span className="save-status" role="status">{current ? current.composing ? '输入法候选待确认，自动保存暂停' : current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state" data-phase={current?.dirty ? recovery.phase : undefined}>{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
       {current && <FileStatus session={current} onSearch={() => setSearchOpen(true)} />}
       <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} /><span className="recovery-label">浏览器恢复稿</span><span className="recovery-count">{recovery.entries.length || ''}</span></Button>
     </footer>

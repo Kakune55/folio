@@ -10,8 +10,8 @@ async function prepare(page: Page, name: string, content: string) {
   await page.getByRole('button', { name: '刷新文件列表' }).click()
   await page.getByRole('button', { name, exact: true }).click()
   if (name.endsWith('.md')) {
-    // BOM/CRLF 已可保源准入；先等待检查完成，再显式切到待验证的源码模式。
-    await expect(page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })).toBeVisible()
+    // 两种模式使用同一原文缓冲，显式切到本用例验证的源码模式。
+    await expect(page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })).toBeVisible()
     await page.getByRole('button', { name: '源码', exact: true }).click()
   }
   await expect(page.getByRole('textbox', { name: '源码编辑器' })).toBeVisible()
@@ -44,7 +44,7 @@ test('CRLF、CR 与混合换行在编辑、撤销/重做、换行和切换文件
     await assertDisk(page, name, edited)
     await page.keyboard.press('Control+z'); await page.keyboard.press('Control+s')
     await assertDisk(page, name, original)
-    await page.keyboard.press(process.platform === 'win32' ? 'Control+y' : 'Control+Shift+z'); await page.keyboard.press('Control+s')
+    await page.keyboard.press(process.platform === 'win32' ? 'Control+y' : 'Control+Shift+Z'); await page.keyboard.press('Control+s')
     await assertDisk(page, name, edited)
     await page.keyboard.press('Control+End'); await page.keyboard.press('Enter'); await page.keyboard.insertText('新行')
     await page.keyboard.press('Control+s')

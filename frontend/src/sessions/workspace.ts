@@ -10,8 +10,9 @@ export type Session = {
   viewer: ViewerKind; metadata?: FileMetadata; pendingUploads: number; locked: boolean
   external?: 'changed' | 'missing'
   externalUpdate?: ExternalUpdate
+  composing?: boolean
+  compositionInterrupted?: boolean
   sourceView?: { anchor: number; head: number; scrollTop: number; scrollLeft: number }
-  richScrollTop?: number
 }
 type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>
@@ -40,6 +41,25 @@ export class WorkspaceSessions {
   has(path: string) { return this.sessions.has(path) }
   get(path: string) { const session = this.sessions.get(path); if (!session) throw new Error('文件会话不存在'); return session }
   list() { return [...this.sessions.values()] }
+  setComposing(path: string, active: boolean, interrupted = false) {
+    if (!this.has(path)) return
+    const session = this.get(path)
+    if (!!session.composing === active) return
+    session.composing = active
+    const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
+    if (!active && interrupted && session.dirty) {
+      session.compositionInterrupted = true
+      session.state = 'error'; session.error = '输入法确认被中断，候选已保留为草稿；请核对后手动保存或下载。'
+    } else if (!active) this.schedule(session)
+    this.emit()
+  }
+  confirmComposition(path: string) {
+    const session = this.get(path)
+    if (session.composing || !session.compositionInterrupted) return
+    delete session.compositionInterrupted
+    if (session.state === 'error') { session.state = session.dirty ? 'dirty' : 'saved'; session.error = '' }
+    this.emit()
+  }
   update(path: string, source: string) {
     const session = this.get(path)
     const hadMarks = !!session.externalUpdate
@@ -56,12 +76,12 @@ export class WorkspaceSessions {
   private schedule(session: Session, delay = 800) {
     const previous = this.timers.get(session.path); if (previous) clearTimeout(previous)
     this.timers.delete(session.path)
-    if (this.suspended || session.external || session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
+    if (this.suspended || session.composing || session.compositionInterrupted || session.external || session.locked || !this.transport || !session.dirty || ['conflict', 'error', 'saving'].includes(session.state)) return
     this.timers.set(session.path, setTimeout(() => { this.timers.delete(session.path); void this.save(session.path) }, delay))
   }
   save(path: string, duringOperation = false): Promise<boolean> {
     const session = this.get(path)
-    if (this.suspended || (session.locked && !duringOperation)) return Promise.resolve(false)
+    if (this.suspended || session.composing || session.compositionInterrupted || (session.locked && !duringOperation)) return Promise.resolve(false)
     const pending = this.pending.get(path); if (pending) return pending
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     if (!this.transport || !session.dirty) return Promise.resolve(!session.dirty)
@@ -70,7 +90,7 @@ export class WorkspaceSessions {
     session.state = 'saving'; session.error = ''; this.emit()
     const operation = this.transport(path, source, session.revision).then((response) => {
       session.revision = response.revision; session.original = source; session.dirty = session.source !== source
-      session.state = session.dirty ? 'dirty' : 'saved'; this.emit(); return true
+      session.state = session.compositionInterrupted ? 'error' : session.dirty ? 'dirty' : 'saved'; this.emit(); return true
     }).catch((error: unknown) => {
       const code = error instanceof Error && 'code' in error ? error.code : ''
       session.state = code === 'revision_conflict' || code === 'not_found' ? 'conflict' : 'error'
@@ -98,7 +118,7 @@ export class WorkspaceSessions {
   }
   // 调用方须完成干净会话核对，或由用户明确保留本地副本后再接纳远端。
   acceptRemote(path: string, source: string, revision: string, highlight: boolean | 'notice' = false, highlightFrom?: string) {
-    if (this.pending.has(path)) throw new Error('保存尚未结束，请稍后重试')
+    if (this.pending.has(path) || this.get(path).composing) throw new Error('保存或输入法确认尚未结束，请稍后重试')
     const session = this.get(path)
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     const oldHighlight = this.highlightTimers.get(session.id); if (oldHighlight) clearTimeout(oldHighlight)
@@ -113,7 +133,7 @@ export class WorkspaceSessions {
       }, 8000))
     }
     session.source = source; session.original = source; session.revision = revision; session.dirty = false
-    session.state = 'saved'; session.error = ''; session.external = undefined; session.generation++; this.emit()
+    session.state = 'saved'; session.error = ''; session.external = undefined; delete session.compositionInterrupted; session.generation++; this.emit()
   }
   markExternal(path: string, external: 'changed' | 'missing') {
     const session = this.get(path)
@@ -133,7 +153,7 @@ export class WorkspaceSessions {
   }
   remove(path: string, duringOperation = false) {
     const session = this.get(path)
-    if ((session.locked && !duringOperation) || session.dirty || session.pendingUploads || this.pending.has(path)) return false
+    if ((session.locked && !duringOperation) || session.composing || session.compositionInterrupted || session.dirty || session.pendingUploads || this.pending.has(path)) return false
     const timer = this.timers.get(path); if (timer) clearTimeout(timer); this.timers.delete(path)
     const highlight = this.highlightTimers.get(session.id); if (highlight) clearTimeout(highlight); this.highlightTimers.delete(session.id)
     this.sessions.delete(path); this.emit(); return true
@@ -143,7 +163,7 @@ export class WorkspaceSessions {
     const prefixes = [prefix, ...(target ? [target] : [])]
     if (prefixes.some((path) => this.isLocked(path) || [...this.reservations].some((reserved) => reserved.startsWith(`${path}/`)))) throw new Error('相关路径正在进行文件操作，请稍后重试')
     const affected = this.list().filter((session) => session.path === prefix || session.path.startsWith(`${prefix}/`))
-    if (affected.some((session) => session.locked || session.pendingUploads)) throw new Error('文件操作或图片上传尚未结束，请稍后重试')
+    if (affected.some((session) => session.locked || session.pendingUploads || session.composing)) throw new Error('文件操作、图片上传或输入法确认尚未结束，请稍后重试')
     for (const session of affected) { session.locked = true; const timer = this.timers.get(session.path); if (timer) clearTimeout(timer); this.timers.delete(session.path) }
     prefixes.forEach((path) => this.reservations.add(path))
     this.emit(); return affected
@@ -177,10 +197,11 @@ export class WorkspaceSessions {
   endUpload(path: string) { this.get(path).pendingUploads--; this.emit() }
   appendAttachment(path: string, markdown: string) {
     const session = this.get(path)
+    if (session.composing || session.compositionInterrupted || session.locked || this.isLocked(path)) return false
     const ending = /\r\n|\r|\n/.exec(session.source)?.[0] ?? '\n'
     const separator = session.source.endsWith(ending + ending) || !session.source ? '' : session.source.endsWith(ending) ? ending : ending + ending
     this.update(path, `${session.source}${separator}${markdown}${ending}`)
-    session.generation++; this.emit()
+    session.generation++; this.emit(); return true
   }
   setMode(path: string, mode: EditorMode) { const session = this.get(path); if (session.mode === mode) return; session.mode = mode; this.emit() }
   suspend() { this.suspended = true; for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear() }

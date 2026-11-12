@@ -1,0 +1,9 @@
+.folio-table-menu { min-width: 190px; }
+.folio-table-context { padding: 7px 10px; color: var(--muted-foreground); font-size: 11px; }
+.folio-table-menu [role="menuitemradio"] { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 10px; border-radius: 4px; outline: none; cursor: default; }
+.folio-table-menu [role="menuitemradio"][data-disabled] { opacity: .45; }
+.folio-table-dialog { max-width: 380px; }
+.folio-table-size { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+.folio-table-size label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.folio-table-size input { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--foreground); }
+@media (max-width: 767px) { .folio-table-menu [role="menuitemradio"], .folio-table-size input { min-height: 40px; } }

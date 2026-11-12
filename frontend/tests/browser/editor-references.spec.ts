@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
-for (const mode of ['富文本', '源码']) {
+for (const mode of ['实时预览', '源码']) {
   test(`${mode}粘贴和拖入图片上传到笔记目录，Ctrl 点击引用打开文件`, async ({ page }) => {
     await page.goto('/')
     await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
@@ -20,8 +20,8 @@ for (const mode of ['富文本', '源码']) {
     await page.getByRole('button', { name: folder, exact: true }).click()
     await page.getByRole('button', { name: '笔记.md', exact: true }).click()
     if (mode === '源码') await page.getByRole('button', { name: '源码', exact: true }).click()
-    const editor = page.getByRole('textbox', { name: mode === '源码' ? '源码编辑器' : 'Markdown 富文本编辑器' })
-    const link = mode === '源码' ? editor.locator('.cm-line').first() : editor.locator('a').first()
+    const editor = page.getByRole('textbox', { name: mode === '源码' ? '源码编辑器' : 'Markdown 编辑器', exact: true })
+    const link = editor.locator('.cm-line').first()
     await link.click({ position: { x: 30, y: 8 } })
     await expect(page.getByRole('tab', { name: '目标 中文.json', exact: true })).toHaveCount(0)
     await link.click({ modifiers: ['Control'], position: { x: 30, y: 8 } })
@@ -53,9 +53,9 @@ for (const mode of ['富文本', '源码']) {
       await editor.locator('.cm-line').filter({ hasText: 'paste.png' }).click({ modifiers: ['Control'], position: { x: 30, y: 8 } })
       await expect(page.locator('.image-viewer img')).toBeVisible()
       await page.getByRole('tab', { name: '笔记.md', exact: true }).click()
-      await page.getByRole('button', { name: '富文本', exact: true }).click()
+      await page.getByRole('button', { name: '实时预览', exact: true }).click()
     }
-    await page.locator('.folio-markdown-image').first().click({ modifiers: ['Control'] })
+    await page.locator('.folio-preview-image img').first().click({ modifiers: ['Control'] })
     await expect(page.locator('.image-viewer img')).toBeVisible()
   })
 }
@@ -69,7 +69,7 @@ test('图片上传失败保留原件，重试后补回原笔记', async ({ page 
   const name = `失败重试-${Date.now()}.md`
   await page.getByLabel('名称', { exact: true }).fill(name)
   await page.getByRole('button', { name: '创建', exact: true }).click()
-  const editor = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  const editor = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
   await editor.fill('保留正文')
   await page.route('**/api/v1/uploads?**', route => route.fulfill({ status: 500, json: { error: { code: 'test_failure', message: '测试上传失败' } } }))
   const png = [...await readFile(fileURLToPath(new URL('../fixtures/preview.png', import.meta.url)))]

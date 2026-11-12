@@ -8,7 +8,6 @@ import { workspace } from '../sessions/demo'
 import { useUI } from '../stores/ui'
 import { useState } from 'react'
 
-const RichEditor = lazy(() => import('../editors/milkdown/RichEditor'))
 const SourceEditor = lazy(() => import('../editors/codemirror/SourceEditor'))
 
 class EditorBoundary extends Component<{ children: ReactNode; fallback: () => void }, { failed: boolean }> {
@@ -71,14 +70,14 @@ export default function App() {
   return <div className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`}>
     <header className="topbar">
       <div className="brand"><span className="brand-mark">f</span><span>Folio</span><span className="workspace-name">个人工作区</span></div>
-      <div className="topbar-actions"><span className="phase">M0 · 编辑器验证</span>
+      <div className="topbar-actions"><span className="phase">CM6 · 实时预览实验</span>
         <Button size="icon" aria-label={`主题：${themeLabel}`} title={`主题：${themeLabel}，点击切换`} onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}><ThemeIcon size={17} /></Button>
         <Dialog.Root><Dialog.Trigger asChild><Button size="icon" aria-label="关于当前版本" title="关于当前版本"><Info size={17} /></Button></Dialog.Trigger>
           <Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content">
             <Dialog.Title>一处安静的文件工作区</Dialog.Title>
             <Dialog.Description>当前为 M0 可行性验证版本。两份示例文件仅驻留在页面内存中，尚未连接真实工作区。</Dialog.Description>
-            <p>可以验证 Markdown、源码编辑与文件切换。检测到富文本转换差异时，先显示转换预览和 Diff；取消会保留原文并切回源码，明确确认才应用转换。</p>
-            <p>切换文件或编辑模式会重置撤销历史，正文与未保存状态会保留。刷新或关闭页面会丢失内存草稿，请先下载。</p>
+            <p>可以验证 Markdown 实时预览、源码编辑与文件切换。显示装饰不改写正文，不需要转换确认。</p>
+            <p>同一文件切换预览／源码保留选区和撤销历史。切换文件会重建编辑器；刷新或关闭页面会丢失本页内存草稿，请先下载。</p>
             <p>文件持久化、登录、上传和冲突处理属于 M1，搜索属于 M2。</p>
             <Dialog.Close asChild><Button className="dialog-close" size="icon" aria-label="关闭说明"><X size={17} /></Button></Dialog.Close>
           </DialogContent></Dialog.Portal>
@@ -105,22 +104,23 @@ export default function App() {
           }}>{file.path.endsWith('.md') ? <FileText size={14} /> : <Braces size={14} />}<span>{file.path}</span>{file.dirty && <span className="dirty-dot" aria-label="未保存" />}</button>)}</div>
         </div>
         <section className="document-panel" id="document-panel" role="tabpanel" aria-labelledby={`tab-${workspace.list().findIndex((file) => file.path === activePath)}`}>
+          <h1 className="visually-hidden">{activePath}</h1>
           <div className="document-toolbar"><div className="breadcrumb"><span>示例工作区</span><ChevronRight size={13} /><span>{activePath}</span></div>
-            <div className="document-actions">{isMarkdown && <div className="mode-switch" role="group" aria-label="编辑模式"><Button aria-pressed={session.mode === 'rich'} onClick={() => { setNotice(''); workspace.setMode(activePath, 'rich') }}><BookOpen size={14} /><span>富文本</span></Button><Button aria-pressed={session.mode === 'source'} onClick={() => { setNotice(''); workspace.setMode(activePath, 'source') }}><Braces size={14} /><span>源码</span></Button></div>}
+            <div className="document-actions">{isMarkdown && <div className="mode-switch" role="group" aria-label="编辑模式"><Button aria-pressed={session.mode === 'rich'} onClick={() => { setNotice(''); workspace.setMode(activePath, 'rich') }}><BookOpen size={14} /><span>实时预览</span></Button><Button aria-pressed={session.mode === 'source'} onClick={() => { setNotice(''); workspace.setMode(activePath, 'source') }}><Braces size={14} /><span>源码</span></Button></div>}
               <Button size="icon" aria-label="下载当前草稿" title="下载当前草稿（Ctrl/Cmd+S）" onClick={download}><ArrowDownToLine size={16} /></Button>
             </div>
           </div>
           {notice && <div className="notice" role="status"><Info size={16} /><span>{notice}</span><Button size="icon" aria-label="关闭提示" onClick={() => setNotice('')}><X size={14} /></Button></div>}
-          <div className="editor-scroll" key={activePath + session.mode + editorAttempt}>
+          <div className="editor-scroll" key={session.id + activePath + session.generation + editorAttempt}>
             <EditorBoundary fallback={() => { workspace.setMode(activePath, 'source'); setEditorAttempt((value) => value + 1) }}>
               <Suspense fallback={<div className="editor-loading" role="status">正在加载编辑器…</div>}>
-                {isMarkdown && session.mode === 'rich' ? <RichEditor session={session} sessions={workspace} onBlocked={onBlocked} /> : <SourceEditor session={session} sessions={workspace} />}
+                <SourceEditor session={session} sessions={workspace} onBlocked={onBlocked} />
               </Suspense>
             </EditorBoundary>
           </div>
         </section>
       </main>
     </div>
-    <footer className="statusbar"><span className="save-status" role="status">{session.dirty ? '● 未保存 · 仅本页内存' : '示例文件 · 仅本页内存'}</span><span className="history-hint">切换文件或模式保留正文，重置撤销历史</span><span>UTF-8<span className="status-divider">{isMarkdown ? 'Markdown' : 'JSON'}</span></span></footer>
+    <footer className="statusbar"><span className="save-status" role="status">{session.dirty ? '● 未保存 · 仅本页内存' : '示例文件 · 仅本页内存'}</span><span className="history-hint">模式切换保留正文与撤销，刷新前请下载草稿</span><span>UTF-8<span className="status-divider">{isMarkdown ? 'Markdown' : 'JSON'}</span></span></footer>
   </div>
 }

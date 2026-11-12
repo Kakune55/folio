@@ -41,7 +41,7 @@ test('触屏抽屉可关闭并约束焦点，嵌套创建后返回正文，旋�
   await create(page, '文件夹', folder)
   await create(page, '笔记', '随手记.md')
   await expect(panel).not.toBeVisible()
-  const rich = page.getByRole('textbox', { name: 'Markdown 富文本编辑器' })
+  const rich = page.getByRole('textbox', { name: 'Markdown 编辑器', exact: true })
   await rich.tap(); await page.keyboard.insertText('手机上记录的中文正文')
   await expect(page.locator('.save-status')).toHaveText('已保存')
   await page.getByRole('button', { name: '主题：跟随系统', exact: true }).tap()

@@ -55,8 +55,8 @@ uv run --with-requirements scripts/requirements-api-test.txt python scripts/appl
 | 文件安全 | 越根、链接／硬链接／特殊文件、Unicode／Windows 名称、目录竞争；`storage`／`fileio` |
 | 条件提交 | 旧／并发 ETag、无条件拒绝、短写／权限／同步故障、只保留完整旧版或新版；`storage`、HTTP 与 Linux 故障样本 |
 | 认证／授权 | Cookie／Token／HEAD、来源／CSRF、禁用／撤销／密码边界、账号工作区、配额与空权限；`auth`／`httpapi` |
-| 编辑与保存 | 切文件／模式／设置、异步初始化、保存中输入、迟到响应、拒绝后可见状态、关闭保护；`sessions`、workbench／files／editor 专项 |
-| Markdown | 常见语法、危险输入、粘贴、列表创建与退出、围栏、空段／虚拟尾段、hardbreak、缓存滚动、逐步／分组 undo／redo、转换确认与取消 |
+| 编辑与保存 | 切文件／模式／设置、异步初始化、保存中输入、输入法候选不提前上网及确认／取消、迟到响应、拒绝后可见状态、关闭保护；`sessions`、workbench／files／editor 专项 |
+| Markdown | 实时预览／源码同实例与撤销、原文粘贴、列表／围栏／空白、BOM／混合换行、只读 widget、表格定位及图片／Mermaid 生命周期；live-preview／editor-preservation |
 | 原始字节 | BOM、LF／CRLF／CR／混合分隔、无末尾换行、按行片段与 diff、API／磁盘直接比对；line-endings 与契约演练 |
 | 上传与引用 | 类型／像素／大小、配额、重复及不完整 multipart、流中失败、成功上传但插入拒绝、原件下载／重试；attachments／editor-upload-guard |
 | 外变与搜索 | 宿主写入、同大小／mtime、移动／删除、重连、草稿保护、通知接受／等待／回滚、索引损坏与定位；external／sse／search |
@@ -72,7 +72,7 @@ uv run --with-requirements scripts/requirements-api-test.txt python scripts/appl
 
 性能用例检查大量文件、搜索、较大正文输入和完整保存字节，原始报告位于 `artifacts/qa/`。不要调高门槛、删样本或把三次测量称为 p95。当前搜索门槛偏差及待复核范围统一见 [产品规范](SPEC.md#已知限制与待办)，存在未通过项时不得称完整 QA 全绿。
 
-注入 DOM／剪贴板／拒绝事务的探针用于对应故障路径，不冒称真实 OS 剪贴板、相机、原生手势或普通允许路径。浏览器视口仿真不是实际手机，axe 通过不是完整 WCAG 或读屏认证。
+注入 DOM／剪贴板／拒绝事务的探针用于对应故障路径，不冒称真实 OS 剪贴板、相机、原生手势或普通允许路径；Chromium CDP 原生 composition 注入也不等于真实系统输入法及候选栏验收。浏览器视口仿真不是实际手机，axe 通过不是完整 WCAG 或读屏认证。
 
 ## 持久化故障与平台
 
