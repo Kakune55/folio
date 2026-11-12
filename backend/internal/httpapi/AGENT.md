@@ -17,6 +17,16 @@ curl --fail-with-body --silent --show-error \
 
 操作详情是单操作 OpenAPI，包含参数、请求、响应、权限及所需定义；路径相对其 `servers`。索引描述全部能力，不代表当前令牌有权使用。完整契约 `/api/v1/openapi.json` 保留给 SDK、生成器或需要全量结构时读取；人工说明在 `/api-docs`。
 
+## Markdown 正文能力
+
+支持常见 Markdown／GFM（表格、任务列表、删除线等），以及以下预览语法，直接写入标准文本即可：
+
+- Mermaid：使用语言标记为 `mermaid` 的围栏代码块。
+- 数学公式：支持 KaTeX 兼容的 LaTeX 数学语法，行内如 `$E=mc^2$`，独立公式用顶层单独的 `$$` 行包围。不支持完整 LaTeX 文档；普通金额如 `$5`、`$20$` 保持原样，纯数字公式请用公式块，字面美元可写 `\$`。
+- GitHub 提示块：顶层引用首行如 `> [!NOTE]`，支持 `NOTE`、`TIP`、`IMPORTANT`、`WARNING`、`CAUTION`，后续正文继续以 `>` 开头。
+
+图片使用标准相对路径。
+
 ## 按任务选操作
 
 | 任务 | operationId 与顺序 |
