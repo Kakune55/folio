@@ -642,7 +642,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .token-permission-row input { accent-color: var(--accent); width: 15px; height: 15px; }
 .token-secret-row { display: flex; gap: 8px; margin: 8px 0 16px; }
 .token-secret-row input { min-width: 0; font-family: ui-monospace, monospace !important; }
-.token-guide-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.token-panel-heading { flex-wrap: wrap; gap: 8px 16px; }
+.token-panel-heading h2 { white-space: nowrap; }
+.token-guide-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.token-guide-actions .button { height: 32px; min-width: 80px; font-size: 13px; font-weight: 500; color: var(--muted-foreground); text-decoration: none; }
+.token-guide-actions .button:hover { color: var(--foreground); }
 .mcp-guide { width: min(620px, calc(100vw - 32px)); }
 .mcp-guide-steps { padding-left: 22px; }
 .mcp-guide-steps li { padding-left: 4px; margin: 18px 0; }
@@ -650,8 +654,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mcp-guide-steps p { margin: 6px 0; overflow-wrap: anywhere; }
 .mcp-guide pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 5px; }
 .mcp-guide .token-secret-row .button { flex-shrink: 0; }
+.mcp-guide summary { margin: 18px 0 10px; font-weight: 500; cursor: pointer; }
 @media (max-width: 767px) {
  .setting-panel-content { padding: 16px; }
+ .token-guide-actions .button { height: 40px; }
  .setting-panel > h2, .setting-panel-heading { padding: 12px 16px; }
  .user-settings .settings-nav nav { display: flex; }
  .user-settings .settings-nav nav button { flex: 1; justify-content: center; }

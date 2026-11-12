@@ -89,7 +89,7 @@ func (a *api) registerEntries(mux *http.ServeMux) {
 			storageError(w, err)
 			return
 		}
-		writeJSON(w, 200, map[string]string{"from": body.From, "to": body.To})
+		writeJSON(w, 200, map[string]string{"from": body.From, "to": body.To, "revision": revision})
 	}))
 	mux.HandleFunc("DELETE /api/v1/entries", a.protect(func(w http.ResponseWriter, r *http.Request) {
 		revision, ok := precondition(w, r)

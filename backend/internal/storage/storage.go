@@ -24,6 +24,7 @@ const TextLimit int64 = 5 << 20
 type Error struct {
 	Code     string
 	Revision string
+	Details  map[string]any
 }
 
 func (e *Error) Error() string { return e.Code }
@@ -246,14 +247,22 @@ func (s *Store) parent(name string) (*os.Root, string, error) {
 	if dir == "" {
 		dir = "."
 	}
+	parentError := func(err error) error {
+		err = mapError(err)
+		var problem *Error
+		if errors.As(err, &problem) && problem.Code == "not_found" {
+			return &Error{Code: "not_found", Details: map[string]any{"reason": "parent_not_found", "path": dir}}
+		}
+		return err
+	}
 	checked, err := s.open(dir, os.O_RDONLY, 0)
 	if err != nil {
-		return nil, "", err
+		return nil, "", parentError(err)
 	}
 	defer checked.Close()
 	root, err := s.root.OpenRoot(dir)
 	if err != nil {
-		return nil, "", mapError(err)
+		return nil, "", parentError(err)
 	}
 	a, errA := checked.Stat()
 	b, errB := root.Stat(".")

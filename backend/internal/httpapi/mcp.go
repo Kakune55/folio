@@ -191,7 +191,7 @@ func (a *api) mcpServer(r *http.Request, access *auth.AccessToken, cache *mcp.Sc
 		entries, total, err := a.Workspace.List(in.Path, offset, limit)
 		return map[string]any{"entries": entries, "total": total, "offset": offset, "limit": limit}, err
 	})
-	addMCPTool(s, access, "readContent", "GET", "/files/content", "按行读取原始UTF-8正文，默认前100行。revision始终是完整文件版本，isPartial为true时不可当作全文覆盖；续读传expectedRevision。", false, func(_ context.Context, in mcpReadInput) (any, error) {
+	addMCPTool(s, access, "readContent", "GET", "/files/content", "按行读取原始UTF-8正文，默认前100行。revision始终是完整文件版本；isPartial仅表示本次返回不是全文，即使hasMore为false也可能为true，不代表文件损坏。续读传expectedRevision。", false, func(_ context.Context, in mcpReadInput) (any, error) {
 		start, count := mcpInt(in.StartLine, 1), mcpInt(in.LineCount, 100)
 		if start < 1 || count < 1 || count > storage.ReadLineLimit {
 			return nil, &storage.Error{Code: "invalid_line_range"}
@@ -229,7 +229,7 @@ func (a *api) mcpServer(r *http.Request, access *auth.AccessToken, cache *mcp.Sc
 		}
 		return map[string]string{"path": in.Path}, err
 	})
-	addMCPTool(s, access, "patchContent", "PATCH", "/files/content", "按原版本应用严格单文件unified diff，可dryRun预检；保留无关字节、BOM和混合换行。版本或上下文不符时不写入。", true, func(_ context.Context, in mcpPatchInput) (any, error) {
+	addMCPTool(s, access, "patchContent", "PATCH", "/files/content", "按原版本应用严格单文件unified diff，可dryRun预检；保留无关字节、BOM和混合换行。首个旧行可含读取所得BOM；无旧首行的纯插入不另附BOM。失配返回details.hunkIndex（零基）、line（原文件一基）、reason，不写入。", true, func(_ context.Context, in mcpPatchInput) (any, error) {
 		if err := mcpRevision(in.ExpectedRevision); err != nil {
 			return nil, err
 		}
@@ -242,13 +242,13 @@ func (a *api) mcpServer(r *http.Request, access *auth.AccessToken, cache *mcp.Sc
 	addMCPTool(s, access, "getEntryRevision", "GET", "/entries/revision", "读取文件或目录的当前条目版本，供移动和回收使用；不是操作授权。", false, func(_ context.Context, in mcpPathInput) (any, error) {
 		return a.Workspace.EntryRevision(in.Path)
 	})
-	addMCPTool(s, access, "moveEntry", "PATCH", "/entries/move", "按原条目版本移动或重命名，同名不覆盖，不自动改写Markdown相对引用。", true, func(_ context.Context, in mcpMoveInput) (any, error) {
+	addMCPTool(s, access, "moveEntry", "PATCH", "/entries/move", "按原条目版本移动或重命名，同名不覆盖，不自动改写Markdown相对引用。返回移动成功时的revision；仅改路径不改变版本，版本不是条目身份，也不保证后续无人修改。", true, func(_ context.Context, in mcpMoveInput) (any, error) {
 		if err := mcpRevision(in.ExpectedRevision); err != nil {
 			return nil, err
 		}
 		err := a.Workspace.Move(in.From, in.To, in.ExpectedRevision)
 		a.indexChange(r, err, in.From, in.To)
-		return map[string]string{"from": in.From, "to": in.To}, err
+		return map[string]string{"from": in.From, "to": in.To, "revision": in.ExpectedRevision}, err
 	})
 	addMCPTool(s, access, "trashEntry", "DELETE", "/entries", "按原条目版本移入回收站，可恢复；不提供永久删除。", true, func(_ context.Context, in mcpTrashInput) (any, error) {
 		if err := mcpRevision(in.ExpectedRevision); err != nil {

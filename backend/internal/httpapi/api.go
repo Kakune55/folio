@@ -65,11 +65,18 @@ func storageFailure(err error) (int, string, string, any) {
 	if status >= 500 {
 		log.Printf("文件操作未完成：%v", err)
 	}
-	details := map[string]string{}
-	if problem.Revision != "" {
-		details = map[string]string{"currentRevision": problem.Revision}
+	details := make(map[string]any, len(problem.Details)+1)
+	for key, value := range problem.Details {
+		details[key] = value
 	}
-	return status, problem.Code, messages[problem.Code], details
+	if problem.Revision != "" {
+		details["currentRevision"] = problem.Revision
+	}
+	message := messages[problem.Code]
+	if problem.Code == "not_found" && details["reason"] == "parent_not_found" {
+		message = "父目录不存在，请先逐级创建目录；本次未自动创建"
+	}
+	return status, problem.Code, message, details
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

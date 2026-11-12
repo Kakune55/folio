@@ -72,13 +72,30 @@ func TestOperationDocumentsMatchEmbeddedSource(t *testing.T) {
 			t.Fatal("单操作未精简", entry.OperationID)
 		}
 	}
-	if len(applicationAgentGuide) > 5*1024 || len(applicationOperationDocuments.index) > len(applicationSpecification)/3 {
+	if len(applicationAgentGuide) > 2*1024 || len(applicationOperationDocuments.index) > len(applicationSpecification)/3 {
 		t.Fatal("渐进式入口体量过大", len(applicationAgentGuide), len(applicationOperationDocuments.index), len(applicationSpecification))
 	}
-	for _, required := range []string{"/mcp", "tools/list", "expectedRevision", "/operations/{operationId}", "If-Match", "412", "不能把片段当作全文覆盖", "durability_uncertain", "数据", "凭据"} {
+	for _, required := range []string{"/mcp", "Streamable HTTP", "Authorization", "Bearer <Access Token>", "mcpServers", "tools/list", "/api-docs", "凭据", "不覆盖已有服务", "不绕过审批"} {
 		if !strings.Contains(string(applicationAgentGuide), required) {
 			t.Fatal("精简指南丢失关键约定", required)
 		}
+	}
+	_, code, found := strings.Cut(string(applicationAgentGuide), "```json\n")
+	if !found {
+		t.Fatal("接入指南缺少JSON配置")
+	}
+	code, _, found = strings.Cut(code, "\n```")
+	var config struct {
+		MCPServers map[string]struct {
+			Type, URL string
+			Headers   map[string]string
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(code), &config); err != nil || !found {
+		t.Fatalf("接入JSON不合法：%v", err)
+	}
+	if entry := config.MCPServers["folio"]; len(config.MCPServers) != 1 || entry.Type != "http" || entry.URL != "https://你的站点/mcp" || entry.Headers["Authorization"] != "Bearer <Access Token>" {
+		t.Fatalf("接入JSON内容不正确：%+v", config)
 	}
 	t.Logf("指南 %d 字节，索引 %d 字节，完整契约 %d 字节，读取详情 %d 字节，局部修改详情 %d 字节", len(applicationAgentGuide), len(applicationOperationDocuments.index), len(applicationSpecification), len(applicationOperationDocuments.contracts["readContent"]), len(applicationOperationDocuments.contracts["patchContent"]))
 }

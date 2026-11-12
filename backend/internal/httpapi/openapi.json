@@ -628,7 +628,7 @@
       "patch": {
         "operationId": "patchContent",
         "summary": "使用 unified diff 条件修改局部正文",
-        "description": "单文件严格 unified diff，支持可选 ---/+++ 文件头与多个有序 @@ 块；行号、上下文、删除内容及末尾换行标记必须精确匹配，不搜索偏移或模糊匹配。必须携带原版本 If-Match，任何块失败均不保存。BOM 自动保留，补丁首行正文不携带 BOM；未修改行保留原字节。替换块新增行按位置继承被删行的非空换行，其他新增行使用源文件首个换行（无则 LF），支持 \\ No newline at end of file。补丁限 1 MiB、20000 操作行、256 块；源/结果最多 200000 行，结果仍受文本/配额限制。dryRun 仅校验当前读取版本和候选，不写入、不更新索引、不预留配额；revision/ETag 仍是原版本，size 是候选字节数。实际保存重新核对版本与配额。",
+        "description": "单文件严格 unified diff，支持可选 ---/+++ 文件头与多个有序 @@ 块；行号、上下文、删除内容及末尾换行标记必须精确匹配，不搜索偏移或模糊匹配。必须携带原版本 If-Match，任何块失败均不保存。BOM 自动保留；首个旧行可携带读取所得的 BOM，也兼容不含元数据 BOM 的传统表示法。按旧首行的精确匹配识别表示法，原字节表示法下新增文件首行的元数据 BOM 不会重复写入；其他 U+FEFF 仍作为正文。没有旧首行证据的纯起始插入按传统表示法，不另附 BOM。未修改行保留原字节。替换块新增行按位置继承被删行的非空换行，其他新增行使用源文件首个换行（无则 LF），支持 \\ No newline at end of file。补丁限 1 MiB、20000 操作行、256 块；源/结果最多 200000 行，结果仍受文本/配额限制。dryRun 仅校验当前读取版本和候选，不写入、不更新索引、不预留配额；revision/ETag 仍是原版本，size 是候选字节数。实际保存重新核对版本与配额。patch_mismatch 的 details 返回 hunkIndex、line、reason，不回传正文。",
         "tags": [
           "文件"
         ],
@@ -1063,7 +1063,7 @@
       "patch": {
         "operationId": "moveEntry",
         "summary": "条件移动或重命名",
-        "description": "携带原文件或子树的版本，不覆盖目标；不自动改写 Markdown 引用。跨设备移动不降级为复制。",
+        "description": "携带原文件或子树的版本，不覆盖目标；不自动改写 Markdown 引用。跨设备移动不降级为复制。成功返回移动时的 revision；仅改变条目路径不改变此版本，它不是条目身份，也不保证返回后无人修改。",
         "tags": [
           "文件"
         ],
@@ -2360,6 +2360,25 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "仅取得真实且非空的当前版本时附带；无版本或 path_missing 时不包含此属性。"
+                  },
+                  "hunkIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "patch_mismatch 时首个失配块的零基索引。"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "patch_mismatch 时完整原文件的一基行号；越界时可能超出文件末尾。"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": ["line_out_of_range", "context_mismatch", "deleted_content_mismatch", "newline_mismatch", "parent_not_found"],
+                    "description": "补丁失配原因；not_found 的 parent_not_found 表示操作所需父目录不存在，不自动创建。"
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "parent_not_found 时尝试打开的工作区相对父目录，不表示已确定其中哪一级最先缺失，不包含服务端绝对路径。"
                   }
                 },
                 "additionalProperties": true
@@ -2715,11 +2734,16 @@
           },
           "to": {
             "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "description": "移动成功时的条目版本，与本次条件版本一致；不是持续锁定或条目身份。"
           }
         },
         "required": [
           "from",
-          "to"
+          "to",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -3031,7 +3055,7 @@
           },
           "isPartial": {
             "type": "boolean",
-            "description": "true 表示片段，不能当作完整正文覆盖"
+            "description": "true 仅表示本次返回不是全文，不能用于覆盖整篇；与 hasMore 独立，读到末尾也可为 true，不代表文件损坏。"
           }
         },
         "required": [

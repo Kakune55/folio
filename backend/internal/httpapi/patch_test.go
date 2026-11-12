@@ -60,3 +60,69 @@ func TestPatchCookieCSRFAndValidation(t *testing.T) {
 		t.Fatal("预检或失败请求改变了正文")
 	}
 }
+
+func TestRESTWriteDiagnosticsAndMoveRevision(t *testing.T) {
+	e := newMCPTestEnv(t, "")
+	_, secret := e.token(1, auth.TokenPermissions{Files: "write", Search: "none", Trash: "none"})
+	call := func(method, path string, body any, revision string) *httptest.ResponseRecorder {
+		t.Helper()
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(string(encoded)))
+		r.Header.Set("Authorization", "Bearer "+secret)
+		r.Header.Set("Content-Type", "application/json")
+		if revision != "" {
+			r.Header.Set("If-Match", `"`+revision+`"`)
+		}
+		w := httptest.NewRecorder()
+		e.handler.ServeHTTP(w, r)
+		return w
+	}
+	w := call("POST", "/files", map[string]string{"path": "source.txt", "content": "a\nb\n"}, "")
+	var created struct{ Revision string }
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || w.Code != 201 || created.Revision == "" {
+		t.Fatalf("创建失败：%d %s %v", w.Code, w.Body.String(), err)
+	}
+	w = call("PATCH", "/files/content?path=source.txt", map[string]string{"diff": "@@ -2 +2 @@\n-wrong\n+B\n"}, created.Revision)
+	var problem struct {
+		Error struct {
+			Code    string
+			Details map[string]any
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 409 || problem.Error.Code != "patch_mismatch" || problem.Error.Details["line"] != float64(2) || problem.Error.Details["reason"] != "deleted_content_mismatch" {
+		t.Fatalf("REST未传递补丁定位：%s", w.Body.String())
+	}
+	current, err := e.handler.get(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := current.store.Read("source.txt")
+	if err != nil || content.Revision != created.Revision || content.Content != "a\nb\n" {
+		t.Fatalf("失配改变正文：%+v %v", content, err)
+	}
+	w = call("PATCH", "/entries/move", map[string]string{"from": "source.txt", "to": "moved.txt"}, created.Revision)
+	var moved struct{ From, To, Revision string }
+	if err := json.Unmarshal(w.Body.Bytes(), &moved); err != nil || w.Code != 200 || moved.Revision != created.Revision || moved.To != "moved.txt" {
+		t.Fatalf("REST移动版本错误：%d %s %v", w.Code, w.Body.String(), err)
+	}
+	for _, endpoint := range []string{"/files", "/directories"} {
+		body := map[string]string{"path": "missing/parent/entry"}
+		if endpoint == "/files" {
+			body["content"] = ""
+		}
+		w = call("POST", endpoint, body, "")
+		problem.Error.Details = nil
+		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 404 || problem.Error.Code != "not_found" || problem.Error.Details["reason"] != "parent_not_found" || problem.Error.Details["path"] != "missing/parent" {
+			t.Fatalf("REST父目录错误不明确：%d %s", w.Code, w.Body.String())
+		}
+	}
+}

@@ -467,6 +467,66 @@ func TestMCPContentPatchAndTrashLifecycle(t *testing.T) {
 	}
 }
 
+func TestMCPBOMFirstLineDiagnosticsAndMoveRevision(t *testing.T) {
+	e := newMCPTestEnv(t, "")
+	_, secret := e.token(1, auth.TokenPermissions{Files: "write", Search: "none", Trash: "none"})
+	original := "\ufeff第一行\r\nsecond\nthird\r"
+	e.success(secret, "createFile", map[string]any{"path": "bom.txt", "content": original}, nil)
+	var first storage.LineContent
+	e.success(secret, "readContent", map[string]any{"path": "bom.txt", "lineCount": 1}, &first)
+	diff := "@@ -1 +1 @@\n-" + strings.TrimSuffix(first.Content.Content, "\r\n") + "\n+\ufeff替换后\n"
+	args := map[string]any{"path": "bom.txt", "expectedRevision": first.Revision, "diff": diff, "dryRun": true}
+	var result storage.PatchResult
+	e.success(secret, "patchContent", args, &result)
+	if result.Revision != first.Revision {
+		t.Fatal("BOM预检消耗了版本")
+	}
+	raw, err := os.ReadFile(filepath.Join(e.workspace, "1", "bom.txt"))
+	if err != nil || string(raw) != original {
+		t.Fatalf("BOM预检改写正文：%q %v", raw, err)
+	}
+	args["dryRun"] = false
+	e.success(secret, "patchContent", args, &result)
+	want := "\ufeff替换后\r\nsecond\nthird\r"
+	raw, err = os.ReadFile(filepath.Join(e.workspace, "1", "bom.txt"))
+	if err != nil || string(raw) != want {
+		t.Fatalf("首行读取构造的补丁丢失原始字节：%q %v", raw, err)
+	}
+	response, failure := e.tool(secret, "patchContent", map[string]any{"path": "bom.txt", "expectedRevision": result.Revision, "diff": "@@ -1,2 +1,2 @@\n \ufeff替换后\n-wrong\n+SECOND\n"})
+	var problem struct {
+		Error struct {
+			Code    string
+			Details map[string]any
+		}
+	}
+	if err := json.Unmarshal(failure.StructuredContent, &problem); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != nil || !failure.IsError || problem.Error.Code != "patch_mismatch" || problem.Error.Details["hunkIndex"] != float64(0) || problem.Error.Details["line"] != float64(2) || problem.Error.Details["reason"] != "deleted_content_mismatch" || len(problem.Error.Details) != 3 {
+		t.Fatalf("补丁未给出有界定位：%s", failure.StructuredContent)
+	}
+	var moved struct{ From, To, Revision string }
+	e.success(secret, "moveEntry", map[string]any{"from": "bom.txt", "to": "moved.txt", "expectedRevision": result.Revision}, &moved)
+	if moved.From != "bom.txt" || moved.To != "moved.txt" || moved.Revision != result.Revision {
+		t.Fatalf("移动结果版本错误：%+v", moved)
+	}
+	var tail storage.LineContent
+	e.success(secret, "readContent", map[string]any{"path": "moved.txt", "startLine": 2, "expectedRevision": moved.Revision}, &tail)
+	if tail.HasMore || !tail.IsPartial || tail.Content.Content != "second\nthird\r" {
+		t.Fatalf("尾段含义或版本错误：%+v", tail)
+	}
+	_, failure = e.tool(secret, "createFile", map[string]any{"path": "missing/parent/file.txt", "content": "must not save"})
+	if err := json.Unmarshal(failure.StructuredContent, &problem); err != nil {
+		t.Fatal(err)
+	}
+	if !failure.IsError || problem.Error.Code != "not_found" || problem.Error.Details["reason"] != "parent_not_found" || problem.Error.Details["path"] != "missing/parent" {
+		t.Fatalf("父目录错误不明确：%s", failure.StructuredContent)
+	}
+	if _, err := os.Stat(filepath.Join(e.workspace, "1", "missing")); !os.IsNotExist(err) {
+		t.Fatalf("失败时创建了父目录：%v", err)
+	}
+}
+
 func TestMCPPathBoundaryAndArgumentValidation(t *testing.T) {
 	e := newMCPTestEnv(t, "")
 	_, secret := e.token(1, auth.TokenPermissions{Files: "write", Search: "read", Trash: "write"})

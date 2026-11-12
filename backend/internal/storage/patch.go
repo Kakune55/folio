@@ -209,9 +209,28 @@ func applyUnifiedPatch(name, source, diff string, limit int64) (string, int, int
 	if err != nil {
 		return "", 0, 0, err
 	}
+	readBOM := false
+	if bom != "" && hunks[0].oldStart == 1 && hunks[0].oldCount > 0 {
+		for _, line := range hunks[0].lines {
+			if line.kind != '+' {
+				// 只有原字节表示法将 BOM-only 文件视作一个无换行首行。
+				if len(old) == 0 && line.text == bom {
+					old = append(old, sourceLine{})
+				}
+				// 优先正文精确匹配，避免把第二个前导 U+FEFF 当成元数据。
+				readBOM = len(old) > 0 && line.text != old[0].text && line.text == bom+old[0].text
+				break
+			}
+		}
+	}
 	output := make([]sourceLine, 0, len(old))
 	cursor, previousAnchor, added, deleted := 0, -1, 0, 0
-	for _, h := range hunks {
+	for hunkIndex, h := range hunks {
+		mismatch := func(line int, reason string) (string, int, int, error) {
+			return "", 0, 0, &Error{Code: "patch_mismatch", Details: map[string]any{
+				"hunkIndex": hunkIndex, "line": line, "reason": reason,
+			}}
+		}
 		anchor := h.oldStart
 		if h.oldCount > 0 {
 			anchor--
@@ -220,7 +239,11 @@ func applyUnifiedPatch(name, source, diff string, limit int64) (string, int, int
 			return "", 0, 0, fail("invalid_patch")
 		}
 		if anchor > len(old) || h.oldCount > len(old)-anchor {
-			return "", 0, 0, fail("patch_mismatch")
+			line := len(old) + 1
+			if anchor > len(old) {
+				line = anchor + 1
+			}
+			return mismatch(line, "line_out_of_range")
 		}
 		output = append(output, old[cursor:anchor]...)
 		cursor = anchor
@@ -243,6 +266,9 @@ func applyUnifiedPatch(name, source, diff string, limit int64) (string, int, int
 				if line.noNewline {
 					eol = ""
 				}
+				if readBOM && len(output) == 0 {
+					line.text = strings.TrimPrefix(line.text, bom)
+				}
 				output = append(output, sourceLine{line.text, eol})
 			}
 			removed = nil
@@ -254,8 +280,22 @@ func applyUnifiedPatch(name, source, diff string, limit int64) (string, int, int
 				added++
 				continue
 			}
-			if cursor >= len(old) || old[cursor].text != line.text || (old[cursor].ending == "") != line.noNewline {
-				return "", 0, 0, fail("patch_mismatch")
+			if cursor >= len(old) {
+				return mismatch(cursor+1, "line_out_of_range")
+			}
+			text := line.text
+			if readBOM && cursor == 0 {
+				text = strings.TrimPrefix(text, bom)
+			}
+			if old[cursor].text != text {
+				reason := "deleted_content_mismatch"
+				if line.kind == ' ' {
+					reason = "context_mismatch"
+				}
+				return mismatch(cursor+1, reason)
+			}
+			if (old[cursor].ending == "") != line.noNewline {
+				return mismatch(cursor+1, "newline_mismatch")
 			}
 			if line.kind == ' ' {
 				flush()

@@ -64,7 +64,7 @@ function ApplicationsPanel() {
   const [remove, setRemove] = useState<AccessToken | null>(null)
   const secretInput = useRef<HTMLInputElement>(null), lock = useRef(false)
   const refresh = () => client.invalidateQueries({ queryKey: ['access-tokens'] })
-  return <><section className="setting-panel" aria-labelledby="applications-heading"><div className="setting-panel-heading"><h2 id="applications-heading">管理 Access Token</h2><div className="token-guide-actions"><MCPGuide /><Link to="/api-docs">API 文档</Link></div></div><div className="setting-panel-content"><p className="setting-description">令牌可通过 MCP 或 REST API 访问本账号工作区，请为每个应用单独生成。</p>
+  return <><section className="setting-panel" aria-labelledby="applications-heading"><div className="setting-panel-heading token-panel-heading"><h2 id="applications-heading">管理 Access Token</h2><div className="token-guide-actions"><MCPGuide /><Link className="button button-ghost" to="/api-docs">API 文档</Link></div></div><div className="setting-panel-content">
     {tokens.isPending && <p role="status">正在读取令牌…</p>}{tokens.error && <p role="alert" className="form-error">{tokens.error.message} <Button onClick={() => void tokens.refetch()}>重试</Button></p>}
     <ul className="access-token-list">{tokens.data?.entries.map(t => <li key={t.id}><KeyRound size={23} /><div className="access-token-info"><strong>{t.name}</strong><p><code>{t.prefix}…</code> · 创建于 {date(t.createdAt)}</p><p>{t.lastUsedAt ? `最近使用 ${date(t.lastUsedAt)}` : '尚未使用'} · {t.expiresAt ? `${date(t.expiresAt)} 到期${t.expiresAt <= tokens.dataUpdatedAt / 1000 ? '（已过期）' : ''}` : '永不过期'}</p><p>{(Object.keys(permissionNames) as (keyof TokenPermissions)[]).map(k => `${permissionNames[k]}：${permissionText[t.permissions[k]]}`).join(' · ')}</p></div><Button className="token-delete" aria-label={`删除令牌 ${t.name}`} onClick={() => { setError(''); setRemove(t) }}><Trash2 size={15} />删除</Button></li>)}</ul>
     {tokens.data?.entries.length === 0 && <p className="token-empty">尚未创建访问令牌。</p>}
@@ -79,7 +79,6 @@ function ApplicationsPanel() {
       catch (e) { setError(`${e instanceof Error ? e.message : '生成失败'}。若响应中断，请刷新令牌列表核对；无法取回的令牌可删除后重新生成。`) } finally { lock.current = false; setBusy(false) }
     }}><label htmlFor="token-name">令牌名称</label><input id="token-name" placeholder="例如：笔记归档脚本" value={name} onChange={e => setName(e.target.value)} maxLength={80} required disabled={busy} /><label htmlFor="token-expiry">有效期</label><select id="token-expiry" value={days} onChange={e => setDays(e.target.value)} disabled={busy}><option value="1">1 天</option><option value="7">7 天</option><option value="14">14 天</option><option value="30">30 天</option><option value="90">90 天</option><option value="180">180 天</option><option value="365">365 天</option><option value="0">永不过期</option><option value="custom">自定义</option></select>
       {days === 'custom' && <><label htmlFor="token-custom-days">自定义天数</label><input id="token-custom-days" type="number" inputMode="numeric" min={1} max={366} step={1} value={customDays} onChange={e => setCustomDays(e.target.value)} placeholder="例如：45" aria-describedby="token-custom-days-hint" required disabled={busy} /><p id="token-custom-days-hint" className="setting-description">1–366 天，从生成时起按每 24 小时计算。</p></>}
-      <p className="setting-description">权限作用于本账号整个工作区。读写包含读取；回收和恢复文件还需文件读写权限。</p>
       <fieldset className="token-permissions" disabled={busy}><legend>API 访问权限</legend><div className="token-permission-head" aria-hidden="true"><span>资源</span><span>无权限</span><span>只读</span><span>读写</span></div>{(Object.keys(permissionNames) as (keyof TokenPermissions)[]).map(k => <div className="token-permission-row" key={k} role="group" aria-label={`${permissionNames[k]}权限`}><span>{permissionNames[k]}</span>{(['none', 'read', 'write'] as const).map(v => <label key={v}><input type="radio" name={`permission-${k}`} aria-label={`${permissionNames[k]}${permissionText[v]}`} checked={permissions[k] === v} onChange={() => setPermissions({ ...permissions, [k]: v })} /><span className="sr-only">{permissionText[v]}</span></label>)}</div>)}</fieldset>
       <p className="setting-description">令牌不能管理账号、系统设置、其他令牌或公开分享，也不能永久删除回收站文件。</p><Button variant="outline" type="submit" disabled={busy || Object.values(permissions).every(p => p === 'none')}>{busy ? '正在生成…' : '生成令牌'}</Button>
     </form>}
@@ -91,24 +90,51 @@ function ApplicationsPanel() {
 
 function MCPGuide() {
   const endpoint = new URL('/mcp', window.location.origin).href
-  const [copied, setCopied] = useState(false), [error, setError] = useState('')
+  const prompt = `请按 ${new URL('/api/v1/agent.md', window.location.origin).href} 为当前客户端接入 Folio MCP，并指引用户配置认证信息。`
+  const configuration = JSON.stringify({ mcpServers: { folio: { type: 'http', url: endpoint, headers: { Authorization: 'Bearer <Access Token>' } } } }, null, 2)
+  const [copied, setCopied] = useState<'address' | 'config' | 'prompt' | null>(null), [error, setError] = useState('')
   const address = useRef<HTMLInputElement>(null)
+  const configurationBlock = useRef<HTMLPreElement>(null)
+  const promptBlock = useRef<HTMLPreElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
-  return <Dialog.Root onOpenChange={() => { setCopied(false); setError('') }}>
+  const copyBlock = async (kind: 'config' | 'prompt') => {
+    setCopied(null)
+    try { await navigator.clipboard.writeText(kind === 'config' ? configuration : prompt); setCopied(kind); setError('') }
+    catch {
+      const block = kind === 'config' ? configurationBlock.current : promptBlock.current
+      if (block) {
+        block.focus()
+        const range = document.createRange()
+        range.selectNodeContents(block)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+      }
+      setError(kind === 'config' ? '复制失败，请手动复制已选中的 JSON 配置。' : '复制失败，请手动复制已选中的接入指引。')
+    }
+  }
+  return <Dialog.Root onOpenChange={() => { setCopied(null); setError('') }}>
     <Dialog.Trigger asChild><Button>MCP 指南</Button></Dialog.Trigger>
     <Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content mcp-guide" onOpenAutoFocus={event => { event.preventDefault(); heading.current?.focus({ preventScroll: true }) }}>
       <Dialog.Title ref={heading} tabIndex={-1}>MCP 快速配置</Dialog.Title>
-      <Dialog.Description>使用现有 Access Token 连接 Folio，无需安装转接程序。客户端须支持 Streamable HTTP 和自定义请求头。</Dialog.Description>
+      <h3>一句话接入</h3>
+      <pre ref={promptBlock} tabIndex={0} aria-label="一句话接入指引"><code>{prompt}</code></pre>
+      <Button variant="outline" onClick={() => void copyBlock('prompt')}><Copy size={16} />{copied === 'prompt' ? '指引已复制' : '复制接入指引'}</Button>
+      <details><summary>手动配置与 JSON 导入</summary>
       <ol className="mcp-guide-steps">
-        <li><h3>生成专用令牌</h3><p>在本页为客户端单独生成令牌。仅查阅可选文件、搜索“只读”，回收站“无权限”；编辑需文件“读写”，回收和恢复还需回收站“读写”。完整令牌仅生成时显示，请安全保存。</p></li>
-        <li><h3>添加远程 MCP 服务</h3><p>名称可填 Folio，传输方式选择 <code>Streamable HTTP</code>，连接地址使用：</p>
-          <label className="sr-only" htmlFor="mcp-endpoint">MCP 连接地址</label><div className="token-secret-row"><input ref={address} id="mcp-endpoint" readOnly value={endpoint} spellCheck={false} onFocus={e => e.target.select()} /><Button aria-label="复制 MCP 地址" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); setCopied(true); setError('') } catch { address.current?.focus(); address.current?.select(); setError('复制失败，请手动复制上方地址。') } }}><Copy size={16} />{copied ? '已复制' : '复制'}</Button></div>
+        <li><h3>生成专用令牌</h3><p>在本页为客户端单独生成令牌并配置相关权限。</p></li>
+        <li><h3>添加远程 MCP 服务</h3><p>协议 <code>Streamable HTTP</code>，连接地址：</p>
+          <label className="sr-only" htmlFor="mcp-endpoint">MCP 连接地址</label><div className="token-secret-row"><input ref={address} id="mcp-endpoint" readOnly value={endpoint} spellCheck={false} onFocus={e => e.target.select()} /><Button aria-label="复制 MCP 地址" onClick={async () => { setCopied(null); try { await navigator.clipboard.writeText(endpoint); setCopied('address'); setError('') } catch { address.current?.focus(); address.current?.select(); setError('复制失败，请手动复制上方地址。') } }}><Copy size={16} />{copied === 'address' ? '已复制' : '复制'}</Button></div>
         </li>
         <li><h3>配置认证请求头</h3><pre><code>{'Authorization: Bearer <Access Token>'}</code></pre><p>将 <code>&lt;Access Token&gt;</code> 替换为刚生成的完整令牌，<code>Bearer</code> 后保留一个空格。填在客户端的请求头或安全凭据配置中，不要放入 URL、聊天或工具参数。各客户端配置字段可能不同。</p></li>
-        <li><h3>连接并发现工具</h3><p>保存后连接或刷新工具列表，即可发现当前权限允许的文件、搜索及回收恢复工具。仅能读取已保存文件，看不到浏览器草稿；修改仍需原版本保护。</p></li>
+        <li><h3>连接并发现工具</h3><p>保存后连接或刷新工具列表，即可发现当前权限允许的工具。</p></li>
       </ol>
-      <p className="setting-description">初版不支持 OAuth 登录或旧式 SSE。401 请检查令牌是否完整、过期或撤销；工具缺失请核对权限。生产环境使用 HTTPS，连接异常时检查代理是否转发 /mcp、Host 和 Authorization，以及 FOLIO_ORIGIN 是否与外部站点一致。</p>
-      {error && <p role="alert" className="form-error">{error}</p>}{copied && <p role="status">MCP 地址已复制。</p>}
+      <h3>JSON 快速配置</h3>
+      <p>适用于 mcpServers 格式的客户端；导入前替换 &lt;Access Token&gt;，具体字段以客户端要求为准，合并 folio 条目，不覆盖其他服务。</p>
+      <pre ref={configurationBlock} tabIndex={0} aria-label="MCP JSON 配置"><code>{configuration}</code></pre>
+      <Button variant="outline" onClick={() => void copyBlock('config')}><Copy size={16} />{copied === 'config' ? 'JSON 已复制' : '复制 JSON 配置'}</Button>
+      </details>
+      {error && <p role="alert" className="form-error">{error}</p>}{copied && <p role="status">{{ config: 'JSON 配置已复制，请替换令牌占位符。', address: 'MCP 地址已复制。', prompt: '接入指引已复制，不含令牌。' }[copied]}</p>}
       <div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
     </DialogContent></Dialog.Portal>
   </Dialog.Root>

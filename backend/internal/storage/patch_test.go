@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,21 @@ func TestUnifiedPatchFormatsAndPreservation(t *testing.T) {
 		{"BOM 文件清空保留 BOM", "\ufeffa\n", "@@ -1 +0,0 @@\n-a\n", "\ufeff", 0, 1},
 		{"纯上下文", "a\nb\n", "@@ -1,2 +1,2 @@\n a\n b\n", "a\nb\n", 0, 0},
 		{"相同内容不改换行", "a\r\n", "@@ -1 +1 @@\n-a\n+a\n", "a\r\n", 1, 1},
+		{"原字节首行新旧 BOM", "\ufeffa\r\nb\n", "@@ -1 +1 @@\n-\ufeffa\n+\ufeffA\n", "\ufeffA\r\nb\n", 1, 1},
+		{"旧行 BOM 新行不带", "\ufeffa\n", "@@ -1 +1 @@\n-\ufeffa\n+A\n", "\ufeffA\n", 1, 1},
+		{"传统首行不带 BOM", "\ufeffa\n", "@@ -1 +1 @@\n-a\n+A\n", "\ufeffA\n", 1, 1},
+		{"原字节 BOM 上下文", "\ufeffa\r\nb\n", "@@ -1,2 +1,2 @@\n \ufeffa\n-b\n+B\n", "\ufeffa\r\nB\n", 1, 1},
+		{"BOM 多块混合换行", "\ufeffa\r\nb\nc\rd\n", "@@ -1 +1,2 @@\n-\ufeffa\n+\ufeffA\n+\ufeff正文\n@@ -4 +5 @@\n-d\n+\ufeffD\n", "\ufeffA\r\n\ufeff正文\r\nb\nc\r\ufeffD\n", 3, 2},
+		{"原字节清空保留 BOM", "\ufeffa\n", "@@ -1 +0,0 @@\n-\ufeffa\n", "\ufeff", 0, 1},
+		{"BOM-only 原字节替换", "\ufeff", "@@ -1 +1 @@\n-\ufeff\n\\ No newline at end of file\n+\ufeffA\n\\ No newline at end of file\n", "\ufeffA", 1, 1},
+		{"BOM-only 清空保留元数据", "\ufeff", "@@ -1 +0,0 @@\n-\ufeff\n\\ No newline at end of file\n", "\ufeff", 0, 1},
+		{"BOM-only 传统插入", "\ufeff", "@@ -0,0 +1 @@\n+A\n", "\ufeffA\n", 1, 0},
+		{"重复前导原字节保留", "\ufeff\ufeffa\n", "@@ -1 +1 @@\n-\ufeff\ufeffa\n+\ufeff\ufeffA\n", "\ufeff\ufeffA\n", 1, 1},
+		{"重复前导传统保留", "\ufeff\ufeffa\n", "@@ -1 +1 @@\n-\ufeffa\n+\ufeffA\n", "\ufeff\ufeffA\n", 1, 1},
+		{"重复前导原字节显式删除正文 FEFF", "\ufeff\ufeffa\n", "@@ -1 +1 @@\n-\ufeff\ufeffa\n+\ufeffA\n", "\ufeffA\n", 1, 1},
+		{"重复前导原字节新增正文 FEFF", "\ufeff\ufeffa\n", "@@ -1 +1 @@\n-\ufeff\ufeffa\n+\ufeff\ufeff\ufeffA\n", "\ufeff\ufeff\ufeffA\n", 1, 1},
+		{"中间 FEFF 原样保留", "\ufeffa\ufeffb\n", "@@ -1 +1 @@\n-\ufeffa\ufeffb\n+\ufeffA\ufeffB\n", "\ufeffA\ufeffB\n", 1, 1},
+		{"无旧首行证据按传统处理", "\ufeffa\n", "@@ -0,0 +1 @@\n+\ufeffnew\n", "\ufeff\ufeffnew\na\n", 1, 0},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -39,6 +55,80 @@ func TestUnifiedPatchFormatsAndPreservation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnifiedPatchMismatchDetails(t *testing.T) {
+	cases := []struct {
+		name, source, diff, reason string
+		hunkIndex, line            int
+	}{
+		{"删除不符", "a\nb\n", "@@ -1 +1 @@\n-wrong\n+A\n", "deleted_content_mismatch", 0, 1},
+		{"上下文不符", "a\nb\n", "@@ -2 +2 @@\n wrong\n", "context_mismatch", 0, 2},
+		{"位置越界", "a\nb\n", "@@ -4 +4 @@\n-x\n+X\n", "line_out_of_range", 0, 4},
+		{"范围越界", "a\nb\n", "@@ -2,2 +2,2 @@\n b\n c\n", "line_out_of_range", 0, 3},
+		{"空文件越界", "", "@@ -1 +1 @@\n-x\n+X\n", "line_out_of_range", 0, 1},
+		{"多块完整原坐标", "a\nb\nc\nd\n", "@@ -1 +1,2 @@\n-a\n+A\n+extra\n@@ -4 +5 @@\n-wrong\n+D\n", "deleted_content_mismatch", 1, 4},
+		{"多块上下文", "a\nb\nc\n", "@@ -1 +1 @@\n-a\n+A\n@@ -3 +3 @@\n wrong\n", "context_mismatch", 1, 3},
+		{"缺少无换行标记", "a", "@@ -1 +1 @@\n-a\n+A\n", "newline_mismatch", 0, 1},
+		{"多余无换行标记", "a\r\nb\n", "@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+A\n", "newline_mismatch", 0, 1},
+		{"BOM-only 换行不符", "\ufeff", "@@ -1 +1 @@\n-\ufeff\n+A\n", "newline_mismatch", 0, 1},
+		{"正文中间 FEFF 不忽略", "\ufeffa\ufeffb\n", "@@ -1 +1 @@\n-\ufeffab\n+A\n", "deleted_content_mismatch", 0, 1},
+		{"非首行 FEFF 不忽略", "\ufeffa\nb\n", "@@ -1,2 +1,2 @@\n \ufeffa\n-\ufeffb\n+B\n", "deleted_content_mismatch", 0, 2},
+		{"重复前导不任意去除", "\ufeff\ufeffa\n", "@@ -1 +1 @@\n-a\n+A\n", "deleted_content_mismatch", 0, 1},
+		{"重复前导不任意增加", "\ufeffa\n", "@@ -1 +1 @@\n-\ufeff\ufeffa\n+A\n", "deleted_content_mismatch", 0, 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			candidate, added, deleted, err := applyUnifiedPatch("note.txt", tt.source, tt.diff, 1<<20)
+			code(t, err, "patch_mismatch")
+			var problem *Error
+			want := map[string]any{"hunkIndex": tt.hunkIndex, "line": tt.line, "reason": tt.reason}
+			if !errors.As(err, &problem) || !reflect.DeepEqual(problem.Details, want) {
+				t.Fatalf("失配详情 = %+v; want %+v", problem, want)
+			}
+			if candidate != "" || added != 0 || deleted != 0 {
+				t.Fatal("失败返回了部分候选或计数", candidate, added, deleted)
+			}
+		})
+	}
+}
+
+func TestPatchReadDerivedBOMAndAtomicity(t *testing.T) {
+	store, root := testStore(t)
+	original := "\ufeff\ufeffa\r\nb\nc\r"
+	revision, err := store.Write("note.txt", original, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Read("note.txt")
+	if err != nil || current.Content != original || current.Revision != revision {
+		t.Fatal("读取未保留原始字节与版本", current, err)
+	}
+	first := strings.SplitN(current.Content, "\r\n", 2)[0]
+	diff := "@@ -1 +1 @@\n-" + first + "\n+" + strings.Replace(first, "a", "A", 1) + "\n"
+	for _, dryRun := range []bool{true, false} {
+		_, err = store.Patch("note.txt", diff+"@@ -3 +3 @@\n-wrong\n+C\n", revision, dryRun)
+		code(t, err, "patch_mismatch")
+		_, err = store.Patch("note.txt", diff, revision, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, readErr := os.ReadFile(filepath.Join(root, "note.txt"))
+		current, err = store.Read("note.txt")
+		if readErr != nil || err != nil || string(raw) != original || current.Revision != revision {
+			t.Fatal("失败或 dryRun 改写了文件", readErr, err)
+		}
+	}
+	result, err := store.Patch("note.txt", diff, revision, false)
+	if err != nil || !result.Changed || result.Revision == revision {
+		t.Fatal(result, err)
+	}
+	current, err = store.Read("note.txt")
+	if err != nil || current.Content != strings.Replace(original, "a", "A", 1) {
+		t.Fatal("原字节补丁结果不符", current, err)
+	}
+	_, err = store.Patch("note.txt", diff, revision, true)
+	code(t, err, "revision_conflict")
 }
 func TestUnifiedPatchRejectsMismatchAndUnsafeSyntax(t *testing.T) {
 	cases := []struct{ diff, code string }{
