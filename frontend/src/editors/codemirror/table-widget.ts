@@ -2,6 +2,9 @@ import { EditorState, type Text } from '@codemirror/state'
 import { defaultKeymap, redo, undo } from '@codemirror/commands'
 import { EditorView, keymap, WidgetType } from '@codemirror/view'
 import { tableCellTransaction, tableNavigation, type tableAlignments } from './tables'
+import { createElement } from 'react'
+import { createRoot } from 'react-dom/client'
+import { TableControls } from './TableControls'
 
 export type TableWidgetOptions = {
   canEdit?: () => boolean
@@ -27,7 +30,7 @@ export class TableWidget extends WidgetType {
     super(); this.rows = rows; this.raw = raw; this.options = options; this.alignments = alignments; this.document = document
   }
   eq(other: TableWidget) { return this.document === other.document && this.raw === other.raw && JSON.stringify(this.rows) === JSON.stringify(other.rows) && this.options === other.options }
-  get estimatedHeight() { return this.rows.length * 38 + 16 }
+  get estimatedHeight() { return this.rows.length * 38 + 48 }
   toDOM(outer: EditorView) {
     const root = document.createElement('div'), table = document.createElement('table')
     root.className = 'folio-preview-table'
@@ -37,6 +40,21 @@ export class TableWidget extends WidgetType {
     const cells: HTMLElement[][] = []
     const writable = () => !destroyed && outer.dom.isConnected && !outer.state.readOnly && outer.state.facet(EditorView.editable) && (widget.options.canEditCell?.() ?? widget.options.canEdit?.() ?? true)
     const report = (message: string) => widget.options.onBlocked?.(message)
+    const controlsHost = document.createElement('div')
+    controlsHost.className = 'folio-table-local-controls'
+    const controls = createRoot(controlsHost)
+    const canControl = () => writable() && widget.options.canEdit?.() !== false && !outer.composing && !outer.compositionStarted && !active?.composing
+    const prepareControls = () => {
+      if (!canControl()) { report('当前不能编辑表格，请先处理未确认输入或文件操作。'); return false }
+      const selection = outer.state.selection.main
+      const selected = widget.rows.flat().find(cell => selection.from >= cell.from && selection.to <= cell.to)
+      const cell = selected ?? (active?.doc === outer.state.doc ? active : widget.rows[0][0])
+      outer.dispatch({ selection: { anchor: cell.from, head: cell.to } })
+      return true
+    }
+    queueMicrotask(() => {
+      if (!destroyed) controls.render(createElement(TableControls, { view: outer, disabled: false, local: prepareControls, canEdit: canControl, onBlocked: report }))
+    })
     const close = () => {
       if (!active) return
       const previous = active; active = undefined
@@ -173,7 +191,7 @@ export class TableWidget extends WidgetType {
         table.append(tr); cells.push(elements)
       }
     }
-    render(); root.append(table)
+    render(); root.append(controlsHost, table)
     root.addEventListener('folio-table-focus', focusSelection)
     lives.set(root, {
       update: next => {
@@ -198,7 +216,7 @@ export class TableWidget extends WidgetType {
           } else td.textContent = cell.text
         }
       },
-      destroy: () => { destroyed = true; close() },
+      destroy: () => { destroyed = true; close(); queueMicrotask(() => controls.unmount()) },
     })
     return root
   }

@@ -3,6 +3,11 @@
 .folio-table-menu [role="menuitemradio"] { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 10px; border-radius: 4px; outline: none; cursor: default; }
 .folio-table-menu [role="menuitemradio"][data-disabled] { opacity: .45; }
 .folio-table-dialog { max-width: 380px; }
+.folio-table-local-controls { position: sticky; inset-inline-start: 0; z-index: 1; width: max-content; height: 28px; margin-bottom: 4px; opacity: 0; }
+.folio-preview-table:hover .folio-table-local-controls, .folio-preview-table:focus-within .folio-table-local-controls, .folio-table-local-controls:has([data-state='open']) { opacity: 1; }
+.folio-table-local-trigger { height: 26px; padding: 0 7px; gap: 5px; border: 1px solid var(--border); background: var(--background); color: var(--muted-foreground); font-size: 11px; }
+.folio-table-local-trigger:hover, .folio-table-local-trigger[data-state='open'] { color: var(--foreground); background: var(--surface-hover); }
+@media (hover: none), (max-width: 767px) { .folio-table-local-controls { opacity: 1; height: 40px; } .folio-table-local-trigger { min-height: 40px; } }
 .folio-table-size { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
 .folio-table-size label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .folio-table-size input { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--foreground); }
