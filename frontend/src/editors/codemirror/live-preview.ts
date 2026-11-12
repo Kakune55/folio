@@ -3,6 +3,7 @@ import { EditorState, type Extension, type Range, type TransactionSpec } from '@
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 import { markdownLinkTarget, markdownReferences } from './links'
+import { AlertTitle, githubAlert } from './github-alerts'
 import './live-preview.css'
 
 type PreviewOptions = { canEdit?: () => boolean; onBlocked?: (message: string) => void }
@@ -91,6 +92,7 @@ const inlineClasses: Record<string, string> = {
 export function livePreviewDecorations(state: EditorState, visible: readonly SourceRange[], options: PreviewOptions = {}): DecorationSet {
   const ranges: Range<Decoration>[] = []
   const seen = new Set<string>()
+  const alertHeaders: SourceRange[] = []
   const tree = syntaxTree(state)
   let references: ReadonlyMap<string, string> | undefined
   let budget = 6000
@@ -128,13 +130,24 @@ export function livePreviewDecorations(state: EditorState, visible: readonly Sou
   }
   const visit = (node: SyntaxNode, viewport: SourceRange): boolean => {
     const name = node.name
+    if (alertHeaders.some(header => node.from >= header.from && node.to <= header.to)) return false
     if (name === 'InlineMath' || name === 'MathBlock') return false
     if (['Image', 'Table', 'HTMLBlock', 'HTMLTag'].includes(name)) return false
     if (name === 'FencedCode' || name === 'CodeBlock') {
       lines(node, 'code-line', viewport)
       return false
     }
-    if (name === 'Blockquote') lines(node, 'quote-line', viewport)
+    if (name === 'Blockquote') {
+      const alert = githubAlert(state, node)
+      if (alert) {
+        lines(node, 'alert-line', viewport); lines(node, `alert-${alert.type.toLowerCase()}`, viewport)
+        lines({ from: node.from, to: node.from }, 'alert-start', viewport)
+        lines({ from: node.to, to: node.to }, 'alert-end', viewport)
+        alertHeaders.push(alert)
+        const key = `${alert.from}:alert-title`
+        if (!active(node) && !seen.has(key)) { seen.add(key); add(Decoration.replace({ widget: new AlertTitle(alert.type) }), alert.from, alert.to) }
+      } else lines(node, 'quote-line', viewport)
+    }
     if (name === 'ListItem') lines(node, 'list-line', viewport)
     if (name === 'HorizontalRule' && !active(node)) {
       lines(node, 'rule-line', viewport)

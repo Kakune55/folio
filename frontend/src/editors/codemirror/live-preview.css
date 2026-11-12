@@ -11,6 +11,16 @@
 .folio-md-heading-1, .folio-md-heading-2, .folio-md-heading-3,
 .folio-md-heading-4, .folio-md-heading-5, .folio-md-heading-6 { line-height: 1.7; }
 .folio-md-quote-line { border-left: 2px solid var(--border); color: var(--muted-foreground); }
+.folio-md-alert-line { border-left: 4px solid var(--folio-alert-color); color: var(--foreground); padding-block: 2px; }
+.folio-md-alert-note { --folio-alert-color: var(--alert-note); }
+.folio-md-alert-tip { --folio-alert-color: var(--alert-tip); }
+.folio-md-alert-important { --folio-alert-color: var(--alert-important); }
+.folio-md-alert-warning { --folio-alert-color: var(--alert-warning); }
+.folio-md-alert-caution { --folio-alert-color: var(--alert-caution); }
+.folio-md-alert-start { padding-top: 8px; }
+.folio-md-alert-end { padding-bottom: 8px; }
+.folio-alert-title { display: inline-flex; align-items: center; gap: 8px; color: var(--folio-alert-color); font-weight: 600; vertical-align: middle; }
+.folio-alert-title svg { flex: none; }
 .folio-md-rule-line { position: relative; }
 .folio-md-rule { display: inline-block; width: 1px; height: 1em; vertical-align: middle; }
 .folio-md-rule::after { content: ''; position: absolute; inset-inline: 16px; top: 50%; border-top: 1px solid var(--muted-foreground); pointer-events: none; }

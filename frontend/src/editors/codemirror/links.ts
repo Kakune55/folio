@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { GFM } from '@lezer/markdown'
 import { mathMarkdown } from './math-syntax'
+import { githubAlert } from './github-alerts'
 
 const characterBudget = 100000
 const nodeBudget = 4000
@@ -44,6 +45,10 @@ export function markdownLinkTarget(state: EditorState, node: SyntaxNode, referen
   for (let current: SyntaxNode | null = node; current; current = current.parent) {
     if (++visited > nodeBudget) return undefined
     if (['InlineCode', 'FencedCode', 'CodeBlock', 'LinkReference', 'InlineMath', 'MathBlock'].includes(current.name)) return undefined
+    if (current.name === 'Blockquote') {
+      const alert = githubAlert(state, current)
+      if (alert && node.from >= alert.from && node.to <= alert.to) return undefined
+    }
     if (!link && ['Link', 'Image', 'Autolink'].includes(current.name)) link = current
     if (current.name === 'URL') bareURL = current
   }
