@@ -1384,7 +1384,7 @@
       "get": {
         "operationId": "searchFiles",
         "summary": "搜索名称或已保存正文",
-        "description": "搜索授权包含正文摘要，不要求 files 权限。空全文无结果，空 names 列文件。异步索引可能陈旧，检查 status.indexing 与 warning；不搜索草稿或 PDF/OCR。",
+        "description": "搜索授权包含正文摘要，不要求 files 权限。REST 保留空全文无结果、空 names 列文件的行为；MCP searchFiles 要求非空白关键词。names 搜索名称及路径。不支持 offset 分页，截断时缩小查询。异步索引可能陈旧，两次查询不保证同一快照，检查 status.indexing 与 warning；不搜索草稿或 PDF/OCR。参数校验失败在 details 返回 field 和 constraint。",
         "tags": [
           "搜索"
         ],
@@ -2379,6 +2379,14 @@
                   "path": {
                     "type": "string",
                     "description": "parent_not_found 时尝试打开的工作区相对父目录，不表示已确定其中哪一级最先缺失，不包含服务端绝对路径。"
+                  },
+                  "field": {
+                    "type": "string",
+                    "description": "参数校验失败的字段名，例如 REST 搜索的 q、mode、limit。"
+                  },
+                  "constraint": {
+                    "type": "string",
+                    "description": "稳定的参数约束标识，如 1..200、names or empty、utf8_without_nul、at_most_200_characters。"
                   }
                 },
                 "additionalProperties": true
@@ -2803,7 +2811,8 @@
             }
           },
           "truncated": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "本次索引查询还存在超出 limit 的命中；不提供 offset 分页，建议缩小查询。不同请求间索引可能变化。"
           },
           "limit": {
             "type": "integer",

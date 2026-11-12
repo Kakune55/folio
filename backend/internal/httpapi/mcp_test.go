@@ -183,8 +183,97 @@ func (e *mcpTestEnv) failure(secret, name string, arguments any, code string, sc
 	if err := json.Unmarshal(result.StructuredContent, &problem); err != nil {
 		e.t.Fatal(err)
 	}
+	var details map[string]any
+	if err := json.Unmarshal(problem.Error.Details, &details); err != nil || details == nil {
+		e.t.Fatalf("%s 的业务错误 details 必须是对象：%s %v", name, result.StructuredContent, err)
+	}
 	if !result.IsError || problem.Error.Code != code || problem.Error.Message == "" || len(problem.Error.Details) == 0 {
 		e.t.Fatalf("%s 应返回 isError 和结构化错误 %s：%s", name, code, response.Result)
+	}
+}
+
+func TestMCPSearchFieldValidation(t *testing.T) {
+	e := newMCPTestEnv(t, "")
+	_, secret := e.token(1, auth.TokenPermissions{Files: "none", Search: "read", Trash: "none"})
+	cases := []struct {
+		query, mode       string
+		limit             int
+		field, constraint string
+	}{
+		{"换行", "names", 500, "limit", "1..200"},
+		{"换行", "names", 0, "limit", "1..200"},
+		{"换行", "bogus", 1, "mode", "names or empty"},
+		{"", "", 1, "query", "non_blank"},
+		{"", "names", 1, "query", "non_blank"},
+		{" \t\n", "names", 1, "query", "non_blank"},
+		{strings.Repeat("界", 201), "names", 1, "query", "at_most_200_characters"},
+		{"a\x00b", "names", 1, "query", "utf8_without_nul"},
+	}
+	for _, tc := range cases {
+		response, result := e.tool(secret, "searchFiles", map[string]any{"query": tc.query, "mode": tc.mode, "limit": tc.limit})
+		var problem struct {
+			Error struct {
+				Code, Message string
+				Status        int
+				Details       map[string]any
+			}
+		}
+		if err := json.Unmarshal(result.StructuredContent, &problem); err != nil {
+			t.Fatal(err)
+		}
+		if response.Error != nil || !result.IsError || problem.Error.Code != "invalid_request" || problem.Error.Status != 400 || problem.Error.Message == "" || !reflect.DeepEqual(problem.Error.Details, map[string]any{"field": tc.field, "constraint": tc.constraint}) {
+			t.Fatalf("字段校验不明确：%+v，实际 %s", tc, result.StructuredContent)
+		}
+	}
+	listed := e.rpc(secret, "tools/list", map[string]any{})
+	var tools struct {
+		Tools []struct {
+			Name, Description string
+			InputSchema       json.RawMessage
+		}
+	}
+	if err := json.Unmarshal(listed.Result, &tools); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools.Tools) != 1 || tools.Tools[0].Name != "searchFiles" || !strings.Contains(tools.Tools[0].Description, "不支持offset分页") || !strings.Contains(string(tools.Tools[0].InputSchema), "名称与路径") {
+		t.Fatalf("搜索能力描述不准确：%s", listed.Result)
+	}
+}
+
+func TestRESTSearchFieldValidationAndEmptyCompatibility(t *testing.T) {
+	e := newMCPTestEnv(t, "")
+	_, secret := e.token(1, auth.TokenPermissions{Files: "none", Search: "read", Trash: "none"})
+	for _, tc := range []struct{ query, field, constraint string }{
+		{"q=x&limit=500", "limit", "1..200"},
+		{"q=x&limit=invalid", "limit", "1..200"},
+		{"q=x&mode=bogus", "mode", "names or empty"},
+		{"q=%00", "q", "utf8_without_nul"},
+		{"q=" + strings.Repeat("x", 201), "q", "at_most_200_characters"},
+		{"q=&mode=names", "", ""},
+		{"q=", "", ""},
+	} {
+		r := httptest.NewRequest("GET", "/api/v1/search?"+tc.query, nil)
+		r.Header.Set("Authorization", "Bearer "+secret)
+		w := httptest.NewRecorder()
+		e.handler.ServeHTTP(w, r)
+		if tc.field == "" {
+			if w.Code != 200 {
+				t.Fatalf("破坏浏览器空查询行为：%d %s", w.Code, w.Body.String())
+			}
+			continue
+		}
+		var problem struct {
+			Error struct {
+				Code    string
+				Details map[string]any
+			}
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 400 || problem.Error.Code != "invalid_request" || !reflect.DeepEqual(problem.Error.Details, map[string]any{"field": tc.field, "constraint": tc.constraint}) {
+			t.Fatalf("REST搜索字段错误：%s", w.Body.String())
+		}
 	}
 }
 

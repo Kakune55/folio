@@ -23,13 +23,16 @@ func (a *api) registerSearch(mux *http.ServeMux) {
 		if raw := r.URL.Query().Get("limit"); raw != "" {
 			value, err := strconv.Atoi(raw)
 			if err != nil || value < 1 || value > 200 {
-				writeError(w, 400, "invalid_request", "结果条数须为 1 到 200", nil)
+				writeError(w, 400, "invalid_request", "结果条数须为 1 到 200 的整数", map[string]any{"field": "limit", "constraint": "1..200"})
 				return
 			}
 			limit = value
 		}
-		if (mode != "" && mode != "names") || strings.ContainsRune(query, 0) || !utf8.ValidString(query) || utf8.RuneCountInString(query) > 200 {
-			writeError(w, 400, "invalid_request", "搜索参数无效，查询最多 200 字符", nil)
+		if field, constraint, message := searchValidationError(query, mode, limit); message != "" {
+			if field == "query" {
+				field = "q"
+			}
+			writeError(w, 400, "invalid_request", message, map[string]any{"field": field, "constraint": constraint})
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -78,4 +81,19 @@ func (a *api) registerSearch(mux *http.ServeMux) {
 		a.Search.Refresh(true)
 		writeJSON(w, 202, map[string]bool{"accepted": true})
 	}))
+}
+
+func searchValidationError(query, mode string, limit int) (field, constraint, message string) {
+	switch {
+	case limit < 1 || limit > 200:
+		return "limit", "1..200", "结果条数须为 1 到 200 的整数"
+	case mode != "" && mode != "names":
+		return "mode", "names or empty", "mode 仅支持 names 或省略"
+	case !utf8.ValidString(query) || strings.ContainsRune(query, 0):
+		return "query", "utf8_without_nul", "关键词须为有效 UTF-8 且不含空字符"
+	case utf8.RuneCountInString(query) > 200:
+		return "query", "at_most_200_characters", "关键词最多 200 字符"
+	default:
+		return "", "", ""
+	}
 }

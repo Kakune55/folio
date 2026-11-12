@@ -47,6 +47,110 @@ func find(t *testing.T, index *Index, q, mode string) Response {
 	}
 	return results
 }
+
+func TestQueryTruncationStableSnapshot(t *testing.T) {
+	index, store, root := setup(t)
+	if err := store.Mkdir("换行测试"); err != nil {
+		t.Fatal(err)
+	}
+	first, second := "换行测试/换行测试.md", "换行测试/另一篇.md"
+	if _, err := store.Write(first, "换行测试正文", "", true); err != nil {
+		t.Fatal(err)
+	}
+	check := func(wantPaths ...string) {
+		t.Helper()
+		for _, test := range []struct{ name, query, mode string }{
+			{"名称重复命中", "换行", "names"},
+			{"仅父路径命中", "换行测试/", "names"},
+			{"短词路径及正文命中", "换行", ""},
+			{"FTS路径及正文命中", "换行测试", ""},
+		} {
+			for _, limit := range []int{1, 2} {
+				result, err := index.Query(context.Background(), test.query, test.mode, limit)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(result.Entries) != min(len(wantPaths), limit) || result.Truncated != (len(wantPaths) > limit) || result.Limit != limit {
+					t.Fatalf("%s limit=%d，期望路径 %v：%+v", test.name, limit, wantPaths, result)
+				}
+				seen := map[string]bool{}
+				for _, entry := range result.Entries {
+					found := false
+					for _, name := range wantPaths {
+						found = found || entry.Path == name
+					}
+					if !found || seen[entry.Path] || entry.Name != filepath.Base(entry.Path) {
+						t.Fatalf("%s limit=%d，出现意外或重复路径：%+v", test.name, limit, result)
+					}
+					seen[entry.Path] = true
+				}
+			}
+		}
+	}
+	index.Refresh(true)
+	ready(t, index, "")
+	check(first)
+	before := index.Status().IndexedAt
+	if _, err := store.Write(second, "换行测试正文", "", true); err != nil {
+		t.Fatal(err)
+	}
+	index.Changed(second)
+	ready(t, index, before)
+	check(first, second)
+	for _, name := range []string{second, first} {
+		before = index.Status().IndexedAt
+		if err := os.Remove(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+		index.Refresh(false)
+		ready(t, index, before)
+		if name == second {
+			check(first)
+		} else {
+			check()
+		}
+	}
+}
+
+func TestQueryTruncationDuplicateRows(t *testing.T) {
+	index, store, _ := setup(t)
+	if _, err := store.Write("换行.md", "换行正文", "", true); err != nil {
+		t.Fatal(err)
+	}
+	index.Refresh(true)
+	ready(t, index, "")
+	// 人工注入重复行仅用于核对假设，不代表正常更新会生成重复行。
+	if _, err := index.db.Exec("INSERT INTO documents(path,body,stamp) SELECT path,body,stamp FROM documents"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(rows int) {
+		t.Helper()
+		for _, limit := range []int{1, 2} {
+			result, err := index.Query(context.Background(), "换行", "names", limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Entries) != min(rows, limit) || result.Truncated != (rows > limit) {
+				t.Fatalf("索引行数=%d limit=%d：%+v", rows, limit, result)
+			}
+			for _, entry := range result.Entries {
+				if entry.Path != "换行.md" {
+					t.Fatalf("意外路径：%+v", result)
+				}
+			}
+		}
+	}
+	check(2)
+	before := index.Status().IndexedAt
+	index.Refresh(false)
+	ready(t, index, before)
+	check(2)
+	before = index.Status().IndexedAt
+	index.Refresh(true)
+	ready(t, index, before)
+	check(1)
+}
+
 func TestChineseEnglishPathsAndLiteralQueries(t *testing.T) {
 	index, store, root := setup(t)
 	if err := store.Mkdir("Linux"); err != nil {

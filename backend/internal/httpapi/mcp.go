@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"folio/internal/auth"
 	"folio/internal/storage"
@@ -30,6 +29,7 @@ type mcpProblem struct {
 	status  int
 	code    string
 	message string
+	details map[string]any
 }
 
 func (e *mcpProblem) Error() string { return e.code }
@@ -168,8 +168,8 @@ type mcpRestoreInput struct {
 }
 
 type mcpSearchInput struct {
-	Query string `json:"query" jsonschema:"搜索关键词，最多200字符；搜索仅涵盖已保存内容"`
-	Mode  string `json:"mode,omitempty" jsonschema:"省略搜索名称和正文；names仅搜索名称"`
+	Query string `json:"query" jsonschema:"非空白搜索关键词，最多200字符；搜索仅涵盖已保存内容"`
+	Mode  string `json:"mode,omitempty" jsonschema:"省略搜索名称、路径和正文；names仅搜索名称与路径，不搜索正文"`
 	Limit *int   `json:"limit,omitempty" jsonschema:"最多1至200个结果，默认50；检查截断和索引状态"`
 }
 
@@ -213,7 +213,7 @@ func (a *api) mcpServer(r *http.Request, access *auth.AccessToken, cache *mcp.Sc
 			return nil, err
 		}
 		if len(selected.Content.Content) > mcpReadByteLimit {
-			return nil, &mcpProblem{413, "too_large", "所选正文超过256 KiB，请减少lineCount或使用REST读取"}
+			return nil, &mcpProblem{status: 413, code: "too_large", message: "所选正文超过256 KiB，请减少lineCount或使用REST读取"}
 		}
 		return selected, nil
 	})
@@ -275,19 +275,22 @@ func (a *api) mcpServer(r *http.Request, access *auth.AccessToken, cache *mcp.Sc
 		}
 		return map[string]string{"path": path}, err
 	})
-	addMCPTool(s, access, "searchFiles", "GET", "/search", "搜索当前账号的名称、路径和已保存文本；摘要不是当前正文，修改前须readContent。索引异步更新，检查截断和warning。", false, func(ctx context.Context, in mcpSearchInput) (any, error) {
+	addMCPTool(s, access, "searchFiles", "GET", "/search", "搜索当前账号的名称、路径和已保存文本；摘要不是当前正文，修改前须readContent。不支持offset分页，truncated时缩小查询；索引异步变化，检查indexing与warning。", false, func(ctx context.Context, in mcpSearchInput) (any, error) {
 		limit := mcpInt(in.Limit, 50)
-		if limit < 1 || limit > 200 || (in.Mode != "" && in.Mode != "names") || strings.ContainsRune(in.Query, 0) || !utf8.ValidString(in.Query) || utf8.RuneCountInString(in.Query) > 200 {
-			return nil, &mcpProblem{400, "invalid_request", "搜索参数无效：关键词最多200字符，limit为1至200，mode仅支持names或省略"}
+		if field, constraint, message := searchValidationError(in.Query, in.Mode, limit); message != "" {
+			return nil, mcpInputProblem(field, constraint, message)
+		}
+		if strings.TrimSpace(in.Query) == "" {
+			return nil, mcpInputProblem("query", "non_blank", "搜索关键词不能为空或仅含空白；浏览文件请使用listDirectory")
 		}
 		if a.Search == nil {
-			return nil, &mcpProblem{503, "index_unavailable", "搜索索引暂时不可用，文件编辑不受影响"}
+			return nil, &mcpProblem{status: 503, code: "index_unavailable", message: "搜索索引暂时不可用，文件编辑不受影响"}
 		}
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		result, err := a.Search.Query(ctx, in.Query, in.Mode, limit)
 		if err != nil {
-			return nil, &mcpProblem{503, "index_unavailable", "搜索索引暂时不可用，请重试或通过REST重建；文件编辑不受影响"}
+			return nil, &mcpProblem{status: 503, code: "index_unavailable", message: "搜索索引暂时不可用，请重试或通过REST重建；文件编辑不受影响"}
 		}
 		return result, nil
 	})
@@ -308,8 +311,14 @@ func addMCPTool[In any](s *mcp.Server, access *auth.AccessToken, name, method, p
 		var problem *mcpProblem
 		if errors.As(err, &problem) {
 			status, code, message = problem.status, problem.code, problem.message
+			if problem.details != nil {
+				details = problem.details
+			}
 		} else {
 			status, code, message, details = storageFailure(err)
+		}
+		if details == nil {
+			details = map[string]any{}
 		}
 		body := map[string]any{"error": map[string]any{"status": status, "code": code, "message": message, "details": details}}
 		text, _ := json.Marshal(body)
@@ -322,10 +331,10 @@ func mcpRevision(revision string) error {
 		return &storage.Error{Code: "precondition_required"}
 	}
 	if len(revision) != len("sha256:")+64 || !strings.HasPrefix(revision, "sha256:") {
-		return &mcpProblem{400, "invalid_request", "expectedRevision须为读取结果中的完整revision，不含双引号"}
+		return mcpInputProblem("expectedRevision", "sha256_revision", "expectedRevision须为读取结果中的完整revision，不含双引号")
 	}
 	if _, err := hex.DecodeString(revision[len("sha256:"):]); err != nil {
-		return &mcpProblem{400, "invalid_request", "expectedRevision格式不正确"}
+		return mcpInputProblem("expectedRevision", "sha256_revision", "expectedRevision格式不正确")
 	}
 	return nil
 }
@@ -339,8 +348,15 @@ func mcpInt(value *int, fallback int) int {
 
 func mcpPagination(offset int, requested *int) (int, int, error) {
 	limit := mcpInt(requested, 200)
-	if offset < 0 || limit < 1 || limit > 1000 {
-		return 0, 0, &mcpProblem{400, "invalid_request", "offset须非负，limit为1至1000"}
+	if offset < 0 {
+		return 0, 0, mcpInputProblem("offset", "non_negative", "offset 须非负")
+	}
+	if limit < 1 || limit > 1000 {
+		return 0, 0, mcpInputProblem("limit", "1..1000", "limit 须为 1 到 1000 的整数")
 	}
 	return offset, limit, nil
+}
+
+func mcpInputProblem(field, constraint, message string) *mcpProblem {
+	return &mcpProblem{status: 400, code: "invalid_request", message: message, details: map[string]any{"field": field, "constraint": constraint}}
 }
