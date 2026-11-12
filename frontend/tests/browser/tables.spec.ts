@@ -209,6 +209,7 @@ test('单元格直接编辑保持表格外观、padding和混合换行，撤销�
 })
 
 test('手机明暗单元格编辑及不支持粘贴明确拒绝，原文和版本不变', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 390, height: 844 })
   const source = '前言\n\n| H1 | H2 |\n| --- | --- |\n| A | B |\n\n尾部。'
   const { read, writes, revision } = await prepare(page, source)
