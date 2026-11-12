@@ -3,10 +3,11 @@ import { syntaxTree } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { GFM } from '@lezer/markdown'
+import { mathMarkdown } from './math-syntax'
 
 const characterBudget = 100000
 const nodeBudget = 4000
-const language = markdown({ base: commonmarkLanguage, extensions: GFM })
+const language = markdown({ base: commonmarkLanguage, extensions: [GFM, mathMarkdown] })
 const normalizeLabel = (label: string) => label.trim().replace(/\s+/g, ' ').toLowerCase()
 
 export function decodeMarkdownTarget(raw: string): string {
@@ -42,7 +43,7 @@ export function markdownLinkTarget(state: EditorState, node: SyntaxNode, referen
   let visited = 0
   for (let current: SyntaxNode | null = node; current; current = current.parent) {
     if (++visited > nodeBudget) return undefined
-    if (['InlineCode', 'FencedCode', 'CodeBlock', 'LinkReference'].includes(current.name)) return undefined
+    if (['InlineCode', 'FencedCode', 'CodeBlock', 'LinkReference', 'InlineMath', 'MathBlock'].includes(current.name)) return undefined
     if (!link && ['Link', 'Image', 'Autolink'].includes(current.name)) link = current
     if (current.name === 'URL') bareURL = current
   }

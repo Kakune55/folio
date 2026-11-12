@@ -128,6 +128,7 @@ export function livePreviewDecorations(state: EditorState, visible: readonly Sou
   }
   const visit = (node: SyntaxNode, viewport: SourceRange): boolean => {
     const name = node.name
+    if (name === 'InlineMath' || name === 'MathBlock') return false
     if (['Image', 'Table', 'HTMLBlock', 'HTMLTag'].includes(name)) return false
     if (name === 'FencedCode' || name === 'CodeBlock') {
       lines(node, 'code-line', viewport)
