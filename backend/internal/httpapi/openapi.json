@@ -2366,6 +2366,11 @@
                     "minimum": 0,
                     "description": "patch_mismatch 时首个失配块的零基索引。"
                   },
+                  "diffLine": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "invalid_patch 的 invalid_line_prefix 原因对应的一基完整补丁行号，计入可选文件头；CRLF 计一行。不同于原文件的 line。上下文行须以空格开头，空白上下文行也须保留该前缀；不自动补齐。"
+                  },
                   "line": {
                     "type": "integer",
                     "minimum": 1,
@@ -2373,8 +2378,8 @@
                   },
                   "reason": {
                     "type": "string",
-                    "enum": ["line_out_of_range", "context_mismatch", "deleted_content_mismatch", "newline_mismatch", "parent_not_found"],
-                    "description": "补丁失配原因；not_found 的 parent_not_found 表示操作所需父目录不存在，不自动创建。"
+                    "enum": ["line_out_of_range", "context_mismatch", "deleted_content_mismatch", "newline_mismatch", "invalid_line_prefix", "parent_not_found"],
+                    "description": "补丁失配原因；invalid_line_prefix 表示补丁行缺少合法的空格、+ 或 - 前缀，仍为 invalid_patch，不回传正文；not_found 的 parent_not_found 表示操作所需父目录不存在，不自动创建。"
                   },
                   "path": {
                     "type": "string",

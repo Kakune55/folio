@@ -76,6 +76,9 @@ func storageFailure(err error) (int, string, string, any) {
 	if problem.Code == "not_found" && details["reason"] == "parent_not_found" {
 		message = "父目录不存在，请先逐级创建目录；本次未自动创建"
 	}
+	if problem.Code == "invalid_patch" && details["reason"] == "invalid_line_prefix" {
+		message = "补丁行前缀无效：上下文行须以一个空格开头，新增行以 + 开头，删除行以 - 开头；空白上下文行也须保留空格"
+	}
 	return status, problem.Code, message, details
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, target any) bool {

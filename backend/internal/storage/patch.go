@@ -77,6 +77,7 @@ func parseUnifiedPatch(name, diff string) ([]patchHunk, error) {
 		return nil, fail("invalid_patch")
 	}
 	lines := strings.Split(diff, "\n")
+	lineOffset := 0
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -90,10 +91,11 @@ func parseUnifiedPatch(name, diff string) ([]patchHunk, error) {
 			return nil, fail("invalid_patch")
 		}
 		lines = lines[2:]
+		lineOffset = 2
 	}
 	hunks := []patchHunk{}
 	operations := 0
-	for _, line := range lines {
+	for i, line := range lines {
 		if strings.HasPrefix(line, "@@") {
 			match := hunkHeader.FindStringSubmatch(line)
 			if match == nil {
@@ -132,7 +134,7 @@ func parseUnifiedPatch(name, diff string) ([]patchHunk, error) {
 			continue
 		}
 		if len(line) == 0 || (line[0] != ' ' && line[0] != '+' && line[0] != '-') {
-			return nil, fail("invalid_patch")
+			return nil, &Error{Code: "invalid_patch", Details: map[string]any{"diffLine": lineOffset + i + 1, "reason": "invalid_line_prefix"}}
 		}
 		operations++
 		if operations > PatchLineLimit {

@@ -88,8 +88,8 @@ func TestRESTWriteDiagnosticsAndMoveRevision(t *testing.T) {
 	w = call("PATCH", "/files/content?path=source.txt", map[string]string{"diff": "@@ -2 +2 @@\n-wrong\n+B\n"}, created.Revision)
 	var problem struct {
 		Error struct {
-			Code    string
-			Details map[string]any
+			Code, Message string
+			Details       map[string]any
 		}
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
@@ -97,6 +97,31 @@ func TestRESTWriteDiagnosticsAndMoveRevision(t *testing.T) {
 	}
 	if w.Code != 409 || problem.Error.Code != "patch_mismatch" || problem.Error.Details["line"] != float64(2) || problem.Error.Details["reason"] != "deleted_content_mismatch" {
 		t.Fatalf("REST未传递补丁定位：%s", w.Body.String())
+	}
+	badDiff := "@@ -1,2 +1,2 @@\na\n-b\n+b\n"
+	w = call("PATCH", "/files/content?path=source.txt", map[string]string{"diff": badDiff}, created.Revision)
+	problem.Error.Details = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 400 || problem.Error.Code != "invalid_patch" || problem.Error.Details["diffLine"] != float64(2) || problem.Error.Details["reason"] != "invalid_line_prefix" || len(problem.Error.Details) != 2 || !strings.Contains(problem.Error.Message, "上下文行须以一个空格开头") {
+		t.Fatalf("REST未传递格式定位：%s", w.Body.String())
+	}
+	_, failed := e.tool(secret, "patchContent", map[string]any{"path": "source.txt", "expectedRevision": created.Revision, "diff": "--- a/source.txt\r\n+++ b/source.txt\r\n" + strings.ReplaceAll(badDiff, "\n", "\r\n"), "dryRun": true})
+	problem.Error.Details = nil
+	if err := json.Unmarshal(failed.StructuredContent, &problem); err != nil {
+		t.Fatal(err)
+	}
+	if !failed.IsError || problem.Error.Code != "invalid_patch" || problem.Error.Details["diffLine"] != float64(4) || problem.Error.Details["reason"] != "invalid_line_prefix" || len(problem.Error.Details) != 2 {
+		t.Fatalf("MCP未传递完整补丁行号：%s", failed.StructuredContent)
+	}
+	var unchanged struct {
+		Changed, DryRun bool
+		Revision        string
+	}
+	e.success(secret, "patchContent", map[string]any{"path": "source.txt", "expectedRevision": created.Revision, "diff": strings.Replace(badDiff, "\na\n", "\n a\n", 1), "dryRun": true}, &unchanged)
+	if unchanged.Changed || !unchanged.DryRun || unchanged.Revision != created.Revision {
+		t.Fatalf("合法上下文预检错误：%+v", unchanged)
 	}
 	current, err := e.handler.get(1)
 	if err != nil {

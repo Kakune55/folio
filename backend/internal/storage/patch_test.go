@@ -93,6 +93,32 @@ func TestUnifiedPatchMismatchDetails(t *testing.T) {
 	}
 }
 
+func TestUnifiedPatchInvalidLinePrefixDetails(t *testing.T) {
+	for _, tc := range []struct {
+		name, diff string
+		line       int
+	}{
+		{"引用缺上下文前缀", "@@ -1 +1 @@\n> 原文链接\n", 2},
+		{"普通行缺前缀", "@@ -1 +1 @@\na\n", 2},
+		{"空上下文缺空格", "@@ -1,2 +1,2 @@\n\n b\n", 2},
+		{"制表符不是上下文前缀", "@@ -1 +1 @@\n\ta\n", 2},
+		{"CRLF文件头计入行号", "--- a/note.txt\r\n+++ b/note.txt\r\n@@ -1 +1 @@\r\n> 原文链接\r\n", 4},
+		{"第二块使用完整补丁行号", "@@ -1 +1 @@\n-a\n+A\n@@ -2 +2 @@\n> b\n", 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate, added, deleted, err := applyUnifiedPatch("note.txt", "a\nb\n", tc.diff, 1<<20)
+			var problem *Error
+			want := map[string]any{"diffLine": tc.line, "reason": "invalid_line_prefix"}
+			if !errors.As(err, &problem) || problem.Code != "invalid_patch" || !reflect.DeepEqual(problem.Details, want) {
+				t.Fatalf("格式诊断 = %+v；预期 %+v", problem, want)
+			}
+			if candidate != "" || added != 0 || deleted != 0 {
+				t.Fatal("无效补丁返回了部分候选")
+			}
+		})
+	}
+}
+
 func TestPatchReadDerivedBOMAndAtomicity(t *testing.T) {
 	store, root := testStore(t)
 	original := "\ufeff\ufeffa\r\nb\nc\r"
