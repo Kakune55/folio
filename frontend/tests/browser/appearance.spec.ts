@@ -21,6 +21,15 @@ test('个性化即时应用、持久保存、移动布局与编辑器实例保�
   await expect(rich).toBeVisible()
   await rich.evaluate(el => el.setAttribute('data-instance', 'original'))
   const settings = page.getByRole('button', { name: '个性化', exact: true })
+  const openSettings = async () => {
+    if (page.viewportSize()!.width < 768) {
+      await expect(page.getByRole('button', { name: '更多操作', exact: true, includeHidden: true })).toBeAttached()
+      const close = page.getByRole('button', { name: '关闭文件列表', exact: true })
+      if (await close.isVisible()) await close.click()
+      await page.getByRole('button', { name: '更多操作', exact: true }).click()
+      await page.getByRole('menuitem', { name: '个性化', exact: true }).click()
+    } else await settings.click()
+  }
   await settings.click()
   const dialog = page.getByRole('dialog', { name: '个性化', exact: true })
   await expect(dialog.getByRole('radio', { name: '中 1200 px' })).toBeChecked()
@@ -49,7 +58,7 @@ test('个性化即时应用、持久保存、移动布局与编辑器实例保�
     await page.setViewportSize({ width, height: 844 })
     const close = page.getByRole('button', { name: '关闭文件列表' })
     if (await close.isVisible()) await close.click()
-    await settings.click()
+    await openSettings()
     await expect(dialog).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     if (width < 768) {
@@ -61,7 +70,7 @@ test('个性化即时应用、持久保存、移动布局与编辑器实例保�
     }
     await dialog.getByRole('button', { name: '完成' }).click()
   }
-  await settings.click()
+  await openSettings()
   await dialog.getByRole('button', { name: '恢复默认' }).click()
   await expect(dialog.getByRole('radio', { name: '中 1200 px' })).toBeChecked()
   await expect(dialog.getByRole('radio', { name: '标准 16 px' })).toBeChecked()

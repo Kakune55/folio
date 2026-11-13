@@ -6,7 +6,7 @@ test('手机长文本行号紧凑，底栏全部内容在固定单行内可见',
   await page.goto('/')
   await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
   await page.getByRole('button', { name: '进入工作区' }).tap()
-  await expect(page.getByRole('button', { name: '退出登录' })).toBeAttached()
+  await expect(page.getByRole('button', { name: '更多操作', exact: true })).toBeVisible()
   const emptyBounds = await page.locator('.draft-recovery-trigger').boundingBox()
   expect(emptyBounds!.x + emptyBounds!.width).toBe(382)
   const me = await (await page.request.get('/api/v1/auth/me')).json()

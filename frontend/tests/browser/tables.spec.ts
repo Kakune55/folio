@@ -118,6 +118,7 @@ test('插表窗口取消或非法尺寸不写入，明暗手机可用', async ({
   await page.setViewportSize({ width: 390, height: 844 })
   const source = '原文。'
   const { read, writes, revision } = await prepare(page, source)
+  await page.getByRole('button', { name: '格式工具', exact: true }).click()
   await tail(page); await menu(page, '插入新表格…')
   const dialog = page.getByRole('dialog', { name: '插入表格', exact: true })
   for (const value of ['0', '21', '1.5', '']) {
@@ -354,6 +355,8 @@ test('手机表格入口常驻，键盘打开关闭菜单不写正文或改变�
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
   await page.keyboard.press('Escape')
   await expect(local).toBeFocused()
+  await expect(page.locator('.editor-formatbar')).toHaveCount(0)
+  await page.getByRole('button', { name: '格式工具', exact: true }).click()
   await expect(page.getByRole('button', { name: '表格', exact: true })).toBeVisible()
   expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
 })
