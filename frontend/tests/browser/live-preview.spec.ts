@@ -132,6 +132,9 @@ test('源码模式移除所有实时预览装饰与资源 widget，正文零写�
 test('锁定文件时粘贴与任务框不能隐藏写入，失败后保留原文', async ({ page }) => {
   const source = '# 标题\n\n- [ ] 任务\n\n尾行'
   const { path, editor, revision, writes, read } = await prepare(page, source)
+  const destination = `移动目标-${path}`
+  const principal = await (await page.request.get('/api/v1/auth/me')).json()
+  expect((await page.request.post('/api/v1/directories', { headers: { 'X-CSRF-Token': principal.csrfToken }, data: { path: destination } })).status()).toBe(201)
   await editor.focus(); await page.keyboard.press('ControlOrMeta+End')
   let entered!: () => void, release!: () => void
   const started = new Promise<void>(resolve => { entered = resolve })
@@ -142,9 +145,9 @@ test('锁定文件时粘贴与任务框不能隐藏写入，失败后保留原�
   })
   await page.getByRole('button', { name: `文件操作 ${path}`, exact: true }).click()
   await page.getByRole('menuitem', { name: '移动到…', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('目标路径').fill(`移动后-${path}`)
-  await dialog.getByRole('button', { name: '移动', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '移动到', exact: true })
+  await dialog.getByRole('button', { name: `进入目录 ${destination}`, exact: true }).click()
+  await dialog.getByRole('button', { name: '移动到此', exact: true }).click()
   await started
   try {
     await expect(editor).toHaveAttribute('contenteditable', 'false')

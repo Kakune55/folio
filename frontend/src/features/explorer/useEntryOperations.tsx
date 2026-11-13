@@ -7,6 +7,7 @@ import { api, ApiError } from '../../services/api'
 import type { Entry, EntryRevision } from '../../services/api'
 import { workspace } from '../../sessions/current'
 import type { Session } from '../../sessions/workspace'
+import { DirectoryPicker } from './DirectoryPicker'
 
 type Operation = { type: 'move' | 'delete'; entries: Entry[]; total: number; completed: number; batch: boolean; blocked: boolean }
 class UncertainOperationError extends Error {}
@@ -16,10 +17,11 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
   const client = useQueryClient()
   const [operation, setOperation] = useState<Operation>()
   const [target, setTarget] = useState('')
+  const [targetReady, setTargetReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const running = useRef(false)
-  const refresh = () => Promise.all([client.invalidateQueries({ queryKey: ['tree'] }), client.invalidateQueries({ queryKey: ['trash'] })])
+  const refresh = () => Promise.all([client.invalidateQueries({ queryKey: ['tree'] }), client.invalidateQueries({ queryKey: ['trash'] }), client.invalidateQueries({ queryKey: ['move-directories'] })])
   const prepare = async (entry: Entry, affected: Session[]) => {
     for (const session of affected) if (!(await workspace.flush(session.path, true))) throw new Error('有修改或图片上传未能保存，已保留原路径和草稿。请先处理保存错误或冲突。')
     const revisions = new Map<string, EntryRevision>()
@@ -88,9 +90,11 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
     const selected = Array.isArray(selection) ? selection : [selection]
     const entries = selected.filter((entry, index) => selected.findIndex((candidate) => candidate.path === entry.path) === index && !selected.some((ancestor) => ancestor.kind === 'directory' && entry.path.startsWith(`${ancestor.path}/`))).map((entry) => ({ ...entry }))
     if (!entries.length) return
-    setError(''); setTarget(entries.length === 1 ? entries[0].path : '')
+    setError(''); setTargetReady(false); setTarget(entries.length === 1 ? entries[0].path.split('/').slice(0, -1).join('/') : '')
     setOperation({ type, entries, total: entries.length, completed: 0, batch: entries.length > 1, blocked: false })
   }
+  const destinations = operation?.type === 'move' ? operation.entries.map(entry => target ? `${target}/${entry.name}` : entry.name) : []
+  const invalidTarget = destinations.some((path, index) => path === operation?.entries[index].path) ? '已在此文件夹' : destinations.some((path, index) => destinations.indexOf(path) !== index) ? '存在同名目标，请分别移动' : ''
   return {
     dialogOpen: !!operation,
     moveToDirectory: async (entry: Entry, directory: string) => {
@@ -103,16 +107,17 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
     },
     showMove: (entry: Entry | Entry[]) => show('move', entry),
     showDelete: (entry: Entry | Entry[]) => show('delete', entry),
-    dialogs: <Dialog.Root open={!!operation} onOpenChange={(value) => { if (!value && !running.current) setOperation(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content"><Dialog.Title>{operation?.type === 'delete' ? '移到回收站？' : '移动文件或文件夹'}</Dialog.Title><Dialog.Description>{operation?.batch ? `共 ${operation.total} 项，已完成 ${operation.completed} 项，剩余 ${operation.entries.length} 项。${operation.type === 'delete' ? '以下项目将移到回收站，保留可恢复副本。' : '请输入工作区相对目标目录，留空表示根目录；保留各项原名称，不创建目录或覆盖已有文件，相关 Markdown 链接不会自动改写。'}逐项执行，失败立即停止，已完成项不会回滚。` : operation?.type === 'delete' ? `「${operation.entries[0].path}」将移到回收站，保留可恢复副本。` : `当前位置：${operation?.entries[0]?.path ?? ''}。请输入完整的工作区相对目标路径；相关 Markdown 链接不会自动改写。`}</Dialog.Description>
-      {operation?.batch && <ul aria-label="剩余操作目标">{operation.entries.map((entry) => <li key={entry.path}>{entry.path}</li>)}</ul>}
+    dialogs: <Dialog.Root open={!!operation} onOpenChange={(value) => { if (!value && !running.current) setOperation(undefined) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className={`dialog-content ${operation?.type === 'move' ? 'entry-move-dialog' : ''}`}><Dialog.Title>{operation?.type === 'delete' ? '移到回收站？' : '移动到'}</Dialog.Title><Dialog.Description className={operation?.type === 'move' ? 'visually-hidden' : undefined}>{operation?.type === 'move' ? '选择目标文件夹，保留原名称，不覆盖已有项目。' : operation?.batch ? `共 ${operation.total} 项，已完成 ${operation.completed} 项，剩余 ${operation.entries.length} 项。以下项目将移到回收站，保留可恢复副本。逐项执行，失败立即停止，已完成项不会回滚。` : `「${operation?.entries[0]?.path ?? ''}」将移到回收站，保留可恢复副本。`}</Dialog.Description>
+      {operation?.type === 'move' && <p className="operation-selection" title={operation.entries.map(entry => entry.path).join('\n')}>{operation.completed ? `剩余 ${operation.entries.length} 项` : operation.entries.length === 1 ? operation.entries[0].name : `已选择 ${operation.entries.length} 项`}</p>}
+      {operation?.batch && (operation.type === 'delete' || !!error) && <ul className="operation-targets" tabIndex={0} aria-label="剩余操作目标">{operation.entries.map((entry) => <li key={entry.path}>{entry.path}</li>)}</ul>}
       <form onSubmit={async (event) => {
         event.preventDefault(); if (!operation || operation.blocked || running.current) return
+        if (operation.type === 'move' && !targetReady) { setError('目标目录尚未读取成功，请重试或选择其他目录。'); return }
         running.current = true; setBusy(true); setError('')
         let remaining = operation.entries
         let completed = operation.completed
         const notices = new Set<string>()
         try {
-          const destinations = operation.type === 'move' ? remaining.map((entry) => operation.batch ? (target ? `${target}/${entry.name}` : entry.name) : target) : []
           for (const [index, destination] of destinations.entries()) {
             checkDestination(remaining[index], destination)
             if (destinations.indexOf(destination) !== index) throw new Error('选中项目存在同名目标，请分别移动')
@@ -132,8 +137,8 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
           const summary = operation.batch ? `已完成 ${completed}/${operation.total} 项，剩余 ${remaining.length} 项；已完成项不会回滚或再次执行。${[...notices].join(' ')} ${message}` : message
           setOperation({ ...operation, entries: remaining, completed, blocked }); setError(summary); onNotice(summary)
         } finally { running.current = false; setBusy(false) }
-      }}>{operation?.type === 'move' && <><label htmlFor="move-target">{operation.batch ? '目标目录（留空为根目录）' : '目标路径'}</label><input id="move-target" value={target} onChange={(event) => { if (!running.current) setTarget(event.target.value) }} required={!operation.batch} autoFocus disabled={busy || operation.blocked} /></>}
-      {error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><Button type="button" onClick={() => { if (!running.current) setOperation(undefined) }} disabled={busy}>{operation?.blocked ? '关闭' : '取消'}</Button><Button type="submit" variant="outline" disabled={busy || operation?.blocked}>{busy ? '正在处理…' : operation?.type === 'delete' ? '移到回收站' : '移动'}</Button></div></form>
+      }}>{operation?.type === 'move' && <DirectoryPicker directory={target} entries={operation.entries} disabled={busy || operation.blocked} onReadyChange={setTargetReady} onChange={path => { if (!running.current && !operation.blocked && path !== target) { setTargetReady(false); setTarget(path) } }} />}
+      {error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions">{operation?.type === 'move' && invalidTarget && <span className="move-location-hint">{invalidTarget}</span>}<Button type="button" onClick={() => { if (!running.current) setOperation(undefined) }} disabled={busy}>{operation?.blocked ? '关闭' : '取消'}</Button><Button type="submit" variant="outline" disabled={busy || operation?.blocked || (operation?.type === 'move' && (!targetReady || !!invalidTarget))}>{busy ? '正在处理…' : operation?.type === 'delete' ? '移到回收站' : '移动到此'}</Button></div></form>
     </DialogContent></Dialog.Portal></Dialog.Root>,
   }
 }

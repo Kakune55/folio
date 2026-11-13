@@ -758,3 +758,37 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .external-change-peek p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; }
 .external-change-peek .external-change-peek-close { position: absolute; top: 0; right: 0; z-index: 1; min-height: 28px; padding: 3px 10px; border-radius: 0; background: var(--background); font: inherit; }
 @media (max-width: 767px) { .external-change-peek .external-change-peek-close { min-height: 40px; } .external-change-peek pre:first-of-type { min-height: 40px; } }
+
+.entry-move-dialog { width: min(620px, calc(100vw - 32px)); padding: 24px; }
+.entry-move-dialog h2 { margin-bottom: 4px; }
+.entry-move-dialog .operation-selection { margin: 0 24px 16px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-move-dialog .button { min-height: 40px; }
+.entry-move-dialog .dialog-actions { align-items: center; }
+.move-location-hint { flex: 1; min-width: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.directory-picker { min-width: 0; width: 100%; margin: 12px 0 16px; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.directory-picker button { min-width: 40px; min-height: 40px; max-width: 100%; padding: 8px; border: 0; border-radius: 5px; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.directory-picker button:hover:not(:disabled) { background: var(--surface-hover); }
+.directory-picker button[aria-disabled='true'] { opacity: .5; cursor: wait; }
+.directory-picker button[aria-current='location'] { color: var(--foreground); font-weight: 600; }
+.directory-picker-toolbar { display: flex; align-items: flex-start; gap: 4px; padding: 4px; border-bottom: 1px solid var(--border); }
+.directory-picker .directory-picker-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; padding: 0; }
+.directory-picker-breadcrumb { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0 4px; min-width: 0; }
+.directory-picker-crumb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.directory-picker-crumb > span { color: var(--muted-foreground); flex-shrink: 0; }
+.directory-picker-browser { display: flex; flex-direction: column; height: 300px; overflow: auto; padding: 4px; }
+.directory-picker-list { flex: 1; min-height: 40px; overflow: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 4px; }
+.directory-picker-list:focus-visible { outline-offset: -2px; }
+.directory-picker-list:empty { flex: 0; min-height: 0; padding: 0; }
+.directory-picker-list:empty + .directory-picker-status { margin: auto; padding: 16px; text-align: center; }
+.directory-picker-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.directory-picker-row svg { flex-shrink: 0; }
+.directory-picker-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.directory-picker-row > svg:last-child { color: var(--muted-foreground); }
+.directory-picker-row:disabled { color: var(--muted-foreground); }
+.directory-picker-status { margin: 8px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.directory-picker .directory-picker-error, .directory-picker .directory-picker-error p { color: var(--destructive); overflow-wrap: anywhere; }
+.directory-picker-error { margin: 8px; }
+.directory-picker-error p { margin: 0 0 4px; }
+.directory-picker-more { flex-shrink: 0; width: 100%; }
+.operation-targets { max-height: 96px; margin: 10px 0; padding-left: 20px; overflow: auto; overflow-wrap: anywhere; }
+@media (max-width: 767px) { .entry-move-dialog { padding: 16px; } .entry-move-dialog .operation-selection { margin-bottom: 12px; } }

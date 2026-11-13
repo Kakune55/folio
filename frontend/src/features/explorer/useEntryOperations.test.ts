@@ -6,6 +6,7 @@ import type { Entry } from '../../services/api'
 import type { Session } from '../../sessions/workspace'
 import { workspace } from '../../sessions/current'
 import { useEntryOperations } from './useEntryOperations'
+import { DirectoryPicker } from './DirectoryPicker'
 
 // 只执行 hook 和返回元素上的事件，不挂载 Radix，也不依赖浏览器 DOM。
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }))
@@ -49,8 +50,12 @@ function harness(uploading = false) {
   // eslint-disable-next-line react-hooks/rules-of-hooks -- React 状态已替换为上方的定向测试容器。
   const render = () => { hooks.cursor = 0; return useEntryOperations(props) }
   const find = (predicate: (element: ReactElement<Record<string, unknown>>) => boolean) => elements(render().dialogs).find(predicate)!
-  const submit = () => (find((element) => element.type === 'form').props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({ preventDefault() {} })
-  const target = (value: string) => (find((element) => element.type === 'input').props.onChange as (event: { target: { value: string } }) => void)({ target: { value } })
+  const submit = (ready = true) => {
+    const picker = find(element => element.type === DirectoryPicker)
+    if (picker) (picker.props.onReadyChange as (ready: boolean) => void)(ready)
+    return (find((element) => element.type === 'form').props.onSubmit as (event: { preventDefault: () => void }) => Promise<void>)({ preventDefault() {} })
+  }
+  const target = (value: string) => (find((element) => element.type === DirectoryPicker).props.onChange as (path: string) => void)(value)
   const text = () => JSON.stringify(render().dialogs)
   return { props, render, find, submit, target, text }
 }
@@ -89,12 +94,12 @@ describe('文件操作固定集合与单项兼容', () => {
     expect(workspace.remove).not.toHaveBeenCalled()
   })
 
-  it('单项保持完整目标路径，拖动和重命名仍接收 Entry', async () => {
+  it('单项目录选择保留原名，拖动和独立重命名仍接收 Entry', async () => {
     const h = harness()
     h.render().showMove(entry('旧/a.md'))
-    expect(h.find((element) => element.type === 'input').props).toMatchObject({ value: '旧/a.md', required: true })
-    h.target('新/改名.txt'); await h.submit()
-    expect(api.move).toHaveBeenLastCalledWith('旧/a.md', '新/改名.txt', 'v1')
+    expect(h.find((element) => element.type === DirectoryPicker).props.directory).toBe('旧')
+    h.target('新'); await h.submit()
+    expect(api.move).toHaveBeenLastCalledWith('旧/a.md', '新/a.md', 'v1')
     await h.render().moveToDirectory(entry('旧/b.md'), '')
     expect(api.move).toHaveBeenLastCalledWith('旧/b.md', 'b.md', 'v1')
     await h.render().rename(entry('旧/c.md'), '新名.md')
@@ -104,7 +109,7 @@ describe('文件操作固定集合与单项兼容', () => {
   it('批量输入目录或空根目录，通知汇总一次，逐项保持重映射回调', async () => {
     const h = harness()
     h.render().showMove([entry('旧/a.md'), entry('旧/b.md')])
-    expect(h.find((element) => element.type === 'input').props.required).toBe(false)
+    expect(h.find((element) => element.type === DirectoryPicker).props.directory).toBe('')
     h.target('新'); await h.submit()
     expect(vi.mocked(api.move).mock.calls).toEqual([['旧/a.md', '新/a.md', 'v1'], ['旧/b.md', '新/b.md', 'v1']])
     expect(h.props.onRemap.mock.calls).toEqual([['旧/a.md', '新/a.md'], ['旧/b.md', '新/b.md']])
@@ -115,6 +120,19 @@ describe('文件操作固定集合与单项兼容', () => {
 })
 
 describe('批量预检与失败保护', () => {
+  it('目标目录未成功加载时不发移动请求，目录选择保留原名称', async () => {
+    const h = harness()
+    h.render().showMove(entry('旧/a.md'))
+    await h.submit(false)
+    expect(api.move).not.toHaveBeenCalled()
+    expect(h.text()).toContain('目标目录尚未读取成功')
+    const picker = h.find(element => element.type === DirectoryPicker)
+    expect(picker.props.directory).toBe('旧')
+    ;(picker.props.onChange as (path: string) => void)('目标')
+    expect(h.find(element => element.type === DirectoryPicker).props.directory).toBe('目标')
+    await h.submit()
+    expect(api.move).toHaveBeenCalledWith('旧/a.md', '目标/a.md', 'v1')
+  })
   it.each(['move', 'delete'] as const)('确认后条目类型变化时不操作替换对象并阻止重试：%s', async type => {
     vi.mocked(api.entryRevision).mockImplementation(async path => ({ path, kind: path === 'b.md' ? 'directory' : 'file', revision: 'v1' }))
     const h = harness()
@@ -193,7 +211,7 @@ describe('批量预检与失败保护', () => {
     ;(h.find((element) => element.props.children === '取消').props.onClick as () => void)()
     await h.submit()
     expect(h.render().dialogOpen).toBe(true)
-    expect(h.find((element) => element.type === 'input').props).toMatchObject({ value: '目标', disabled: true })
+    expect(h.find((element) => element.type === DirectoryPicker).props).toMatchObject({ directory: '目标', disabled: true })
     finish(); await pending
     expect(api.move).toHaveBeenLastCalledWith('b.md', '目标/b.md', 'v1')
     expect(api.trash).not.toHaveBeenCalled()
@@ -225,7 +243,7 @@ describe('批量预检与失败保护', () => {
     const session = { path: 'a.md', viewer: 'binary' } as Session
     vi.mocked(workspace.lockTree).mockReturnValue([session])
     vi.mocked(api.metadata).mockRejectedValueOnce(new Error('类型刷新失败'))
-    const h = harness(); h.render().showMove(entry('a.md')); h.target('a.txt'); await h.submit()
+    const h = harness(); await h.render().rename(entry('a.md'), 'a.txt')
     expect(api.metadata).toHaveBeenCalledWith('a.md')
     expect(h.props.onNotice).toHaveBeenLastCalledWith(expect.stringContaining('文件类型刷新失败'))
     expect(h.render().dialogOpen).toBe(false)
