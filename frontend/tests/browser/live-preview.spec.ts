@@ -38,6 +38,43 @@ async function paste(page: Page, text: string) {
   }, text)
 }
 
+test('非活动标题不保留井号及分隔空白宽度，点击仍定位正文且不写入', async ({ page }) => {
+  const source = '\ufeff前文\r\n\r\n### 重启恢复\r\n\r\n对齐参考\n\n尾部'
+  const { editor, revision, read, writes } = await prepare(page, source)
+  await editor.focus(); await page.keyboard.press('ControlOrMeta+End')
+  const heading = editor.locator('.folio-md-heading-3')
+  await expect(heading).toContainText('重启恢复')
+  await expect(heading).not.toContainText('###')
+  await expect(heading.locator('.folio-md-marker-slot')).toHaveCount(0)
+  const position = await heading.evaluate(element => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent?.indexOf('重启恢复') ?? -1
+      if (at < 0) continue
+      const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + 1)
+      const rect = range.getBoundingClientRect()
+      return { offset: rect.left - element.getBoundingClientRect().left - parseFloat(getComputedStyle(element).paddingLeft), x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    }
+    throw new Error('标题正文未显示')
+  })
+  expect(Math.abs(position.offset)).toBeLessThan(1)
+  await page.mouse.click(position.x, position.y)
+  await expect(heading).toContainText('### 重启恢复')
+  const caret = await heading.evaluate(element => {
+    const selection = window.getSelection()!
+    const range = document.createRange(); range.selectNodeContents(element); range.setEnd(selection.anchorNode!, selection.anchorOffset)
+    return range.toString().length
+  })
+  expect(caret).toBeGreaterThanOrEqual(4)
+  await page.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(editor).toContainText('### 重启恢复')
+  await page.getByRole('button', { name: '实时预览', exact: true }).click()
+  await editor.focus(); await page.keyboard.press('ControlOrMeta+End')
+  await expect(heading).not.toContainText('###')
+  expect(await read()).toEqual({ content: source, revision })
+  expect(writes).toEqual([])
+})
+
 test('非活动装饰、焦点和主题变化不产生正文写入', async ({ page }) => {
   const source = '# 标题\n\n**强调** 与 `代码`\n\n- [ ] 任务\n\n光标行\n'
   const { editor, revision, writes, read } = await prepare(page, source)

@@ -181,8 +181,14 @@ export function livePreviewDecorations(state: EditorState, visible: readonly Sou
       add(Decoration.replace({ widget: new TaskCheckbox(state.sliceDoc(node.from + 1, node.from + 2) !== ' ', options, disabled) }), node.from, node.to)
     }
     if (['HeaderMark', 'QuoteMark', 'ListMark'].includes(name) && node.parent && !active(node.parent)) {
-      // 保留前缀槽位，让活动状态切换不改变缩进与文字命中位置。
-      hide(node.from, node.to, true)
+      const atx = name === 'HeaderMark' && /^ATXHeading[1-6]$/.test(node.parent.name)
+      let end = node.to
+      if (atx && node.from === node.parent.from) {
+        const line = state.doc.lineAt(node.to)
+        end += /^[ \t]*/.exec(line.text.slice(node.to - line.from))![0].length
+      }
+      // 标题收起标记及分隔空白；引用和列表仍保留容器缩进槽位。
+      hide(node.from, end, !atx)
       if (name === 'ListMark') {
         add(Decoration.mark({ class: node.parent.parent?.name === 'OrderedList' ? 'folio-md-ordered-marker' : 'folio-md-list-marker' }), node.from, node.to)
       }

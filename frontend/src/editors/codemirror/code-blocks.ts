@@ -101,6 +101,13 @@ function controls(state: EditorState, options: Options): DecorationSet {
       const node = cursor.node, info = node.getChild('CodeInfo'), from = state.doc.lineAt(node.from).from
       ranges.push(Decoration.line({ class: 'folio-code-opening' }).range(from))
       ranges.push(Decoration.widget({ widget: new CodeTools(info ? state.sliceDoc(info.from, info.to) : '', options), side: -1 }).range(from))
+      const marks = node.getChildren('CodeMark'), lastLine = state.doc.lineAt(node.to)
+      const active = state.selection.ranges.some(range => range.from <= lastLine.to && range.to >= from)
+      if (marks.length > 1 && !active) {
+        const opening = state.doc.lineAt(marks[0].from), closing = state.doc.lineAt(marks.at(-1)!.from)
+        ranges.push(Decoration.replace({}).range(marks[0].from, opening.to))
+        ranges.push(Decoration.replace({ block: true, inclusive: false }).range(closing.from, closing.to))
+      }
       descend = false
     }
     if (descend && cursor.firstChild()) continue
@@ -118,7 +125,7 @@ export function codeBlockControls(options: Options): Extension {
       let composing = value.composing
       for (const effect of transaction.effects) if (effect.is(composition)) composing = effect.value
       if (composing) return { composing, decorations: value.decorations.map(transaction.changes) }
-      if (transaction.docChanged || transaction.effects.length || composing !== value.composing || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)) return { composing, decorations: controls(transaction.state, options) }
+      if (transaction.docChanged || transaction.selection || transaction.effects.length || composing !== value.composing || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)) return { composing, decorations: controls(transaction.state, options) }
       return value
     },
     provide: field => EditorView.decorations.from(field, value => value.decorations),

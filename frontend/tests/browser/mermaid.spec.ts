@@ -19,15 +19,18 @@ async function openDiagram(page: Page, body: string) {
 }
 
 async function editDiagram(page: Page, index: number, body: string) {
+  const opening = page.locator('.folio-code-opening').filter({ has: page.locator('.folio-code-tools[data-language="mermaid"]') }).nth(index)
+  await opening.click({ position: { x: 8, y: 10 } })
+  await expect(opening).toContainText('```mermaid')
   const lines = page.locator('.cm-content .cm-line')
   const text = await lines.evaluateAll(elements => elements.map(element => {
     const copy = element.cloneNode(true) as HTMLElement
     copy.querySelectorAll('.folio-code-tools').forEach(tool => tool.remove())
     return copy.textContent
   }))
-  const start = text.flatMap((line, index) => line === '```mermaid' ? [index] : [])[index]
+  const start = text.findIndex(line => line === '```mermaid')
   const end = text.findIndex((line, position) => position > start && line === '```')
-  expect(start).toBeDefined(); expect(end).toBeGreaterThan(start + 1)
+  expect(start).toBeGreaterThanOrEqual(0); expect(end).toBeGreaterThan(start + 1)
   await lines.nth(start + 1).click(); await page.keyboard.press('Home')
   await page.keyboard.down('Shift')
   for (let i = start + 2; i < end; i++) await page.keyboard.press('ArrowDown')

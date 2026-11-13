@@ -1,4 +1,5 @@
-import { EditorState } from '@codemirror/state'
+import { EditorSelection, EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { ensureSyntaxTree, LanguageDescription, syntaxTree } from '@codemirror/language'
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown'
 import { highlightTree } from '@lezer/highlight'
@@ -8,6 +9,45 @@ import { codeLanguage, createCodeLanguages } from './code-languages'
 import { codeBlockControls, fencedCodeText } from './code-blocks'
 import { preserveLineEndings } from './line-endings'
 import { codeHighlightStyle, rainbowBracketDecorations, codeTheme } from '../theme'
+
+it('容器代码块只隐藏围栏，原文与容器结构不变', () => {
+  const source = '前文\n\n> ```js\n> code\n> ```\n\n尾部'
+  const state = EditorState.create({ doc: source, extensions: [markdown({ base: commonmarkLanguage }), codeBlockControls({ slice: (state, from, to) => state.sliceDoc(from, to) })] })
+  expect(hiddenFences(state).map(range => state.sliceDoc(range.from, range.to))).toEqual(['```js', '> ```'])
+  expect(state.doc.toString()).toBe(source)
+})
+
+function hiddenFences(state: EditorState) {
+  const ranges: { from: number; to: number; block: boolean }[] = []
+  for (const decorations of state.facet(EditorView.decorations)) {
+    if (typeof decorations === 'function') continue
+    decorations.between(0, state.doc.length, (from, to, decoration) => {
+      if (!decoration.spec.class && !decoration.spec.widget && from < to) ranges.push({ from, to, block: !!decoration.spec.block })
+    })
+  }
+  return ranges
+}
+
+for (const [opening, closing] of [['```json', '```'], ['~~~~py filename="keep.py"', '~~~~'], ['```', '```']]) {
+  it(`完整代码块 ${opening} 非活动时隐藏围栏和信息串，进入代码恢复`, () => {
+    const source = `前文\n\n${opening}\n  code  \n${closing}\n\n尾部`
+    let state = EditorState.create({ doc: source, extensions: [markdown({ base: commonmarkLanguage }), EditorState.allowMultipleSelections.of(true), codeBlockControls({ slice: (state, from, to) => state.sliceDoc(from, to) })] })
+    ensureSyntaxTree(state, state.doc.length, 100)
+    state = state.update({ selection: { anchor: 0 } }).state
+    expect(hiddenFences(state).map(range => [state.sliceDoc(range.from, range.to), range.block])).toEqual([[opening, false], [closing, true]])
+    for (const anchor of [source.indexOf(opening), source.indexOf('code'), source.indexOf(closing, source.indexOf('code'))]) {
+      expect(hiddenFences(state.update({ selection: { anchor } }).state)).toEqual([])
+    }
+    expect(hiddenFences(state.update({ selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(source.indexOf('code'))]) }).state)).toEqual([])
+    expect(state.doc.toString()).toBe(source)
+  })
+}
+
+it('未闭合围栏不隐藏，保留修复入口', () => {
+  const source = '前文\n\n```json\n{"x":1}\n'
+  const state = EditorState.create({ doc: source, extensions: [markdown({ base: commonmarkLanguage }), codeBlockControls({ slice: (state, from, to) => state.sliceDoc(from, to) })] })
+  expect(hiddenFences(state)).toEqual([])
+})
 
 for (const [alias, expected] of [['py', 'Python'], ['python3', 'Python'], ['js', 'JavaScript'], ['ts', 'TypeScript'], ['golang', 'Go'], ['c++', 'C++'], ['c#', 'C#'], ['shell-session', 'Shell']]) {
   it(`围栏别名 ${alias} 识别为 ${expected}，不修改输入`, () => {

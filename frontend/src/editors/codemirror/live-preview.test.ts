@@ -91,14 +91,24 @@ describe('CM6 原文实时预览', () => {
     expect(preview(selected).filter(range => !range.spec.class)).toHaveLength(0)
     expect(selected.doc.toString()).toBe(doc)
   })
-  it('标题行样式不随活动状态切换，前缀保留占位宽度', () => {
+  it('标题行样式保持不变，隐藏标题标记不占位，引用列表仍保留缩进', () => {
     const doc = '首行\n## 标题 ##\n> 引用\n- 项目'
     const state = stateFor(doc)
     const inactive = preview(state)
     const active = preview(state.update({ selection: { anchor: doc.indexOf('标题') } }).state)
     expect(inactive.filter(range => range.spec.class === 'folio-md-heading-2')).toEqual(active.filter(range => range.spec.class === 'folio-md-heading-2'))
-    expect(inactive.filter(range => range.spec.class === 'folio-md-marker-slot')).toHaveLength(4)
+    expect(inactive.filter(range => range.spec.class === 'folio-md-marker-slot')).toHaveLength(2)
     expect(active.filter(range => range.spec.class === 'folio-md-marker-slot')).toHaveLength(2)
+    expect(inactive.filter(range => !range.spec.class && !range.spec.widget).map(range => state.sliceDoc(range.from, range.to))).toEqual(['## ', '##'])
+    expect(active.filter(range => !range.spec.class && !range.spec.widget)).toHaveLength(0)
+  })
+  it.each(['# ', '##  ', '### \t', '#### ', '##### ', '###### '])('标题前缀 %s 连同分隔空白只在非活动行收起', prefix => {
+    const doc = `前文\n\n${prefix}重启恢复\n\n尾部`, state = stateFor(doc)
+    const hidden = preview(state).filter(range => !range.spec.class && !range.spec.widget)
+    expect(hidden.map(range => state.sliceDoc(range.from, range.to))).toEqual([prefix])
+    const editing = state.update({ selection: { anchor: doc.indexOf('重启恢复') } }).state
+    expect(preview(editing).filter(range => !range.spec.class && !range.spec.widget)).toHaveLength(0)
+    expect(editing.doc.toString()).toBe(doc)
   })
   it('冻结期间已有装饰可映射文档变化，映射不修改正文', () => {
     const state = stateFor('首行\n**强调**\n- [ ] 任务')

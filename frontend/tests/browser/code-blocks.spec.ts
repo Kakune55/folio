@@ -53,6 +53,29 @@ test('py和js围栏实际高亮，语言标签与主题切换不回写', async (
   expect(await read()).toEqual({ content: source, revision }); expect(writes).toEqual([])
 })
 
+test('光标离开代码块后收起首尾围栏，保留语言复制和原始换行', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  const source = '\ufeff前文\r\n\r\n```json\r\n{\r\n  "name": "John"\n}\r\n```\n\n尾部'
+  const { editor, read, writes, revision } = await prepare(page, source)
+  await editor.focus(); await page.keyboard.press('ControlOrMeta+End')
+  await expect(editor).not.toContainText('```')
+  const tools = page.locator('.folio-code-tools[data-language="json"]')
+  await expect(tools.locator('.folio-code-language')).toHaveText('JSON')
+  await tools.getByRole('button', { name: '复制代码', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('{\r\n  "name": "John"\n}\r\n')
+  await expect(editor).not.toContainText('```')
+  await editor.locator('.cm-line').filter({ hasText: '"name": "John"' }).click()
+  await expect(editor).toContainText('```json')
+  await editor.focus(); await page.keyboard.press('ControlOrMeta+End')
+  await expect(editor).not.toContainText('```')
+  await page.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(editor).toContainText('```json')
+  await page.getByRole('button', { name: '实时预览', exact: true }).click()
+  await expect(editor).not.toContainText('```')
+  expect(await read()).toEqual({ content: source, revision })
+  expect(writes).toEqual([])
+})
+
 test('代码复制保留原始空白和混合换行，不包含围栏或文件BOM', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   const source = '\ufeff~~~~py filename="keep.py"\r\n  a  \r\nb\n~~~~\r\n'
