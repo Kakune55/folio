@@ -56,6 +56,12 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		roots.Close()
 		return nil, err
 	}
+	demoUser, demoSeeded, err := accounts.ConfigureDemo(cfg.DemoMode)
+	if err != nil {
+		roots.Close()
+		data.Close()
+		return nil, fmt.Errorf("配置 Demo 账号失败，请使用独立演示数据目录或检查现有账号：%w", err)
+	}
 	raw, err := accounts.SystemSettings()
 	if err != nil {
 		roots.Close()
@@ -100,6 +106,12 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		return entry.store, entry.id, nil
 	})
 	a.base = New(assets, a.options())
+	if cfg.DemoMode && !demoSeeded {
+		if err := a.seedDemoWorkspace(demoUser); err != nil {
+			a.Close()
+			return nil, err
+		}
+	}
 	return a, nil
 }
 func (a *Accounts) options() Options {

@@ -17,7 +17,7 @@ type Config struct {
 	IndexLimit                                        int64
 	TLSCert, TLSKey                                   string
 	Addr, Workspace, AppData, InitialPassword, Origin string
-	SecureCookie                                      bool
+	SecureCookie, DemoMode                            bool
 	Limits                                            storage.Limits
 }
 
@@ -29,6 +29,13 @@ func Load() (Config, error) {
 		return fallback
 	}
 	c := Config{Addr: get("FOLIO_ADDR", "127.0.0.1:8080"), Workspace: get("FOLIO_WORKSPACE", "./workspace"), AppData: get("FOLIO_APP_DATA", "./app-data"), Origin: os.Getenv("FOLIO_ORIGIN"), SecureCookie: true}
+	if raw := os.Getenv("FOLIO_DEMO_MODE"); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return c, errors.New("FOLIO_DEMO_MODE 必须为 true 或 false")
+		}
+		c.DemoMode = value
+	}
 	if raw := os.Getenv("FOLIO_SECURE_COOKIE"); raw != "" {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {

@@ -73,6 +73,9 @@ func main() {
 		}
 	}()
 	log.Printf("Folio 已启动：%s；首次生成的密码位于应用数据目录 initial-password 文件，账号 admin", cfg.Addr)
+	if cfg.DemoMode {
+		log.Print("Demo 模式已开启：公开体验账号 folio，普通权限，配额 100 MiB；请使用独立数据目录，不要存放真实资料。")
+	}
 	if cfg.TLSCert != "" {
 		err = server.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
 	} else {

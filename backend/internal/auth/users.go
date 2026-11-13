@@ -60,6 +60,9 @@ func (s *Service) Users(q string, offset, limit int) ([]User, int, error) {
 	return users, total, rows.Err()
 }
 func (s *Service) SaveUser(id int64, input UserInput) (User, error) {
+	if s.IsDemoUser(id) {
+		return User{}, ErrDemoRestricted
+	}
 	if !usernamePattern.MatchString(input.Username) || input.Quota < 0 || input.Quota > 1<<50 || (input.Password != "" && (len(input.Password) < MinPasswordBytes || len(input.Password) > 1024)) || (id == 0 && input.Password == "") {
 		return User{}, ErrUserInput
 	}
@@ -68,6 +71,9 @@ func (s *Service) SaveUser(id int64, input UserInput) (User, error) {
 		return User{}, ErrLoginBusy
 	}
 	defer s.loginMu.Unlock()
+	if s.IsDemoUser(id) {
+		return User{}, ErrDemoRestricted
+	}
 	var salt, hash []byte
 	if id != 0 {
 		u, err := s.User(id)
@@ -132,6 +138,9 @@ func (s *Service) ResetUserPassword(id int64, newPassword string) error {
 	return s.setPassword(id, nil, newPassword)
 }
 func (s *Service) setPassword(id int64, oldPassword *string, newPassword string) error {
+	if s.IsDemoUser(id) {
+		return ErrDemoRestricted
+	}
 	if len(newPassword) < MinPasswordBytes || len(newPassword) > 1024 || (oldPassword != nil && len(*oldPassword) > 1024) {
 		return ErrUserInput
 	}
@@ -139,6 +148,9 @@ func (s *Service) setPassword(id int64, oldPassword *string, newPassword string)
 		return ErrLoginBusy
 	}
 	defer s.loginMu.Unlock()
+	if s.IsDemoUser(id) {
+		return ErrDemoRestricted
+	}
 	var salt, hash []byte
 	if err := s.db.QueryRow("SELECT salt,hash FROM account WHERE id=?", id).Scan(&salt, &hash); err != nil {
 		return err

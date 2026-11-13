@@ -10,7 +10,7 @@ Folio 是一个自托管的轻量 Markdown 和开发文件工作区，可在浏�
 在 Folio 中，所有文件都是普通文件，没有专有的块数据库，也没有自定义 Markdown 语法。如果你不喜欢 Folio，可以随时停止使用，文件仍然可以用任何文本编辑器打开，也可以用常规方式备份。不造成任何负担。
 
 如果你想要尝试 Folio，请查看下面的 [快速开始](#快速开始) 了解如何安装和配置。  
-也可以使用 [demo 站点](https://demo.folio.128bit.cc) 体验 Folio 的功能。每UTC时间0点清理数据，账号密码`folio` `foliodemo`
+也可以使用 [demo 站点](https://demo.folio.128bit.cc) 体验 Folio 的功能，登录凭据与数据清理安排以部署者提供的信息为准；该站点不代表已部署下述内置 Demo 模式。
 ## 功能
 
 - **文件管理**：文件树和标签页，支持新建、重命名、移动、上传、下载和回收恢复。Markdown 图片使用相对路径，不要求放进固定目录。
@@ -98,6 +98,7 @@ make run
 | `FOLIO_WORKSPACE` | `./workspace`，正文与附件位于 `<用户ID>/` |
 | `FOLIO_APP_DATA` | `./app-data`，账号库、各用户索引、回收站和分享快照 |
 | `FOLIO_ADDR` | `127.0.0.1:8080` |
+| `FOLIO_DEMO_MODE` | `false`；设为 `true` 开启folio普通账号(锁定密码管理) |
 | `FOLIO_PASSWORD_FILE` | 仅首次初始化使用的私有普通密码文件 |
 | `FOLIO_SECURE_COOKIE` | `true`；`false` 只允许回环 IP |
 | `FOLIO_TLS_CERT`／`FOLIO_TLS_KEY` | 直接 HTTPS 证书与私钥，须同时设置 |

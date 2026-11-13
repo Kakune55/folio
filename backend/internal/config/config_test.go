@@ -6,6 +6,7 @@ import (
 )
 
 func TestTLSConfigurationRequiresPairAndHTTPSOrigin(t *testing.T) {
+	t.Setenv("FOLIO_DEMO_MODE", "")
 	t.Setenv("FOLIO_WORKSPACE", filepath.Join(t.TempDir(), "workspace"))
 	t.Setenv("FOLIO_APP_DATA", filepath.Join(t.TempDir(), "data"))
 	t.Setenv("FOLIO_PASSWORD_FILE", "")
@@ -30,5 +31,31 @@ func TestTLSConfigurationRequiresPairAndHTTPSOrigin(t *testing.T) {
 		t.Fatal(err)
 	} else if cfg.IndexLimit != 5<<20 {
 		t.Fatal("默认正文索引上限应为 5 MiB")
+	}
+}
+
+func TestDemoModeEnvironment(t *testing.T) {
+	t.Setenv("FOLIO_WORKSPACE", filepath.Join(t.TempDir(), "workspace"))
+	t.Setenv("FOLIO_APP_DATA", filepath.Join(t.TempDir(), "data"))
+	t.Setenv("FOLIO_PASSWORD_FILE", "")
+	t.Setenv("FOLIO_SECURE_COOKIE", "true")
+	t.Setenv("FOLIO_ORIGIN", "")
+	t.Setenv("FOLIO_TLS_CERT", "")
+	t.Setenv("FOLIO_TLS_KEY", "")
+	for _, tc := range []struct {
+		value            string
+		enabled, invalid bool
+	}{{"", false, false}, {"false", false, false}, {"true", true, false}, {"invalid", false, true}} {
+		t.Setenv("FOLIO_DEMO_MODE", tc.value)
+		cfg, err := Load()
+		if tc.invalid {
+			if err == nil {
+				t.Fatal("非法演示标志未拒绝")
+			}
+			continue
+		}
+		if err != nil || cfg.DemoMode != tc.enabled || !cfg.SecureCookie {
+			t.Fatalf("Demo环境配置错误：%+v %v", cfg, err)
+		}
 	}
 }

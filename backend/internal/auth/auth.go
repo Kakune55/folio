@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/argon2"
@@ -38,6 +39,7 @@ type Service struct {
 	mu         sync.Mutex
 	attempts   map[string]attempt
 	loginMu    sync.Mutex
+	demoUserID atomic.Int64
 }
 
 var ErrCredentials = errors.New("账号或密码错误")

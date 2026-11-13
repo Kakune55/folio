@@ -12,6 +12,8 @@ import (
 
 func userError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, auth.ErrDemoRestricted):
+		writeError(w, 403, "demo_restricted", err.Error(), map[string]any{})
 	case errors.Is(err, auth.ErrUserInput):
 		writeError(w, 400, "invalid_user", err.Error(), nil)
 	case errors.Is(err, auth.ErrUsername):
