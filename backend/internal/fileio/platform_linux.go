@@ -22,6 +22,19 @@ func renameNoReplace(from *os.Root, old string, to *os.Root, name string) error 
 	return unix.Renameat2(int(a.Fd()), old, int(b.Fd()), name, unix.RENAME_NOREPLACE)
 }
 func Lock(file *os.File) error { return unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB) }
+
+// CheckSingleLink 检查已打开文件的链接数；原生查询失败时保留错误。
+func CheckSingleLink(file *os.File) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(file.Fd()), &stat); err != nil {
+		return err
+	}
+	if stat.Nlink != 1 {
+		return ErrUnsafe
+	}
+	return nil
+}
+
 func Identity(root *os.Root) (string, error) {
 	file, err := root.Open(".")
 	if err != nil {

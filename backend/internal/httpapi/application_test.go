@@ -18,6 +18,7 @@ func TestApplicationContractMatchesAuthorization(t *testing.T) {
 		Paths   map[string]map[string]struct {
 			OperationID string            `json:"operationId"`
 			Permissions map[string]string `json:"x-folio-permissions"`
+			Capability  bool              `json:"x-folio-capability-auth"`
 		} `json:"paths"`
 	}
 	if err := json.Unmarshal(applicationSpecification, &spec); err != nil {
@@ -33,6 +34,15 @@ func TestApplicationContractMatchesAuthorization(t *testing.T) {
 				t.Fatal("缺失或重复操作 ID", path, method)
 			}
 			seen[op.OperationID] = true
+			if op.Capability {
+				if method != "get" || path != "/public/mcp-download/{ticket}" || op.OperationID != "redeemMCPDownload" || len(op.Permissions) != 0 {
+					t.Fatal("未声明的票据认证操作", path, method)
+				}
+				if authorizeToken(&auth.AccessToken{Permissions: auth.TokenPermissions{Files: "write", Search: "write", Trash: "write"}}, httptest.NewRequest("GET", "/api/v1/public/mcp-download/sample", nil)) {
+					t.Fatal("票据端点不能由普通Bearer白名单授权")
+				}
+				continue
+			}
 			if isApplicationDocumentation("/api/v1" + path) {
 				continue
 			}

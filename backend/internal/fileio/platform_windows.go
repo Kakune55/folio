@@ -24,6 +24,19 @@ func renameNoReplace(from *os.Root, old string, to *os.Root, name string) error 
 func Lock(file *os.File) error {
 	return windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{})
 }
+
+// CheckSingleLink 检查已打开文件的链接数；原生查询失败时保留错误。
+func CheckSingleLink(file *os.File) error {
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(windows.Handle(file.Fd()), &info); err != nil {
+		return err
+	}
+	if info.NumberOfLinks != 1 {
+		return ErrUnsafe
+	}
+	return nil
+}
+
 func Identity(root *os.Root) (string, error) {
 	file, err := root.Open(".")
 	if err != nil {

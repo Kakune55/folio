@@ -32,8 +32,12 @@ type Options struct {
 	Workspace    *storage.Store
 	SecureCookie bool
 	Origin       string
+	MCPDownloads *mcpDownloads
 }
-type api struct{ Options }
+type api struct {
+	Options
+	mcpReads *mcpReadCoverage
+}
 
 const cookieName = "folio_session"
 

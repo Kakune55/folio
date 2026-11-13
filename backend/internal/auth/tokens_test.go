@@ -3,10 +3,60 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAccessTokenIDValidationMatchesAuthentication(t *testing.T) {
+	s, err := Open(privateTestDirectory(t), "token-test-password-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	u, err := s.SaveUser(0, UserInput{Username: "download-user", Password: "user-token-password-2026", Quota: DefaultQuota, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"valid", "expired", "disabled", "revoked", "permissions"} {
+		t.Run(state, func(t *testing.T) {
+			if _, err := s.db.Exec("UPDATE account SET enabled=1 WHERE id=?", u.ID); err != nil {
+				t.Fatal(err)
+			}
+			token, secret, err := s.CreateAccessToken(u.ID, "download-workspace", "下载", 0, TokenPermissions{"read", "none", "none"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch state {
+			case "expired":
+				_, err = s.db.Exec("UPDATE access_tokens SET expires_at=? WHERE id=?", time.Now().Unix()-1, token.ID)
+			case "disabled":
+				_, err = s.db.Exec("UPDATE account SET enabled=0 WHERE id=?", u.ID)
+			case "revoked":
+				err = s.DeleteAccessToken(u.ID, token.ID)
+			case "permissions":
+				_, err = s.db.Exec("UPDATE access_tokens SET files='none',search='read' WHERE id=?", token.ID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, access, err := s.ValidateAccessTokenID(token.ID)
+			wantP, wantAccess, wantErr := s.AuthenticateAccessToken(secret)
+			if !reflect.DeepEqual(p, wantP) || !reflect.DeepEqual(access, wantAccess) || !errors.Is(err, wantErr) {
+				t.Fatalf("ID校验与认证语义不同: %v / %v", err, wantErr)
+			}
+			if state != "valid" && state != "permissions" && !errors.Is(err, ErrCredentials) {
+				t.Fatalf("失效状态仍有效: %v", err)
+			}
+		})
+	}
+	for _, id := range []int64{0, -1, 999999} {
+		if _, _, err := s.ValidateAccessTokenID(id); !errors.Is(err, ErrCredentials) {
+			t.Fatalf("不存在ID通过校验: %v", err)
+		}
+	}
+}
 
 func TestAccessTokenLifecycleAndSecrecy(t *testing.T) {
 	dir := privateTestDirectory(t)

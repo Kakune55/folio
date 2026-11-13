@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"image"
@@ -139,31 +140,85 @@ func (s *Store) OpenDownload(name string, preview bool) (*os.File, *Metadata, er
 	return file, metadata, nil
 }
 func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool) (*Metadata, error) {
+	metadata, _, err := s.UploadConditional(directory, name, reader, imageOnly, "", true)
+	return metadata, err
+}
+
+// attachmentVersion 对原始字节计算版本；旧目标也受 Attachment 上限约束。
+func (s *Store) attachmentVersion(name string, limit int64) (string, os.FileInfo, error) {
+	file, err := s.open(name, os.O_RDONLY, 0)
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+	info, err := regular(file)
+	if err != nil {
+		return "", nil, err
+	}
+	if err = fileio.CheckSingleLink(file); err != nil {
+		return "", nil, mapError(err)
+	}
+	if info.Size() > limit {
+		return "", nil, fail("too_large")
+	}
+	sum := sha256.New()
+	n, err := io.Copy(sum, io.LimitReader(file, limit+1))
+	if err != nil {
+		return "", nil, err
+	}
+	if n > limit {
+		return "", nil, fail("too_large")
+	}
+	if err = unchanged(file, info); err != nil {
+		return "", nil, err
+	}
+	return "sha256:" + hex.EncodeToString(sum.Sum(nil)), info, nil
+}
+
+// UploadConditional 保留上传原始字节；create 不覆盖，replace 必须匹配 expectedRevision。
+func (s *Store) UploadConditional(directory, name string, reader io.Reader, imageOnly bool, expectedRevision string, create bool) (*Metadata, string, error) {
 	if err := ValidPath(directory, true); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if strings.Contains(name, "/") || name == "" {
-		return nil, fail("path_invalid")
+		return nil, "", fail("path_invalid")
 	}
 	full := name
 	if directory != "" {
 		full = directory + "/" + name
 	}
 	if err := ValidPath(full, false); err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	if !create && expectedRevision == "" {
+		return nil, "", fail("precondition_required")
 	}
 	s.mu.Lock()
+	limits := s.limits
+	oldSize := int64(0)
+	mode := os.FileMode(0o644)
+	if !create {
+		current, info, err := s.attachmentVersion(full, limits.Attachment)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, "", err
+		}
+		if current != expectedRevision {
+			s.mu.Unlock()
+			return nil, "", &Error{Code: "revision_conflict", Revision: current}
+		}
+		oldSize, mode = info.Size(), info.Mode().Perm()
+	}
 	remaining := int64(-1)
 	if s.quota != nil {
 		usage, err := s.usageLocked()
 		if err != nil {
 			s.mu.Unlock()
-			return nil, err
+			return nil, "", err
 		}
-		remaining = max(int64(0), usage.Quota-usage.Used)
+		remaining = max(oldSize, usage.Quota-usage.Used+oldSize)
 	}
 	s.uploads[full]++
-	limits := s.limits
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -175,13 +230,13 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	}()
 	parent, base, err := s.parent(full)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer parent.Close()
 	buffered := bufio.NewReader(reader)
 	header, peekErr := buffered.Peek(512)
 	if peekErr != nil && peekErr != io.EOF && peekErr != bufio.ErrBufferFull {
-		return nil, peekErr
+		return nil, "", peekErr
 	}
 	limit := limits.Attachment
 	ext := strings.ToLower(path.Ext(name))
@@ -197,63 +252,74 @@ func (s *Store) Upload(directory, name string, reader io.Reader, imageOnly bool)
 	}
 	var nonce [16]byte
 	if _, err = rand.Read(nonce[:]); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	temp := ".folio-tmp-" + hex.EncodeToString(nonce[:])
 	file, err := parent.OpenFile(temp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer func() { file.Close(); _ = parent.Remove(temp) }()
-	count, err := io.Copy(file, io.LimitReader(buffered, limit+1))
+	sum := sha256.New()
+	count, err := io.Copy(io.MultiWriter(file, sum), io.LimitReader(buffered, limit+1))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if count > limit {
 		if quotaLimited {
-			return nil, fail("quota_exceeded")
+			return nil, "", fail("quota_exceeded")
 		}
-		return nil, fail("too_large")
+		return nil, "", fail("too_large")
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	metadata, err := s.metadata(file, full, limits)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if imageOnly && metadata.Viewer != "image" {
-		return nil, fail("preview_unavailable")
+		return nil, "", fail("preview_unavailable")
 	}
-	if err = file.Chmod(0o644); err != nil {
-		return nil, err
+	if err = file.Chmod(mode); err != nil {
+		return nil, "", err
 	}
 	if err = fileio.Sync(file); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if err = file.Close(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.checkQuota(count); err != nil {
-		return nil, err
+	if err = s.checkQuota(count - oldSize); err != nil {
+		return nil, "", err
 	}
-	verified, _, err := s.parent(full)
+	if err = s.verifyParent(full, parent); err != nil {
+		return nil, "", err
+	}
+	if !create {
+		current, info, err := s.attachmentVersion(full, limits.Attachment)
+		if err != nil {
+			return nil, "", err
+		}
+		if current != expectedRevision {
+			return nil, "", &Error{Code: "revision_conflict", Revision: current}
+		}
+		if info.Mode().Perm() != mode {
+			return nil, "", fail("file_changed")
+		}
+	}
+	if create {
+		err = fileio.Rename(parent, temp, parent, base)
+	} else {
+		err = parent.Rename(temp, base)
+	}
 	if err != nil {
-		return nil, err
-	}
-	a, errA := fileio.Stat(parent)
-	b, errB := fileio.Stat(verified)
-	verified.Close()
-	if errA != nil || errB != nil || !os.SameFile(a, b) {
-		return nil, fail("file_changed")
-	}
-	if err = fileio.Rename(parent, temp, parent, base); err != nil {
-		return nil, mapError(err)
+		return nil, "", mapError(err)
 	}
 	if err = fileio.SyncRoot(parent); err != nil {
-		return nil, fail("durability_uncertain")
+		return nil, "", fail("durability_uncertain")
 	}
-	return metadata, nil
+	return metadata, "sha256:" + hex.EncodeToString(sum.Sum(nil)), nil
 }

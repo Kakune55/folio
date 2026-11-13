@@ -43,6 +43,7 @@ type Accounts struct {
 	data          *os.Root
 	entries       map[int64]*accountWorkspace
 	base          http.Handler
+	downloads     *mcpDownloads
 }
 
 func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Accounts, error) {
@@ -91,11 +92,18 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		data.Close()
 		return nil, err
 	}
+	a.downloads = newMCPDownloads(a.auth, func(id int64) (*storage.Store, string, error) {
+		entry, err := a.get(id)
+		if err != nil {
+			return nil, "", err
+		}
+		return entry.store, entry.id, nil
+	})
 	a.base = New(assets, a.options())
 	return a, nil
 }
 func (a *Accounts) options() Options {
-	return Options{Shares: a.shares, System: a, Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
+	return Options{MCPDownloads: a.downloads, Shares: a.shares, System: a, Auth: a.auth, SecureCookie: a.cfg.SecureCookie, Origin: a.cfg.Origin, WorkspaceFor: func(id int64) (string, error) {
 		entry, err := a.get(id)
 		if err != nil {
 			return "", err

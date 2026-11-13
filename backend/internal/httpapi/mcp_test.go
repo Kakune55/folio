@@ -318,8 +318,8 @@ func TestMCPInitializeAuthenticationAndOrigin(t *testing.T) {
 			t.Fatalf("MCP 初始化说明缺少语法提示：%s", syntax)
 		}
 	}
-	if len(e.tools(secret)) != 11 {
-		t.Fatal("完整权限应提供 11 项工具")
+	if len(e.tools(secret)) != 14 {
+		t.Fatal("完整权限应提供 14 项工具")
 	}
 	for _, tc := range []struct {
 		name   string
@@ -379,17 +379,17 @@ func TestMCPExplicitOriginReverseProxy(t *testing.T) {
 
 func TestMCPPermissionToolRegistrationAndDirectCalls(t *testing.T) {
 	e := newMCPTestEnv(t, "")
-	all := []string{"listDirectory", "readContent", "getEntryRevision", "createFile", "createDirectory", "patchContent", "moveEntry", "trashEntry", "listTrash", "restoreEntry", "searchFiles"}
+	all := []string{"listDirectory", "readContent", "getEntryRevision", "createFile", "createDirectory", "patchContent", "moveEntry", "trashEntry", "listTrash", "restoreEntry", "searchFiles", "updateContent", "downloadFile", "uploadFile"}
 	for _, tc := range []struct {
 		name    string
 		perms   auth.TokenPermissions
 		allowed []string
 	}{
-		{"只读正文", auth.TokenPermissions{Files: "read", Search: "none", Trash: "none"}, []string{"listDirectory", "readContent", "getEntryRevision"}},
-		{"只写正文", auth.TokenPermissions{Files: "write", Search: "none", Trash: "none"}, []string{"listDirectory", "readContent", "getEntryRevision", "createFile", "createDirectory", "patchContent", "moveEntry"}},
+		{"只读正文", auth.TokenPermissions{Files: "read", Search: "none", Trash: "none"}, []string{"listDirectory", "readContent", "getEntryRevision", "downloadFile"}},
+		{"只写正文", auth.TokenPermissions{Files: "write", Search: "none", Trash: "none"}, []string{"listDirectory", "readContent", "getEntryRevision", "createFile", "createDirectory", "patchContent", "moveEntry", "updateContent", "downloadFile", "uploadFile"}},
 		{"仅搜索", auth.TokenPermissions{Files: "none", Search: "read", Trash: "none"}, []string{"searchFiles"}},
 		{"只读回收站", auth.TokenPermissions{Files: "none", Search: "none", Trash: "read"}, []string{"listTrash"}},
-		{"回收写但正文只读", auth.TokenPermissions{Files: "read", Search: "none", Trash: "write"}, []string{"listDirectory", "readContent", "getEntryRevision", "listTrash"}},
+		{"回收写但正文只读", auth.TokenPermissions{Files: "read", Search: "none", Trash: "write"}, []string{"listDirectory", "readContent", "getEntryRevision", "downloadFile", "listTrash"}},
 		{"完整权限", auth.TokenPermissions{Files: "write", Search: "write", Trash: "write"}, all},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -688,6 +688,15 @@ func TestMCPRejectsBatchAndBoundsHTTPBody(t *testing.T) {
 		if w.Code != 413 {
 			t.Fatalf("无Content-Length的超限请求未拒绝：%d %s", w.Code, w.Body.String())
 		}
+		var problem struct {
+			Error struct {
+				Code    string
+				Details map[string]any
+			}
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil || problem.Error.Code != "too_large" || problem.Error.Details == nil {
+			t.Fatalf("传输超限未返回结构化错误：%s %v", w.Body.String(), err)
+		}
 	}
 }
 
@@ -719,12 +728,40 @@ func TestMCPOfficialClientHTTPRoundTrip(t *testing.T) {
 		t.Fatalf("官方客户端未使用当前协议：%s", version)
 	}
 	tools, err := session.ListTools(ctx, &mcp.ListToolsParams{})
-	if err != nil || len(tools.Tools) != 7 {
+	if err != nil || len(tools.Tools) != 10 {
 		t.Fatalf("官方客户端列工具失败：%+v %v", tools, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "createFile", Arguments: map[string]any{"path": "official.txt", "content": "HTTP MCP"}})
 	if err != nil || result.IsError || result.StructuredContent == nil {
 		t.Fatalf("官方客户端调用失败：%+v %v", result, err)
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "readContent", Arguments: map[string]any{"path": "official.txt"}})
+	if err != nil || result.IsError {
+		t.Fatalf("官方客户端读取失败：%+v %v", result, err)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read struct{ Revision string }
+	if err := json.Unmarshal(encoded, &read); err != nil {
+		t.Fatal(err)
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "updateContent", Arguments: map[string]any{"path": "official.txt", "content": "updated HTTP MCP", "expectedRevision": read.Revision}})
+	if err != nil || result.IsError {
+		t.Fatalf("官方客户端整篇替换失败：%+v %v", result, err)
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "uploadFile", Arguments: map[string]any{"path": "official.bin", "contentBase64": "AP8BAg=="}})
+	if err != nil || result.IsError {
+		t.Fatalf("官方客户端上传失败：%+v %v", result, err)
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "downloadFile", Arguments: map[string]any{"path": "official.bin"}})
+	if err != nil || result.IsError || len(result.Content) != 2 {
+		t.Fatalf("官方客户端原生附件失败：%+v %v", result, err)
+	}
+	resource, ok := result.Content[1].(*mcp.EmbeddedResource)
+	if !ok || resource.Resource == nil || !bytes.Equal(resource.Resource.Blob, []byte{0, 255, 1, 2}) {
+		t.Fatalf("官方客户端附件字节不一致：%+v", result)
 	}
 	if err := e.accounts.DeleteAccessToken(1, token.ID); err != nil {
 		t.Fatal(err)

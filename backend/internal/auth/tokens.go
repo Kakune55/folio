@@ -113,11 +113,20 @@ func (s *Service) AuthenticateAccessToken(secret string) (*Principal, *AccessTok
 	if len(secret) != 70 || !strings.HasPrefix(secret, "folio_") {
 		return nil, nil, ErrCredentials
 	}
+	return s.validateAccessToken("t.token_hash", tokenHash(secret))
+}
+
+// ValidateAccessTokenID 仅复核已签发票据绑定的令牌；ID 不是公共认证凭据。
+func (s *Service) ValidateAccessTokenID(id int64) (*Principal, *AccessToken, error) {
+	return s.validateAccessToken("t.id", id)
+}
+
+func (s *Service) validateAccessToken(column string, value any) (*Principal, *AccessToken, error) {
 	var p Principal
 	var t AccessToken
 	now := time.Now().Unix()
 	err := s.db.QueryRow(`SELECT a.id,a.username,t.id,t.workspace_id,t.files,t.search,t.trash,t.name,t.prefix,t.created_at,t.expires_at,t.last_used_at FROM access_tokens t JOIN account a ON a.id=t.user_id
- WHERE t.token_hash=? AND a.enabled=1 AND (t.expires_at=0 OR t.expires_at>?)`, tokenHash(secret), now).Scan(&p.ID, &p.Username, &t.ID, &t.WorkspaceID, &t.Permissions.Files, &t.Permissions.Search, &t.Permissions.Trash, &t.Name, &t.Prefix, &t.CreatedAt, &t.ExpiresAt, &t.LastUsedAt)
+ WHERE `+column+`=? AND a.enabled=1 AND (t.expires_at=0 OR t.expires_at>?)`, value, now).Scan(&p.ID, &p.Username, &t.ID, &t.WorkspaceID, &t.Permissions.Files, &t.Permissions.Search, &t.Permissions.Trash, &t.Name, &t.Prefix, &t.CreatedAt, &t.ExpiresAt, &t.LastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrCredentials
 	}

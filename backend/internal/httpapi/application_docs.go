@@ -93,6 +93,9 @@ func buildApplicationDocuments(source []byte) (applicationDocuments, error) {
 					public = true
 				}
 			}
+			if op["x-folio-capability-auth"] == true {
+				public = false
+			}
 			summary, _ := op["summary"].(string)
 			index.Operations = append(index.Operations, operationSummary{id, strings.ToUpper(method), path, summary, permissions, public, "/api/v1/operations/" + id})
 			selectedPath := map[string]any{method: op}
