@@ -89,6 +89,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const [discardUpload, setDiscardUpload] = useState<PendingUpload>()
   const [loading, setLoading] = useState(false)
   const [createKind, setCreateKind] = useState<'file' | 'directory' | null>(null)
+  const [createParent, setCreateParent] = useState('')
   const [name, setName] = useState('')
   const [createError, setCreateError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -311,7 +312,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   }, [uploading, uploads.length, closeFile, openFile, handleSave])
 
 
-  const startCreate = (kind: 'file' | 'directory') => { setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
+  const startCreate = (kind: 'file' | 'directory', parent = directory) => { setCreateParent(parent); setCreateError(''); setName(kind === 'file' ? '未命名.md' : '新建文件夹'); setCreateKind(kind) }
   const closeComparison = () => { if (!busy) { comparisonSequence.current++; setComparison(undefined) } }
   const handleKeepSeparate = async () => {
     if (!comparison) return
@@ -357,7 +358,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {mobile && <div className="drawer-upload-row"><Button className="drawer-upload" variant="outline" disabled={uploading} onClick={() => uploadInput.current?.click()}><Upload size={16} />上传到{directory ? `「${directory}」` : '工作区'}</Button><Button size="icon" variant="outline" disabled={uploading} aria-label="拍照上传" title="拍照上传到当前目录" onClick={() => cameraInput.current?.click()}><Camera size={17} /></Button></div>}
       {mobile && notice && <p className="tree-message" role="status">{notice}</p>}
       {mobile && <UploadFailures busy={uploading} onDiscard={setDiscardUpload} onRetry={(entries) => void uploadAttachments(entries.map((entry) => entry.file), entries)} />}
-      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} onDropMove={operations.moveToDirectory} onNotice={onBlocked} disabled={uploading} />
+      <Explorer active={activePath} directory={directory} setDirectory={setDirectory} onOpen={(path) => void openFile(path)} onCreate={(kind, parent) => { setDirectory(parent); startCreate(kind, parent) }} onRename={operations.rename} onMove={operations.showMove} onDelete={operations.showDelete} onDropMove={operations.moveToDirectory} onNotice={onBlocked} disabled={uploading} />
       <div className="explorer-foot"><AccountControls principal={principal} onSettings={() => { if (mobile) setSidebar(false) }} /></div>
     </ExplorerPanel>
     <main className="main-pane"><div className="tabs-row"><Button id="explorer-toggle" size="icon" aria-label={sidebar ? '收起文件列表' : '展开文件列表'} aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={16} /></Button><div className="tabs" role={workspace.list().length ? 'tablist' : undefined} aria-label={workspace.list().length ? '打开的文件' : undefined}>
@@ -405,10 +406,10 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     </DialogContent></Dialog.Portal></Dialog.Root>
     {operations.dialogs}<TrashDialog open={trashOpen} onOpenChange={setTrashOpen} />
     <Dialog.Root open={createKind !== null} onOpenChange={(value) => { if (!value && !busy) setCreateKind(null) }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content">
-      <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{directory || '工作区根目录'}</Dialog.Description>
+      <Dialog.Title>{createKind === 'directory' ? '新建文件夹' : '新建笔记'}</Dialog.Title><Dialog.Description>创建位置：{createParent || '工作区根目录'}</Dialog.Description>
       <form onSubmit={async (event) => {
         event.preventDefault(); setBusy(true); setCreateError('')
-        const path = directory ? `${directory}/${name}` : name
+        const path = createParent ? `${createParent}/${name}` : name
         try {
           if (createKind === 'directory') { await api.mkdir(path); setDirectory(path) }
           else { await api.create(path); await openFile(path) }
