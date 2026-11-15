@@ -85,11 +85,11 @@ func TestExpirationListAndRestartCleanup(t *testing.T) {
 	}
 	r = expire()
 	directory := s.root.Name()
-	// Open 接收 app-data 父目录。
+	// 重开服务不关闭或替换核心数据库。
 	if err = s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(directory+"/..", func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
+	reopened, err := Open(directory, s.db, func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
 	if err != nil {
 		t.Fatal(err)
 	}

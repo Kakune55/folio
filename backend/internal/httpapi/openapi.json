@@ -3262,7 +3262,7 @@
     },
     "responses": {
       "400": {
-        "description": "参数、JSON 或路径不安全。path_missing 表示必需 path 缺失、null 或空串，details.expected 为 query:path 或 body:path，明确正确位置且不从另一位置回退；非字符串 body path 为 invalid_request，其他非法路径仍为 path_invalid。认证／CSRF 先于参数校验，必需 query path 先于 If-Match 和 body 校验，同时缺 path 与 If-Match 先返回 400，补齐 path 后仍须版本否则返回 428。workspace/tree 的 path 与 uploads 的 directory 允许省略或空串表示根目录。details.currentRevision 仅真实版本非空时附带。invalid_patch 表示补丁语法、计数、顺序或文件头无效；invalid_line_range 表示行号或行数参数不合法",
+        "description": "参数、JSON 或路径不安全。任意路径段 .folio（不区分大小写）为系统保留名称，普通文件与分享选取拒绝访问并返回 path_invalid，列举与搜索不返回该目录；其他点开头目录仍可使用。path_missing 表示必需 path 缺失、null 或空串，details.expected 为 query:path 或 body:path，明确正确位置且不从另一位置回退；非字符串 body path 为 invalid_request，其他非法路径仍为 path_invalid。认证／CSRF 先于参数校验，必需 query path 先于 If-Match 和 body 校验，同时缺 path 与 If-Match 先返回 400，补齐 path 后仍须版本否则返回 428。workspace/tree 的 path 与 uploads 的 directory 允许省略或空串表示根目录。details.currentRevision 仅真实版本非空时附带。invalid_patch 表示补丁语法、计数、顺序或文件头无效；invalid_line_range 表示行号或行数参数不合法",
         "content": {
           "application/json": {
             "schema": {

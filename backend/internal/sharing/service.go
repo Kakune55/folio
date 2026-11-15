@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"folio/internal/fileio"
+	"folio/internal/layout"
 	"folio/internal/storage"
 	"golang.org/x/crypto/argon2"
-	_ "modernc.org/sqlite"
 )
 
 type Error struct {
@@ -134,58 +134,13 @@ func validToken(value string) bool {
 	return err == nil
 }
 
-func Open(directory string, source func(int64) (*storage.Store, bool, error)) (*Service, error) {
-	parent, err := os.OpenRoot(directory)
+func Open(directory string, db *sql.DB, source func(int64) (*storage.Store, bool, error)) (*Service, error) {
+	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return nil, err
 	}
-	defer parent.Close()
-	if err = parent.Mkdir("shares", 0700); err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, err
-	}
-	checked, err := fileio.Open(parent, "shares", os.O_RDONLY, 0)
+	err = InitSchema(db)
 	if err != nil {
-		return nil, err
-	}
-	checked.Close()
-	root, err := parent.OpenRoot("shares")
-	if err != nil {
-		return nil, err
-	}
-	f, err := fileio.Open(root, "shares.db", os.O_RDWR, 0)
-	if errors.Is(err, os.ErrNotExist) {
-		f, err = root.OpenFile("shares.db", os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
-	}
-	if err != nil {
-		root.Close()
-		return nil, err
-	}
-	if err = f.Chmod(0600); err != nil {
-		f.Close()
-		root.Close()
-		return nil, err
-	}
-	f.Close()
-	for _, name := range []string{"shares.db-wal", "shares.db-shm", "shares.db-journal"} {
-		f, e := fileio.Open(root, name, os.O_RDONLY, 0)
-		if e == nil {
-			f.Close()
-		} else if !errors.Is(e, os.ErrNotExist) {
-			root.Close()
-			return nil, e
-		}
-	}
-	db, err := sql.Open("sqlite", fileio.FileURL(filepath.Join(directory, "shares", "shares.db"))+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=trusted_schema(OFF)")
-	if err != nil {
-		root.Close()
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS shares(id TEXT PRIMARY KEY,owner INTEGER NOT NULL,record TEXT NOT NULL,payload TEXT NOT NULL,salt BLOB,hash BLOB);
- CREATE TABLE IF NOT EXISTS grants(token TEXT NOT NULL,share_id TEXT NOT NULL,version TEXT NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(token,share_id));
- CREATE INDEX IF NOT EXISTS shares_owner ON shares(owner); CREATE INDEX IF NOT EXISTS grants_share ON grants(share_id);`)
-	if err != nil {
-		db.Close()
 		root.Close()
 		return nil, err
 	}
@@ -215,10 +170,22 @@ func (s *Service) cleanStaging() error {
 		return err
 	}
 	for _, owner := range owners {
-		if _, e := strconv.ParseInt(owner.Name(), 10, 64); e != nil {
+		if id, e := strconv.ParseInt(owner.Name(), 10, 64); e != nil || id <= 0 || strconv.FormatInt(id, 10) != owner.Name() {
 			continue
 		}
-		checked, e := fileio.Open(s.root, owner.Name(), os.O_RDONLY, 0)
+		checked, e := fileio.Open(s.root, owner.Name()+"/.folio/shares", os.O_RDONLY, 0)
+		if errors.Is(e, os.ErrNotExist) {
+			continue
+		}
+		if e != nil {
+			return e
+		}
+		checked.Close()
+		id, _ := strconv.ParseInt(owner.Name(), 10, 64)
+		if e = layout.EnsureOwner(s.root, id); e != nil {
+			return e
+		}
+		checked, e = fileio.Open(s.root, owner.Name()+"/.folio/shares", os.O_RDONLY, 0)
 		if e != nil {
 			return e
 		}
@@ -230,7 +197,7 @@ func (s *Service) cleanStaging() error {
 		for _, entry := range entries {
 			suffix := strings.TrimPrefix(entry.Name(), ".folio-tmp-")
 			if suffix != entry.Name() && validToken(suffix) {
-				if e = s.root.RemoveAll(owner.Name() + "/" + entry.Name()); e != nil {
+				if e = s.root.RemoveAll(owner.Name() + "/.folio/shares/" + entry.Name()); e != nil {
 					return e
 				}
 			}
@@ -270,29 +237,13 @@ func (s *Service) Close() error {
 			close(s.stop)
 			<-s.stopped
 		}
-		s.closeErr = errors.Join(s.db.Close(), s.root.Close())
+		s.closeErr = s.root.Close()
 	})
 	return s.closeErr
 }
-func (s *Service) ownerDir(owner int64) string { return fmt.Sprintf("%d", owner) }
+func (s *Service) ownerDir(owner int64) string { return layout.OwnerDir(owner) + "/shares" }
 func (s *Service) EnsureOwner(owner int64) error {
-	name := s.ownerDir(owner)
-	if err := s.root.Mkdir(name, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
-	}
-	f, err := fileio.Open(s.root, name, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	info, err := f.Stat()
-	f.Close()
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return problem(500, "分享目录不是普通目录")
-	}
-	return nil
+	return layout.EnsureOwner(s.root, owner)
 }
 func (s *Service) Usage(owner int64) (int64, error) {
 	return fileio.TreeBytes(s.root, s.ownerDir(owner), true)
@@ -667,7 +618,21 @@ func syncDirectories(root *os.Root, name string) error {
 	defer dir.Close()
 	return fileio.SyncRoot(dir)
 }
+
+// 载荷定位只能指向专用内部目录，不能借数据库中的路径跨入用户文件。
+func validPayload(name string) bool {
+	parts := strings.Split(name, "/")
+	if len(parts) != 4 || parts[1] != ".folio" || parts[2] != "shares" || storage.ValidPath(parts[3], false) != nil {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	return err == nil && id > 0 && strconv.FormatInt(id, 10) == parts[0]
+}
 func (s *Service) removePayload(name string) error {
+	if !validPayload(name) {
+		return errors.New("分享载荷路径无效，请检查持久数据")
+	}
+
 	if err := s.root.RemoveAll(name); err != nil {
 		return err
 	}
@@ -888,6 +853,9 @@ func (s *Service) read(r *Record, fileID string) (storage.BundleFile, error) {
 	var store *storage.Store
 	var err error
 	if r.Mode == "snapshot" {
+		if !validPayload(r.Payload) || path.Dir(r.Payload) != s.ownerDir(r.Owner) {
+			return storage.BundleFile{}, errors.New("分享载荷越出所属用户内部目录")
+		}
 		checked, checkErr := fileio.Open(s.root, r.Payload, os.O_RDONLY, 0)
 		if checkErr != nil {
 			return storage.BundleFile{}, checkErr
@@ -982,4 +950,12 @@ func SortScan(scan *Scan) {
 	if len(scan.Files) > 1 {
 		sort.Slice(scan.Files[1:], func(i, j int) bool { return scan.Files[i+1].Path < scan.Files[j+1].Path })
 	}
+}
+
+// InitSchema 在核心数据库中创建分享表，连接池由调用方持有。
+func InitSchema(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS shares(id TEXT PRIMARY KEY,owner INTEGER NOT NULL,record TEXT NOT NULL,payload TEXT NOT NULL,salt BLOB,hash BLOB);
+ CREATE TABLE IF NOT EXISTS grants(token TEXT NOT NULL,share_id TEXT NOT NULL,version TEXT NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(token,share_id));
+ CREATE INDEX IF NOT EXISTS shares_owner ON shares(owner); CREATE INDEX IF NOT EXISTS grants_share ON grants(share_id);`)
+	return err
 }

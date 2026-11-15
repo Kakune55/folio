@@ -95,4 +95,19 @@ func TestPasswordResetCommandDoesNotStartServerOrInitializeWorkspace(t *testing.
 	if _, _, err = service.Login("admin", newPassword, "", "local"); err != nil {
 		t.Fatal(err)
 	}
+
+	run(false, "-migrate-storage", "-workspace", workspace, "-app-data", dir)
+	if _, err = os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatal("迁移命令创建了错误工作区", err)
+	}
+	service.Close()
+	service = nil
+	realWorkspace := filepath.Join(base, "workspace")
+	if err = os.Mkdir(realWorkspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	run(false, "-migrate-storage", "-workspace", realWorkspace)
+	run(false, "-migrate-storage", "-reset-password", "-workspace", realWorkspace, "-app-data", dir)
+	run(true, "-migrate-storage", "-workspace", realWorkspace, "-app-data", dir)
+	run(false, "-migrate-storage", "-workspace", realWorkspace, "-app-data", dir)
 }

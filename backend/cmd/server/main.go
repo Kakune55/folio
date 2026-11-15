@@ -15,18 +15,32 @@ import (
 	"folio/internal/auth"
 	"folio/internal/config"
 	"folio/internal/httpapi"
+	"folio/internal/storagemigrate"
 	"folio/web"
 )
 
 func main() {
 	check := flag.Bool("healthcheck", false, "检查本进程服务是否存活")
+	migrate := flag.Bool("migrate-storage", false, "停服迁移回收载荷、分享快照并将分享库合入核心库")
+	workspace := flag.String("workspace", "", "迁移使用的现有工作区根目录（必须显式指定）")
 	reset := flag.Bool("reset-password", false, "停止服务后重置现有账号密码并撤销所有登录会话")
-	appData := flag.String("app-data", "", "离线重置使用的现有应用数据目录（必须显式指定）")
+	appData := flag.String("app-data", "", "离线维护使用的现有应用数据目录（必须显式指定）")
 	passwordFile := flag.String("password-file", "", "离线重置使用的私有新密码文件（不接受明文参数）")
 	flag.Parse()
-	if flag.NArg() != 0 || (*reset && *check) || (!*reset && (*appData != "" || *passwordFile != "")) {
+	if flag.NArg() != 0 || (*reset && *check) || (*migrate && (*reset || *check || *passwordFile != "")) || (!*reset && !*migrate && (*appData != "" || *passwordFile != "")) || (!*migrate && *workspace != "") {
 		log.Fatal("参数组合无效；使用 -help 查看帮助")
 	}
+	if *migrate {
+		if *workspace == "" || *appData == "" {
+			log.Fatal("迁移必须显式指定 -workspace 和 -app-data；请先停服并保留两目录完整副本")
+		}
+		if err := storagemigrate.Run(*workspace, *appData); err != nil {
+			log.Fatalf("存储迁移失败：%v；请保留原件、检查冲突后重试同一命令", err)
+		}
+		log.Print("存储布局迁移完成；旧回收载荷、分享快照与分享库仍保留在 app-data，核验前请勿删除。切换后勿直接运行旧版本。")
+		return
+	}
+
 	if *reset {
 		if *appData == "" || *passwordFile == "" {
 			log.Fatal("重置必须显式指定 -app-data 和 -password-file；请先停止 Folio 并备份两卷")

@@ -285,3 +285,9 @@ func (s *Service) Logout(token string) error {
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash(token))
 	return err
 }
+
+// Database 返回受实例锁保护的核心连接池；借用方不得关闭。
+func (s *Service) Database() *sql.DB { return s.db }
+
+// OpenExisting 供停服维护使用，路径错误时不创建账号库。
+func OpenExisting(dir string) (*Service, error) { return open(dir, "", true) }

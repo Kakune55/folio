@@ -17,7 +17,7 @@ func (s *Store) usageLocked() (Usage, error) {
 			return Usage{}, err
 		}
 	}
-	used, err := fileio.TreeBytes(s.root, ".", true)
+	used, err := fileio.WorkspaceBytes(s.root)
 	if err != nil {
 		return Usage{}, err
 	}

@@ -58,6 +58,9 @@ func (s *Store) StorageDetails(ctx context.Context) (StorageBreakdown, error) {
 			return err
 		}
 		for _, entry := range entries {
+			if strings.EqualFold(entry.Name(), ".folio") {
+				continue
+			}
 			if strings.HasPrefix(entry.Name(), ".folio-tmp-") && !strings.HasPrefix(entry.Name(), ".folio-tmp-trash-") {
 				continue
 			}

@@ -63,7 +63,7 @@ func ValidPath(name string, allowRoot bool) error {
 		return fail("path_invalid")
 	}
 	for _, part := range strings.Split(name, "/") {
-		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || reservedName(part) || part == "" || part == "." || part == ".." || strings.HasPrefix(strings.ToLower(part), ".folio-tmp-") {
+		if strings.EqualFold(part, ".folio") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || reservedName(part) || part == "" || part == "." || part == ".." || strings.HasPrefix(strings.ToLower(part), ".folio-tmp-") {
 			return fail("path_invalid")
 		}
 		for _, r := range part {

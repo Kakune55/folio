@@ -16,6 +16,7 @@ import (
 	"folio/internal/auth"
 	"folio/internal/config"
 	"folio/internal/fileio"
+	"folio/internal/layout"
 	"folio/internal/search"
 	"folio/internal/sharing"
 	"folio/internal/storage"
@@ -56,6 +57,25 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		roots.Close()
 		return nil, err
 	}
+	complete, e := layout.Complete(accounts.Database())
+	if e == nil && !complete {
+		var legacy bool
+		legacy, e = layout.HasLegacy(data)
+		if e == nil && legacy {
+			e = errors.New("检测到旧存储布局，请停服并运行 -migrate-storage -workspace <工作区> -app-data <应用数据>；迁移前保留完整副本")
+		}
+		if e == nil {
+			e = layout.CheckNames(roots)
+		}
+		if e == nil {
+			e = layout.MarkComplete(accounts.Database())
+		}
+	}
+	if e != nil {
+		roots.Close()
+		data.Close()
+		return nil, e
+	}
 	demoUser, demoSeeded, err := accounts.ConfigureDemo(cfg.DemoMode)
 	if err != nil {
 		roots.Close()
@@ -82,7 +102,7 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		cfg.IndexLimit = saved.IndexLimit
 	}
 	a := &Accounts{started: time.Now(), cfg: cfg, auth: accounts, assets: assets, roots: roots, data: data, entries: map[int64]*accountWorkspace{}}
-	a.shares, err = sharing.Open(cfg.AppData, func(id int64) (*storage.Store, bool, error) {
+	a.shares, err = sharing.Open(cfg.Workspace, accounts.Database(), func(id int64) (*storage.Store, bool, error) {
 		user, e := a.auth.User(id)
 		if e != nil {
 			return nil, false, e
@@ -165,7 +185,11 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 		store.Close()
 		return nil, err
 	}
-	recovery, err := trash.Open(filepath.Join(a.cfg.AppData, name, "trash"))
+	if err = layout.EnsureOwner(a.roots, id); err != nil {
+		store.Close()
+		return nil, err
+	}
+	recovery, err := trash.Open(filepath.Join(a.cfg.Workspace, name, ".folio", "trash"))
 	if err != nil {
 		store.Close()
 		return nil, err

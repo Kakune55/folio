@@ -2,9 +2,12 @@ package sharing
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
+	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,7 +33,13 @@ func fixture(t *testing.T) (*Service, map[int64]*storage.Store, map[int64]bool) 
 		t.Cleanup(func() { store.Close() })
 		store.SetQuota(func() (int64, error) { return 1 << 30, nil })
 	}
-	s, e := Open(base, func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
+	db, e := sql.Open("sqlite", filepath.Join(base, "app.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	s, e := Open(base, db, func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -43,12 +52,8 @@ func fixture(t *testing.T) (*Service, map[int64]*storage.Store, map[int64]bool) 
 	}
 	return s, stores, enabled
 }
-func fmtID(id int64) string {
-	if id == 1 {
-		return "workspace1"
-	}
-	return "workspace2"
-}
+func fmtID(id int64) string { return strconv.FormatInt(id, 10) }
+
 func write(t *testing.T, store *storage.Store, name, data string) {
 	t.Helper()
 	_, e := store.Write(name, data, "", true)
@@ -297,12 +302,12 @@ func TestGrantRestartPasswordRateLimitAndSnapshotIntegrity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	directory := filepath.Dir(s.root.Name())
+	directory := s.root.Name()
 	source := s.source
 	if e = s.Close(); e != nil {
 		t.Fatal(e)
 	}
-	reopened, e := Open(directory, source)
+	reopened, e := Open(directory, s.db, source)
 	if e != nil {
 		t.Fatal(e)
 	}
