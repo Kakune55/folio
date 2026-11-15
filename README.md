@@ -82,7 +82,7 @@ docker compose up -d
 
 ### 从源码运行
 
-需要 Node.js 22.12+、npm、Go 1.27+ 和 Python 3；Linux 备份工具另需 Python 3.11+。
+需要 Node.js 22.12+、npm、Go 1.27+ 和 Python 3。
 
 ```sh
 make install
@@ -123,16 +123,6 @@ make run
 ```sh
 ./bin/folio -reset-password -app-data ./app-data -password-file /私有路径/new-password
 ```
-
-Linux 双卷备份工具支持 amd64／arm64，需 Python 3.11+、`openat2`／`renameat2` 和 `/proc`，不适用于 Windows：
-
-```sh
-python3 scripts/backup.py backup  --workspace ./workspace --app-data ./app-data --output /备份位置/新目录
-python3 scripts/backup.py verify  --backup /备份位置/新目录
-python3 scripts/backup.py restore --backup /备份位置/新目录 --output /恢复位置/新目录
-```
-
-备份与恢复均须停写。恢复只发布到不存在的新目录，不覆盖原数据；保留账号密码与分享数据，清除旧登录、Access Token 及访客资格，搜索索引随后重建。核验后再切换数据目录，保留原件作为回退。
 
 宿主直接修改文件不会触发搜索更新或 SSE，需要时在搜索窗口重建索引，或重启服务后访问工作区；打开文档仍有版本核对与冲突保护。
 

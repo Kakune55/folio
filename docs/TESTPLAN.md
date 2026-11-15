@@ -27,12 +27,11 @@
 | `backend` | `go test ./...`、`go vet ./...` | 全部后端与静态检查 |
 | `backend` | `go test -race ./internal/httpapi` | HTTP 并发边界，按风险执行 |
 | 根目录 | `make build` | 前端生产构建、嵌入与 Go 程序 |
-| 根目录 | `make test` | 广范围前端、Go 与 Linux 主机备份演练 |
+| 根目录 | `make test` | 广范围前端与 Go 测试 |
 | 根目录 | `make qa` | 生产嵌入页面、无障碍／Mermaid／性能 |
-| 根目录 | `make backup-test` | Linux 双卷备份恢复演练 |
 | 根目录 | `make image`、`make container-test`、`make container-review` | 指定镜像的容器／故障安全验收 |
 
-Go 中依赖 GNU diff 输出的样本需要稳定 locale；必要时显式设置 `LC_ALL=C`，不能把中文输出差异误记为业务通过。Windows 不运行依赖 Linux 原语的备份工具，其他适用用例继续执行并明确跳过原因。
+Go 中依赖 GNU diff 输出的样本需要稳定 locale；必要时显式设置 `LC_ALL=C`，不能把中文输出差异误记为业务通过。平台不适用的用例明确说明跳过原因。
 
 浏览器默认 `/usr/bin/google-chrome`，通过 `CHROME_BIN` 指定其他路径。容器可用 `CONTAINER_ENGINE`、`FOLIO_TEST_IMAGE` 选择引擎／固定镜像；仿真须显式标记，不能当原生硬件结果。
 
@@ -78,9 +77,9 @@ uv run --with-requirements scripts/requirements-api-test.txt python scripts/appl
 
 Linux 子进程的 `RLIMIT_FSIZE`／SIGKILL 只覆盖指定故障点，不等价真实磁盘满或全部断电阶段。容器安全演练使用独立小 tmpfs 制造 ENOSPC，核对旧正文、草稿下载／恢复、释放空间后的条件保存；不得填满宿主盘。
 
-容器验收使用独立两卷、HTTPS 和持久浏览器，覆盖关闭浏览器、重启、正文／会话／冲突／回收、停服离线改密。备份演练核对 WAL 合并只发生在复制件、校验失败拒绝、新目录不覆盖、旧会话／Token 失效、分享快照与后续保存。部署／恢复步骤由 [README 升级与备份](../README.md#升级与备份) 维护。
+容器验收使用独立两卷、HTTPS 和持久浏览器，覆盖关闭浏览器、重启、正文／会话／冲突／回收、停服离线改密。部署／升级与离线改密步骤由 [README 升级与备份](../README.md#升级与备份) 维护。
 
-证据保存到 `artifacts/container/`、`artifacts/security/`、`artifacts/backup/`，绑定命令、时间、平台与镜像摘要。交叉编译、Wine、QEMU、原生设备和真实 Docker／Podman 分开描述；Windows 无链接权限时只跳过对应样本，不得称链接安全已实测。备份工具仍为 Linux 专用。
+证据保存到 `artifacts/container/`、`artifacts/security/`，绑定命令、时间、平台与镜像摘要。交叉编译、Wine、QEMU、原生设备和真实 Docker／Podman 分开描述；Windows 无链接权限时只跳过对应样本，不得称链接安全已实测。
 
 真实 HTTPS 代理缓冲、其他浏览器、真实移动设备／IME／读屏器、Windows／NTFS 不同权限和持久性等不能由一次本机通过推断。已有历史实测与当前未验证环境分开，待验证事项统一见 [产品规范](SPEC.md#已知限制与待办)。
 

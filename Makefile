@@ -31,7 +31,7 @@ endif
 
 BIN := bin/folio$(EXE_EXT)
 
-.PHONY: install dev api build run test qa tls image container-test container-review backup-test
+.PHONY: install dev api build run test qa tls image container-test container-review
 
 install:
 	cd frontend && npm ci
@@ -53,7 +53,6 @@ run: build
 test:
 	cd frontend && npm run lint && npm test && npm run test:e2e
 	cd backend && go test ./...
-	$(PYTHON) scripts/backup-test.py
 
 tls:
 	$(SH) scripts/setup-local-tls.sh
@@ -66,9 +65,6 @@ container-test:
 
 container-review:
 	$(PYTHON) scripts/container-review.py
-
-backup-test:
-	$(PYTHON) scripts/backup-test.py
 
 qa:
 	cd frontend && npm run test:qa
