@@ -95,8 +95,14 @@ make run
 
 | 变量 | 默认值／用途 |
 | --- | --- |
-| `FOLIO_WORKSPACE` | `./workspace`，正文与附件位于 `<用户ID>/`，回收载荷与分享快照位于其 `.folio/` 系统目录 |
-| `FOLIO_APP_DATA` | `./app-data`，核心数据库（账号、认证、设置与分享）和各用户搜索索引 |
+| `FOLIO_STORAGE_BACKEND` | `local`（默认）或 `s3` |
+| `FOLIO_S3_BUCKET`／`FOLIO_S3_PREFIX` | S3 桶名与对象前缀（前缀可选） |
+| `FOLIO_S3_ENDPOINT` | 可选的 S3 兼容服务 HTTP(S) 地址，AWS S3 留空 |
+| `FOLIO_S3_PATH_STYLE` | `false`，兼容服务按需设为 `true` |
+| `FOLIO_S3_REGION` | S3 地域，未设置时使用 `us-east-1` |
+| `FOLIO_S3_ACCESS_KEY`／`FOLIO_S3_SECRET_KEY` | S3 模式必填，访问密钥对 |
+| `FOLIO_WORKSPACE` | `./workspace`，local 工作区目录 |
+| `FOLIO_APP_DATA` | `./app-data`，数据库和搜索索引 |
 | `FOLIO_ADDR` | `127.0.0.1:8080` |
 | `FOLIO_DEMO_MODE` | `false`；设为 `true` 开启folio普通账号(锁定密码管理) |
 | `FOLIO_PASSWORD_FILE` | 仅首次初始化使用的私有普通密码文件 |
@@ -112,21 +118,42 @@ make run
 
 环境变量提供启动初值；管理员在线保存的文件／索引限制以 `app.db` 持久值为准，重启保留，索引上限变化自动重建。降低限额不会删除文件，但已有超限文本可能需恢复上限后才能编辑，仍可下载原件。
 
-`workspace` 与 `app-data` 必须独立、不能相互包含，且只允许一个实例写同一工作区。运行用户、权限和 ACL 是本地信任边界，外部工具不要与 Folio 同时修改同一文件。使用代理时需允许 SSE 流式响应。
+local 模式下，`workspace` 与 `app-data` 不能相互包含。同一工作区只运行一个实例，避免外部工具并发写入。反向代理须支持 SSE 流式响应。
+
+### S3 工作区
+
+正文、附件、回收站和分享快照可存入 S3 兼容对象存储，`app-data` 仍需本地持久目录。设置以下环境变量后启动：
+
+```dotenv
+FOLIO_STORAGE_BACKEND=s3
+FOLIO_S3_ENDPOINT=https://s3.example.com
+FOLIO_S3_BUCKET=folio
+FOLIO_S3_ACCESS_KEY=你的AccessKey
+FOLIO_S3_SECRET_KEY=你的SecretKey
+```
+
+AWS S3 可省略 endpoint；地域、前缀和路径风格见上表。S3 下载会完整读入内存，大小受附件上限约束；实现细节见[架构说明](docs/ARCHITECTURE.md#存储后端边界)。
+
+本地和 S3 配置可以同时保留，启动只加载 `FOLIO_STORAGE_BACKEND` 指定的后端。切换存储时先停服，选择空目标目录／前缀，再执行：
+
+```sh
+./bin/folio -storage-migrate local s3
+./bin/folio -storage-migrate s3 local
+```
+
+命令使用 `FOLIO_WORKSPACE`、`FOLIO_APP_DATA` 和 S3 配置，显示复制与校验进度；失败可重试。成功后将 `FOLIO_STORAGE_BACKEND` 改为目标后端再启动，源数据保留。旧布局需先完成下节迁移。
 
 ### 升级与备份
 
-升级前保存或下载未保存草稿和待上传原件，停服并成对备份 `workspace` 与 `app-data`，再替换二进制／镜像并重启。只构建不会更新运行中的旧进程。`app-data/app.db` 保存账号、会话、设置和分享授权，不能删除；`workspace/<用户ID>/.folio/` 保存回收载荷和分享快照，也必须保留。只有搜索索引可重建；本机草稿和标签缓存不属于服务器备份。
+升级前保存或下载草稿和待上传文件，停服并备份工作区存储（local 目录或 S3 前缀）及 `app-data`，再替换二进制／镜像并重启。
 
-旧布局升级须先停止 Folio 和外部写入，保留 `workspace` 与 `app-data` 的完整副本，再使用新版本执行一次离线迁移（Windows 将可执行文件替换为 `folio.exe`）：
+旧布局首次升级时，按启动提示迁移（Windows 使用 `folio.exe`）：
 
 ```sh
 ./bin/folio -migrate-storage -workspace ./workspace -app-data ./app-data
 ```
 
-迁移将回收清单与载荷、分享快照复制到各用户的 `.folio/trash/`、`.folio/shares/`，并将旧 `shares.db` 的分享和访客资格事务导入 `app.db`；用户根保持原位，公开链接、正文原始字节和现有登录凭据不主动改变。搜索索引仍留在 `app-data/<用户ID>/search.db`，首次打开工作区重新核对。迁移需要容纳载荷副本的额外空间。
-
-`.folio`（不区分大小写）是任意路径层级的系统保留名称，普通文件接口、搜索及分享选取不可访问；其他隐藏目录仍可使用。迁移前如有同名用户内容，须先移走冲突内容。迁移失败保留原件，按报错检查冲突、权限或空间后可重试同一命令；目标已有不同内容时拒绝覆盖。成功后正常启动，旧 `app-data/<用户ID>/trash/`、`app-data/shares/` 原件仍保留，核验后由部署者自行处理，不再计入新布局配额。不要将旧目录重新导入，也不要在同一数据上直接运行旧版本；回退需恢复迁移前两个目录的完整副本。项目不提供通用备份／恢复工具。
+回收站与分享快照迁入用户工作区的 `.folio/`，分享库合入 `app.db`，原件保留。`.folio` 是系统保留目录，如有同名用户目录请先改名。迁移失败可按报错处理后重试；回退须恢复迁移前的工作区和 `app-data` 副本。
 
 离线重置管理员密码须停服并先备份，使用同一二进制与现有 `app-data`，密码通过私有普通文件提供，不用明文命令行参数：
 

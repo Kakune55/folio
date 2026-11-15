@@ -4,13 +4,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -18,7 +16,6 @@ import (
 	"time"
 
 	"folio/internal/auth"
-	"folio/internal/fileio"
 	"folio/internal/storage"
 )
 
@@ -35,13 +32,13 @@ type mcpDownloadTicket struct {
 
 type mcpDownloads struct {
 	auth      *auth.Service
-	workspace func(int64) (*storage.Store, string, error)
+	workspace func(int64) (storage.Workspace, string, error)
 	mu        sync.Mutex
 	tickets   map[[32]byte]mcpDownloadTicket
 	now       func() time.Time
 }
 
-func newMCPDownloads(authService *auth.Service, workspace func(ownerID int64) (*storage.Store, string, error)) *mcpDownloads {
+func newMCPDownloads(authService *auth.Service, workspace func(ownerID int64) (storage.Workspace, string, error)) *mcpDownloads {
 	return &mcpDownloads{auth: authService, workspace: workspace, tickets: make(map[[32]byte]mcpDownloadTicket), now: time.Now}
 }
 
@@ -67,7 +64,7 @@ func downloadOrigin(origin string) (string, error) {
 	return u.String(), nil
 }
 
-func (s *mcpDownloads) validate(ownerID, tokenID int64, workspaceID string) (*storage.Store, error) {
+func (s *mcpDownloads) validate(ownerID, tokenID int64, workspaceID string) (storage.Workspace, error) {
 	if s.auth == nil || s.workspace == nil {
 		return nil, &mcpProblem{status: 503, code: "workspace_unavailable", message: "下载服务暂时不可用，请使用 inline 或稍后重试"}
 	}
@@ -130,54 +127,12 @@ func (s *mcpDownloads) issue(origin string, ownerID int64, access *auth.AccessTo
 }
 
 // openMCPDownload 返回同一个安全描述符及其原始字节版本，成功时位于文件开头，由调用者关闭。
-func openMCPDownload(store *storage.Store, name string, maxBytes int64) (file *os.File, metadata *storage.Metadata, revision string, err error) {
-	maxBytes = min(maxBytes, store.Limits().Attachment, int64(mcpDownloadLimit))
-	file, metadata, err = store.OpenDownload(name, false)
+func openMCPDownload(store storage.Workspace, name string, maxBytes int64) (*storage.Download, *storage.Metadata, string, error) {
+	file, metadata, err := store.ReadDownload(name, false, min(maxBytes, store.Limits().Attachment, int64(mcpDownloadLimit)))
 	if err != nil {
 		return nil, nil, "", downloadReadError(err)
 	}
-	defer func() {
-		if err != nil {
-			file.Close()
-			file = nil
-			metadata = nil
-		}
-	}()
-	if err = fileio.CheckSingleLink(file); err != nil {
-		return file, metadata, "", &storage.Error{Code: "unsupported_file_type"}
-	}
-	before, err := file.Stat()
-	if err != nil {
-		return file, metadata, "", downloadReadError(err)
-	}
-	if !before.Mode().IsRegular() {
-		return file, metadata, "", &storage.Error{Code: "forbidden"}
-	}
-	if maxBytes < 0 || before.Size() > maxBytes || metadata.Size > maxBytes {
-		return file, metadata, "", &storage.Error{Code: "too_large"}
-	}
-	hash := sha256.New()
-	count, err := io.Copy(hash, io.LimitReader(file, maxBytes+1))
-	if err != nil {
-		return file, metadata, "", downloadReadError(err)
-	}
-	if count > maxBytes {
-		return file, metadata, "", &storage.Error{Code: "too_large"}
-	}
-	after, err := file.Stat()
-	if err != nil {
-		return file, metadata, "", downloadReadError(err)
-	}
-	if err = fileio.CheckSingleLink(file); err != nil {
-		return file, metadata, "", &storage.Error{Code: "unsupported_file_type"}
-	}
-	if !after.Mode().IsRegular() || !os.SameFile(before, after) || before.Size() != after.Size() || before.ModTime() != after.ModTime() || before.Mode() != after.Mode() || count != before.Size() || metadata.Size != count || metadata.Mtime != before.ModTime().UTC().Format(time.RFC3339Nano) {
-		return file, metadata, "", &storage.Error{Code: "file_changed"}
-	}
-	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return file, metadata, "", downloadReadError(err)
-	}
-	return file, metadata, "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+	return file, metadata, file.Revision, nil
 }
 
 func downloadReadError(err error) error {

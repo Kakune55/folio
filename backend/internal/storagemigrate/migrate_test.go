@@ -136,7 +136,7 @@ func TestMigrationPreservesContentSharesAndOriginals(t *testing.T) {
 	if err != nil || content.Content != "原始\r\n正文" {
 		t.Fatal(content, err)
 	}
-	shares, err := sharing.Open(w, a.Database(), func(int64) (*storage.Store, bool, error) { return s, true, nil })
+	shares, err := sharing.Open(a.Database(), func(int64) (storage.Workspace, bool, error) { return s, true, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

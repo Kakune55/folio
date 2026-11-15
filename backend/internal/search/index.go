@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +46,7 @@ type scanRequest struct {
 }
 type Index struct {
 	requested, completed uint64
-	store                *storage.Store
+	store                storage.Workspace
 	filename             string
 	bodyLimit            atomic.Int64
 	dbMu                 sync.RWMutex
@@ -64,7 +65,7 @@ const DefaultBodyLimit int64 = 5 << 20
 
 var ErrUnavailable = errors.New("搜索索引暂时不可用，文件编辑不受影响；可尝试重建索引")
 
-func Open(directory string, store *storage.Store, bodyLimit int64) (*Index, error) {
+func Open(directory string, store storage.Workspace, bodyLimit int64) (*Index, error) {
 	if bodyLimit < 1 || bodyLimit > 100<<20 {
 		return nil, errors.New("索引正文限制必须介于 1 字节和 100 MiB")
 	}
@@ -435,4 +436,30 @@ func (i *Index) SetBodyLimit(limit int64) {
 	if i.bodyLimit.Swap(limit) != limit {
 		i.Refresh(true)
 	}
+}
+
+// OpenUser 将本地索引目录的创建与安全检查留在索引模块。
+func OpenUser(appData string, id int64, store storage.Workspace, limit int64) (*Index, error) {
+	root, err := os.OpenRoot(appData)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	name := strconv.FormatInt(id, 10)
+	if err = root.Mkdir(name, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, err
+	}
+	f, err := fileio.Open(root, name, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fileio.ErrUnsafe
+	}
+	return Open(filepath.Join(appData, name), store, limit)
 }

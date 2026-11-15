@@ -94,7 +94,7 @@ func (a *api) registerAttachments(mux *http.ServeMux) {
 	}))
 }
 func (a *api) serveFile(w http.ResponseWriter, r *http.Request, preview bool) {
-	file, metadata, err := a.Workspace.OpenDownload(r.URL.Query().Get("path"), preview)
+	file, metadata, err := a.Workspace.ReadDownload(r.URL.Query().Get("path"), preview, int64(^uint64(0)>>1)-1)
 	if err != nil {
 		storageError(w, err)
 		return

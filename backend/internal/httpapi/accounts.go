@@ -1,34 +1,29 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"folio/internal/auth"
 	"folio/internal/config"
-	"folio/internal/fileio"
-	"folio/internal/layout"
 	"folio/internal/search"
 	"folio/internal/sharing"
 	"folio/internal/storage"
-	"folio/internal/trash"
 )
 
 type accountWorkspace struct {
 	events  *changeHub
 	handler http.Handler
-	store   *storage.Store
+	store   storage.Workspace
 	index   *search.Index
-	trash   *trash.Repository
 	id      string
 }
 type Accounts struct {
@@ -40,52 +35,36 @@ type Accounts struct {
 	cfg           config.Config
 	auth          *auth.Service
 	assets        fs.FS
-	roots         *os.Root
-	data          *os.Root
+	backend       storage.Factory
 	entries       map[int64]*accountWorkspace
 	base          http.Handler
 	downloads     *mcpDownloads
 }
 
 func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Accounts, error) {
-	roots, err := os.OpenRoot(cfg.Workspace)
+	var backend storage.Factory
+	var err error
+	if cfg.StorageBackend == "s3" {
+		var remote *storage.S3Backend
+		remote, err = storage.NewS3(context.Background(), cfg.S3)
+		if err == nil {
+			err = remote.Activate(accounts.Database())
+		}
+		backend = remote
+	} else {
+		backend, err = storage.NewLocal(cfg.Workspace, cfg.AppData, accounts.Database())
+	}
 	if err != nil {
 		return nil, err
-	}
-	data, err := os.OpenRoot(cfg.AppData)
-	if err != nil {
-		roots.Close()
-		return nil, err
-	}
-	complete, e := layout.Complete(accounts.Database())
-	if e == nil && !complete {
-		var legacy bool
-		legacy, e = layout.HasLegacy(data)
-		if e == nil && legacy {
-			e = errors.New("检测到旧存储布局，请停服并运行 -migrate-storage -workspace <工作区> -app-data <应用数据>；迁移前保留完整副本")
-		}
-		if e == nil {
-			e = layout.CheckNames(roots)
-		}
-		if e == nil {
-			e = layout.MarkComplete(accounts.Database())
-		}
-	}
-	if e != nil {
-		roots.Close()
-		data.Close()
-		return nil, e
 	}
 	demoUser, demoSeeded, err := accounts.ConfigureDemo(cfg.DemoMode)
 	if err != nil {
-		roots.Close()
-		data.Close()
+		backend.Close()
 		return nil, fmt.Errorf("配置 Demo 账号失败，请使用独立演示数据目录或检查现有账号：%w", err)
 	}
 	raw, err := accounts.SystemSettings()
 	if err != nil {
-		roots.Close()
-		data.Close()
+		backend.Close()
 		return nil, err
 	}
 	if len(raw) > 0 {
@@ -94,15 +73,14 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 			err = saved.validate()
 		}
 		if err != nil {
-			roots.Close()
-			data.Close()
+			backend.Close()
 			return nil, err
 		}
 		cfg.Limits = saved.Limits
 		cfg.IndexLimit = saved.IndexLimit
 	}
-	a := &Accounts{started: time.Now(), cfg: cfg, auth: accounts, assets: assets, roots: roots, data: data, entries: map[int64]*accountWorkspace{}}
-	a.shares, err = sharing.Open(cfg.Workspace, accounts.Database(), func(id int64) (*storage.Store, bool, error) {
+	a := &Accounts{started: time.Now(), cfg: cfg, auth: accounts, assets: assets, backend: backend, entries: map[int64]*accountWorkspace{}}
+	a.shares, err = sharing.Open(accounts.Database(), func(id int64) (storage.Workspace, bool, error) {
 		user, e := a.auth.User(id)
 		if e != nil {
 			return nil, false, e
@@ -114,11 +92,14 @@ func NewAccounts(assets fs.FS, cfg config.Config, accounts *auth.Service) (*Acco
 		return entry.store, user.Enabled, nil
 	})
 	if err != nil {
-		roots.Close()
-		data.Close()
+		backend.Close()
 		return nil, err
 	}
-	a.downloads = newMCPDownloads(a.auth, func(id int64) (*storage.Store, string, error) {
+	if err = a.shares.Start(); err != nil {
+		a.Close()
+		return nil, err
+	}
+	a.downloads = newMCPDownloads(a.auth, func(id int64) (storage.Workspace, string, error) {
 		entry, err := a.get(id)
 		if err != nil {
 			return nil, "", err
@@ -158,26 +139,7 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 	if _, err := a.auth.User(id); err != nil {
 		return nil, err
 	}
-	name := fmt.Sprintf("%d", id)
-	// 创建前后都验证托管目录，绝不将链接目录作为用户根。
-	for _, root := range []*os.Root{a.roots, a.data} {
-		if err := root.Mkdir(name, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-			return nil, err
-		}
-		f, err := fileio.Open(root, name, os.O_RDONLY, 0)
-		if err != nil {
-			return nil, err
-		}
-		info, err := f.Stat()
-		f.Close()
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			return nil, errors.New("用户工作区不是目录")
-		}
-	}
-	store, err := storage.Open(filepath.Join(a.cfg.Workspace, name))
+	store, err := a.backend.OpenUser(id)
 	if err != nil {
 		return nil, err
 	}
@@ -185,33 +147,15 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 		store.Close()
 		return nil, err
 	}
-	if err = layout.EnsureOwner(a.roots, id); err != nil {
-		store.Close()
-		return nil, err
-	}
-	recovery, err := trash.Open(filepath.Join(a.cfg.Workspace, name, ".folio", "trash"))
+	store.SetQuota(func() (int64, error) { u, e := a.auth.User(id); return u.Quota, e })
+	index, err := search.OpenUser(a.cfg.AppData, id, store, a.cfg.IndexLimit)
 	if err != nil {
-		store.Close()
-		return nil, err
-	}
-	store.SetTrash(recovery)
-	if err = a.shares.EnsureOwner(id); err != nil {
-		recovery.Close()
-		store.Close()
-		return nil, err
-	}
-	store.SetExtraUsage(func() (int64, error) { return a.shares.Usage(id) })
-	store.SetQuota(func() (int64, error) { u, err := a.auth.User(id); return u.Quota, err })
-	index, err := search.Open(filepath.Join(a.cfg.AppData, name), store, a.cfg.IndexLimit)
-	if err != nil {
-		recovery.Close()
 		store.Close()
 		return nil, err
 	}
 	identity, err := store.Identity()
 	if err != nil {
 		index.Close()
-		recovery.Close()
 		store.Close()
 		return nil, err
 	}
@@ -224,7 +168,7 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 	}
 	options.OwnerID = id
 	options.WorkspaceID = a.auth.WorkspaceID(fmt.Sprintf("user:%d:%s", id, identity))
-	entry := &accountWorkspace{events: options.Events, handler: New(a.assets, options), store: store, index: index, trash: recovery, id: options.WorkspaceID}
+	entry := &accountWorkspace{events: options.Events, handler: New(a.assets, options), store: store, index: index, id: options.WorkspaceID}
 	a.entries[id] = entry
 	return entry, nil
 }
@@ -257,6 +201,7 @@ func (a *Accounts) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.base.ServeHTTP(w, r)
 }
 func (a *Accounts) Close() error {
+	shareErr := a.shares.Close()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.eventsStopped = true
@@ -265,7 +210,7 @@ func (a *Accounts) Close() error {
 		if e.events != nil {
 			e.events.close()
 		}
-		err = errors.Join(err, e.index.Close(), e.trash.Close(), e.store.Close())
+		err = errors.Join(err, e.index.Close(), e.store.Close())
 	}
-	return errors.Join(err, a.shares.Close(), a.roots.Close(), a.data.Close())
+	return errors.Join(err, shareErr, a.backend.Close())
 }

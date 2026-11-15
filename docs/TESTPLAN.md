@@ -60,6 +60,7 @@ uv run --with-requirements scripts/requirements-api-test.txt python scripts/appl
 | 上传与引用 | 类型／像素／大小、配额、重复及不完整 multipart、流中失败、成功上传但插入拒绝、原件下载／重试；attachments／editor-upload-guard |
 | 外变与搜索 | 宿主写入、同大小／mtime、移动／删除、重连、草稿保护、通知接受／等待／回滚、索引损坏与定位；external／sse／search |
 | 恢复与标签 | IndexedDB 失败／未知格式、多页面同路径、刷新／重启、身份变化、不覆盖副本、上传跨认证、标签恢复不误写；recovery／tabs |
+| S3 | `storage`、HTTP 与迁移测试使用共享 HTTP 协议模拟器，覆盖条件能力拒绝、分页、用户隔离、原字节、配额、下载／Range、索引、分享、操作中断恢复和离线导入；真实云服务须专项验收，不能以模拟器替代 |
 | 布局迁移 | 旧布局启动拒绝、保留名称隔离、复制中断重试、不覆盖与摘要核验、分享／资格事务切换和旧原件保留；`layout`／`storagemigrate`／HTTP |
 | 分享 | 快照／实时、白名单、版本陈旧、资格／限速／计次、暂停／到期、quota、转存隔离、不覆盖及失败保留；sharing／share 专项 |
 | 实际操作 | 鼠标拖拽、键盘／触屏替代、碰撞和批量关闭失败保留；workflow／rich-drag／mobile |

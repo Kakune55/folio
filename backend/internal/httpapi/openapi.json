@@ -3379,7 +3379,7 @@
         }
       },
       "500": {
-        "description": "操作失败或持久化结果不确定，需核对实际结果",
+        "description": "操作失败或持久化结果不确定，需核对实际结果；durability_uncertain 也包含远端写入／删除超时，不能据此判断操作未提交",
         "content": {
           "application/json": {
             "schema": {
@@ -3389,7 +3389,7 @@
         }
       },
       "503": {
-        "description": "工作区、回收站或搜索索引不可用",
+        "description": "工作区、回收站或搜索索引不可用；storage_unavailable 表示后端连接或服务暂不可用，修复后可重试。多文件未完成操作在恢复成功前拒绝继续读取",
         "content": {
           "application/json": {
             "schema": {

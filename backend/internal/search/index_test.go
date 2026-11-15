@@ -12,7 +12,7 @@ import (
 	"folio/internal/storage"
 )
 
-func setup(t *testing.T) (*Index, *storage.Store, string) {
+func setup(t *testing.T) (*Index, storage.Workspace, string) {
 	t.Helper()
 	root := t.TempDir()
 	store, err := storage.Open(root)

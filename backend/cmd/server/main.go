@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
+	"folio/internal/storage"
 	"log"
 	"net/http"
 	"os"
@@ -21,15 +23,50 @@ import (
 
 func main() {
 	check := flag.Bool("healthcheck", false, "检查本进程服务是否存活")
+	migrateS3 := flag.Bool("storage-migrate", false, "停服迁移存储：local s3 或 s3 local")
 	migrate := flag.Bool("migrate-storage", false, "停服迁移回收载荷、分享快照并将分享库合入核心库")
 	workspace := flag.String("workspace", "", "迁移使用的现有工作区根目录（必须显式指定）")
 	reset := flag.Bool("reset-password", false, "停止服务后重置现有账号密码并撤销所有登录会话")
 	appData := flag.String("app-data", "", "离线维护使用的现有应用数据目录（必须显式指定）")
 	passwordFile := flag.String("password-file", "", "离线重置使用的私有新密码文件（不接受明文参数）")
 	flag.Parse()
-	if flag.NArg() != 0 || (*reset && *check) || (*migrate && (*reset || *check || *passwordFile != "")) || (!*reset && !*migrate && (*appData != "" || *passwordFile != "")) || (!*migrate && *workspace != "") {
+	maintenance := 0
+	for _, v := range []bool{*reset, *check, *migrate, *migrateS3} {
+		if v {
+			maintenance++
+		}
+	}
+	if (!*migrateS3 && flag.NArg() != 0) || (*migrateS3 && flag.NArg() != 2) || maintenance > 1 || (!*reset && *passwordFile != "") || (!*reset && !*migrate && !*migrateS3 && *appData != "") || (!*migrate && !*migrateS3 && *workspace != "") {
 		log.Fatal("参数组合无效；使用 -help 查看帮助")
 	}
+	if *migrateS3 {
+		if *workspace == "" {
+			*workspace = os.Getenv("FOLIO_WORKSPACE")
+			if *workspace == "" {
+				*workspace = "./workspace"
+			}
+		}
+		if *appData == "" {
+			*appData = os.Getenv("FOLIO_APP_DATA")
+			if *appData == "" {
+				*appData = "./app-data"
+			}
+		}
+		opts, err := config.S3FromEnv()
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = storagemigrate.Between(*workspace, *appData, flag.Arg(0), flag.Arg(1), opts, func(p storage.TransferProgress) {
+			fmt.Printf("\r用户 %d · %s %d/%d     ", p.UserID, p.Stage, p.Done, p.Total)
+		})
+		fmt.Println()
+		if err != nil {
+			log.Fatalf("存储迁移失败：%v；源数据保留，检查后可重试", err)
+		}
+		log.Printf("迁移完成，源数据保留。请设置 FOLIO_STORAGE_BACKEND=%s 后启动。", flag.Arg(1))
+		return
+	}
+
 	if *migrate {
 		if *workspace == "" || *appData == "" {
 			log.Fatal("迁移必须显式指定 -workspace 和 -app-data；请先停服并保留两目录完整副本")
@@ -43,7 +80,7 @@ func main() {
 
 	if *reset {
 		if *appData == "" || *passwordFile == "" {
-			log.Fatal("重置必须显式指定 -app-data 和 -password-file；请先停止 Folio 并备份两卷")
+			log.Fatal("重置必须显式指定 -app-data 和 -password-file；请先停止 Folio 并保存工作区及应用数据副本")
 		}
 		if err := auth.ResetPassword(*appData, *passwordFile); err != nil {
 			log.Fatal(err)

@@ -38,6 +38,9 @@ var hunkHeader = regexp.MustCompile(`^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,(
 
 // Patch 先从原版本计算完整候选，再由既有条件写入复核；不发布部分 hunk。
 func (s *Store) Patch(name, diff, revision string, dryRun bool) (*PatchResult, error) {
+	return patchWorkspace(s, name, diff, revision, dryRun)
+}
+func patchWorkspace(s Workspace, name, diff, revision string, dryRun bool) (*PatchResult, error) {
 	if revision == "" {
 		return nil, fail("precondition_required")
 	}

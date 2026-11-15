@@ -87,17 +87,6 @@ func (s *Store) SetExtraUsage(get func() (int64, error)) {
 	s.extraUsage = get
 }
 
-// CommitExtra 与所有工作区增长写共用配额锁；回调不得再调用本 Store。
-func (s *Store) CommitExtra(size int64, commit func() error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.checkQuota(size); err != nil {
-		return err
-	}
-	return commit()
-}
-
-// ImportBundle 在同一父目录准备全部文件，再以不覆盖重命名发布整个目录。
 func (s *Store) ImportBundle(directory string, files []BundleFile) (string, error) {
 	if ValidPath(directory, false) != nil || len(files) == 0 || len(files) > BundleFileLimit {
 		return "", fail("path_invalid")

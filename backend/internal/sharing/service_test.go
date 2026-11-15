@@ -17,15 +17,15 @@ import (
 	"folio/internal/storage"
 )
 
-func fixture(t *testing.T) (*Service, map[int64]*storage.Store, map[int64]bool) {
+func fixture(t *testing.T) (*Service, map[int64]storage.Workspace, map[int64]bool) {
 	t.Helper()
 	base := t.TempDir()
-	stores := map[int64]*storage.Store{}
+	stores := map[int64]storage.Workspace{}
 	enabled := map[int64]bool{1: true, 2: true}
 	for _, id := range []int64{1, 2} {
 		dir := filepath.Join(base, fmtID(id))
 		os.Mkdir(dir, 0700)
-		store, e := storage.Open(dir)
+		store, e := storage.OpenManaged(base, id)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -39,29 +39,23 @@ func fixture(t *testing.T) (*Service, map[int64]*storage.Store, map[int64]bool) 
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	s, e := Open(base, db, func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
+	s, e := Open(db, func(id int64) (storage.Workspace, bool, error) { return stores[id], enabled[id], nil })
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.Close() })
-	for id, store := range stores {
-		if e = s.EnsureOwner(id); e != nil {
-			t.Fatal(e)
-		}
-		store.SetExtraUsage(func() (int64, error) { return s.Usage(id) })
-	}
 	return s, stores, enabled
 }
 func fmtID(id int64) string { return strconv.FormatInt(id, 10) }
 
-func write(t *testing.T, store *storage.Store, name, data string) {
+func write(t *testing.T, store storage.Workspace, name, data string) {
 	t.Helper()
 	_, e := store.Write(name, data, "", true)
 	if e != nil {
 		t.Fatal(e)
 	}
 }
-func input(t *testing.T, store *storage.Store, root, mode string, include bool) Input {
+func input(t *testing.T, store storage.Workspace, root, mode string, include bool) Input {
 	t.Helper()
 	scan, e := ScanFiles(store, root, include)
 	if e != nil {
@@ -302,12 +296,11 @@ func TestGrantRestartPasswordRateLimitAndSnapshotIntegrity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	directory := s.root.Name()
 	source := s.source
 	if e = s.Close(); e != nil {
 		t.Fatal(e)
 	}
-	reopened, e := Open(directory, s.db, source)
+	reopened, e := Open(s.db, source)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -316,7 +309,7 @@ func TestGrantRestartPasswordRateLimitAndSnapshotIntegrity(t *testing.T) {
 	if e != nil || loaded.Visits != 1 {
 		t.Fatal("重启丢失授权或计数", e)
 	}
-	if e = os.WriteFile(filepath.Join(reopened.root.Name(), r.Payload, "a.txt"), []byte("被篡改的快照"), 0600); e != nil {
+	if e = os.WriteFile(filepath.Join(testPayloadRoot(t, reopened), r.Payload, "a.txt"), []byte("被篡改的快照"), 0600); e != nil {
 		t.Fatal(e)
 	}
 	_, _, e = reopened.File(r.ID, grant, r.Files[0].ID)
@@ -492,4 +485,14 @@ func TestPauseResumePreservesRestrictions(t *testing.T) {
 	in.ExpiresAt = resumed.ExpiresAt
 	_, err = s.Save(1, "", in)
 	status(t, err, 400)
+}
+
+func testPayloadRoot(t *testing.T, s *Service) string {
+	t.Helper()
+	var seq int
+	var name, file string
+	if err := s.db.QueryRow("PRAGMA database_list").Scan(&seq, &name, &file); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Dir(file)
 }

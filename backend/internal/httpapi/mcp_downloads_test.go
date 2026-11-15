@@ -25,7 +25,7 @@ import (
 type mcpDownloadEnv struct {
 	service     *mcpDownloads
 	auth        *auth.Service
-	store       *storage.Store
+	store       storage.Workspace
 	user        auth.User
 	token       auth.AccessToken
 	secret      string
@@ -61,7 +61,7 @@ func newMCPDownloadEnv(t *testing.T) *mcpDownloadEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.service = newMCPDownloads(a, func(ownerID int64) (*storage.Store, string, error) {
+	e.service = newMCPDownloads(a, func(ownerID int64) (storage.Workspace, string, error) {
 		if ownerID != u.ID {
 			return nil, "", fmt.Errorf("错误账号")
 		}

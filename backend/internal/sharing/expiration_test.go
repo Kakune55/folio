@@ -3,6 +3,7 @@ package sharing
 import (
 	"folio/internal/storage"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -30,7 +31,7 @@ func TestExpiredSharesRemovePayloadAndGrants(t *testing.T) {
 	}
 	_, err = s.load(r.ID)
 	status(t, err, 404)
-	if _, err = s.root.Stat(r.Payload); !os.IsNotExist(err) {
+	if _, err = os.Stat(filepath.Join(testPayloadRoot(t, s), r.Payload)); !os.IsNotExist(err) {
 		t.Fatal("快照未清理", err)
 	}
 	var grants int
@@ -80,20 +81,22 @@ func TestExpirationListAndRestartCleanup(t *testing.T) {
 	if err != nil || total != 0 || len(entries) != 0 {
 		t.Fatal(entries, total, err)
 	}
-	if _, err = s.root.Stat(r.Payload); !os.IsNotExist(err) {
+	if _, err = os.Stat(filepath.Join(testPayloadRoot(t, s), r.Payload)); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 	r = expire()
-	directory := s.root.Name()
 	// 重开服务不关闭或替换核心数据库。
 	if err = s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(directory, s.db, func(id int64) (*storage.Store, bool, error) { return stores[id], enabled[id], nil })
+	reopened, err := Open(s.db, func(id int64) (storage.Workspace, bool, error) { return stores[id], enabled[id], nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	if err = reopened.Start(); err != nil {
+		t.Fatal(err)
+	}
 	_, err = reopened.load(r.ID)
 	status(t, err, 404)
 }

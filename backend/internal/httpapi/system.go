@@ -3,7 +3,6 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
 	"runtime"
 	"time"
@@ -87,53 +86,17 @@ func (a *api) registerSystem(mux *http.ServeMux) {
 			return
 		}
 		defer manager.diskMu.Unlock()
-		type usage struct {
-			Total       uint64 `json:"total"`
-			Available   uint64 `json:"available"`
-			VolumeError string `json:"volumeError,omitempty"`
-			Bytes       int64  `json:"bytes"`
-			Files       int64  `json:"files"`
-			Directories int64  `json:"directories"`
+		workspace, err := manager.backend.DiskUsage(r.Context())
+		if err != nil {
+			writeError(w, 503, "disk_unavailable", "工作区用量统计失败，请检查存储连接与权限", nil)
+			return
 		}
-		values := map[string]usage{}
-		for name, root := range map[string]fs.FS{"workspace": manager.roots.FS(), "appData": manager.data.FS()} {
-			var u usage
-			err := fs.WalkDir(root, ".", func(path string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if err := r.Context().Err(); err != nil {
-					return err
-				}
-				if d.IsDir() {
-					u.Directories++
-					return nil
-				}
-				if !d.Type().IsRegular() {
-					return nil
-				}
-				info, err := d.Info()
-				if err != nil {
-					return err
-				}
-				u.Files++
-				u.Bytes += info.Size()
-				return nil
-			})
-			if err != nil {
-				writeError(w, 503, "disk_unavailable", "磁盘用量统计失败，请重试或检查目录权限", nil)
-				return
-			}
-			location := manager.cfg.Workspace
-			if name == "appData" {
-				location = manager.cfg.AppData
-			}
-			u.Total, u.Available, err = volumeSpace(location)
-			if err != nil {
-				u.VolumeError = "所在磁盘容量不可用"
-			}
-			values[name] = u
+		appData, err := storage.LocalDiskUsage(r.Context(), manager.cfg.AppData)
+		if err != nil {
+			writeError(w, 503, "disk_unavailable", "应用数据用量统计失败，请检查目录权限", nil)
+			return
 		}
+		values := map[string]storage.DiskUsage{"workspace": workspace, "appData": appData}
 		writeJSON(w, 200, values)
 	}))
 }

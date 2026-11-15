@@ -31,6 +31,7 @@ func (e *Error) Error() string { return e.Code }
 func fail(code string) error   { return &Error{Code: code} }
 
 type Store struct {
+	managed    bool
 	extraUsage func() (int64, error)
 	quota      func() (int64, error)
 	root       *os.Root
@@ -97,8 +98,35 @@ func Open(directory string) (*Store, error) {
 }
 
 // Identity 仅用于浏览器恢复命名空间，保留已有 Linux 工作区身份。
-func (s *Store) Identity() (string, error) { return fileio.Identity(s.root) }
-func (s *Store) Close() error              { return s.root.Close() }
+func (s *Store) Identity() (string, error) {
+	if s.managed {
+		f, err := fileio.Open(s.root, ".folio/identity", os.O_RDONLY, 0)
+		if err == nil {
+			defer f.Close()
+			if err = fileio.CheckSingleLink(f); err != nil {
+				return "", err
+			}
+			data, err := io.ReadAll(io.LimitReader(f, 4097))
+			if err != nil {
+				return "", err
+			}
+			if len(data) == 0 || len(data) > 4096 || !utf8.Valid(data) || strings.ContainsRune(string(data), 0) {
+				return "", errors.New("工作区身份记录损坏")
+			}
+			return string(data), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	return fileio.Identity(s.root)
+}
+func (s *Store) Close() error {
+	var err error
+	if s.managed && s.trash != nil {
+		err = s.trash.Close()
+	}
+	return errors.Join(err, s.root.Close())
+}
 func (s *Store) open(name string, flags int, mode uint32) (*os.File, error) {
 	file, err := fileio.Open(s.root, name, flags, os.FileMode(mode))
 	return file, mapError(err)

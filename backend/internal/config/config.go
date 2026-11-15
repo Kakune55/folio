@@ -14,6 +14,8 @@ import (
 )
 
 type Config struct {
+	StorageBackend                                    string
+	S3                                                storage.S3Options
 	IndexLimit                                        int64
 	TLSCert, TLSKey                                   string
 	Addr, Workspace, AppData, InitialPassword, Origin string
@@ -29,6 +31,17 @@ func Load() (Config, error) {
 		return fallback
 	}
 	c := Config{Addr: get("FOLIO_ADDR", "127.0.0.1:8080"), Workspace: get("FOLIO_WORKSPACE", "./workspace"), AppData: get("FOLIO_APP_DATA", "./app-data"), Origin: os.Getenv("FOLIO_ORIGIN"), SecureCookie: true}
+	c.StorageBackend = get("FOLIO_STORAGE_BACKEND", "local")
+	if c.StorageBackend != "local" && c.StorageBackend != "s3" {
+		return c, errors.New("FOLIO_STORAGE_BACKEND 必须为 local 或 s3")
+	}
+	if c.StorageBackend == "s3" {
+		var e error
+		c.S3, e = S3FromEnv()
+		if e != nil {
+			return c, e
+		}
+	}
 	if raw := os.Getenv("FOLIO_DEMO_MODE"); raw != "" {
 		value, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -64,19 +77,25 @@ func Load() (Config, error) {
 			return c, errors.New("安全 Cookie 要求 HTTPS origin")
 		}
 	}
-	for _, dir := range []string{c.Workspace, c.AppData} {
+	directories := []string{c.AppData}
+	if c.StorageBackend == "local" {
+		directories = append(directories, c.Workspace)
+	}
+	for _, dir := range directories {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return c, err
 		}
 	}
 	var err error
-	c.Workspace, err = filepath.EvalSymlinks(c.Workspace)
-	if err != nil {
-		return c, err
-	}
-	c.Workspace, err = filepath.Abs(c.Workspace)
-	if err != nil {
-		return c, err
+	if c.StorageBackend == "local" {
+		c.Workspace, err = filepath.EvalSymlinks(c.Workspace)
+		if err != nil {
+			return c, err
+		}
+		c.Workspace, err = filepath.Abs(c.Workspace)
+		if err != nil {
+			return c, err
+		}
 	}
 	c.AppData, err = filepath.EvalSymlinks(c.AppData)
 	if err != nil {
@@ -90,7 +109,7 @@ func Load() (Config, error) {
 		rel, err := filepath.Rel(parent, child)
 		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 	}
-	if contains(c.Workspace, c.AppData) || contains(c.AppData, c.Workspace) {
+	if c.StorageBackend == "local" && (contains(c.Workspace, c.AppData) || contains(c.AppData, c.Workspace)) {
 		return c, errors.New("工作区和应用数据目录必须分离，不能相互包含")
 	}
 	if file := os.Getenv("FOLIO_PASSWORD_FILE"); file != "" {
@@ -119,4 +138,28 @@ func Load() (Config, error) {
 		c.IndexLimit = value
 	}
 	return c, nil
+}
+
+func S3FromEnv() (storage.S3Options, error) {
+	o := storage.S3Options{Bucket: os.Getenv("FOLIO_S3_BUCKET"), Prefix: os.Getenv("FOLIO_S3_PREFIX"), Endpoint: os.Getenv("FOLIO_S3_ENDPOINT"), Region: os.Getenv("FOLIO_S3_REGION"), AccessKey: os.Getenv("FOLIO_S3_ACCESS_KEY"), SecretKey: os.Getenv("FOLIO_S3_SECRET_KEY")}
+	if o.Bucket == "" {
+		return o, errors.New("S3 模式必须配置 FOLIO_S3_BUCKET")
+	}
+	if strings.TrimSpace(o.AccessKey) == "" || strings.TrimSpace(o.SecretKey) == "" {
+		return o, errors.New("S3 模式必须配置 FOLIO_S3_ACCESS_KEY 和 FOLIO_S3_SECRET_KEY")
+	}
+	if o.Endpoint != "" {
+		u, err := url.Parse(o.Endpoint)
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || (u.Scheme != "http" && u.Scheme != "https") {
+			return o, errors.New("FOLIO_S3_ENDPOINT 必须是合法 HTTP(S) 地址且不能包含路径、凭据或查询参数")
+		}
+	}
+	if raw := os.Getenv("FOLIO_S3_PATH_STYLE"); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return o, errors.New("FOLIO_S3_PATH_STYLE 必须为 true 或 false")
+		}
+		o.PathStyle = v
+	}
+	return o, nil
 }

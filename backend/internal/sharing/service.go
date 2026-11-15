@@ -12,17 +12,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"folio/internal/fileio"
 	"folio/internal/layout"
 	"folio/internal/storage"
 	"golang.org/x/crypto/argon2"
@@ -91,8 +87,7 @@ type Service struct {
 	mu         sync.Mutex
 	passwordMu sync.Mutex
 	db         *sql.DB
-	root       *os.Root
-	source     func(int64) (*storage.Store, bool, error)
+	source     func(int64) (storage.Workspace, bool, error)
 	attempts   map[string]attempt
 }
 
@@ -134,77 +129,20 @@ func validToken(value string) bool {
 	return err == nil
 }
 
-func Open(directory string, db *sql.DB, source func(int64) (*storage.Store, bool, error)) (*Service, error) {
-	root, err := os.OpenRoot(directory)
+func Open(db *sql.DB, source func(int64) (storage.Workspace, bool, error)) (*Service, error) {
+	err := InitSchema(db)
 	if err != nil {
 		return nil, err
 	}
-	err = InitSchema(db)
-	if err != nil {
-		root.Close()
-		return nil, err
-	}
-	service := &Service{db: db, root: root, source: source, attempts: map[string]attempt{}, work: make(chan struct{}, 2), waiting: make(chan struct{}, 16)}
-	if err = service.cleanStaging(); err != nil {
-		service.Close()
-		return nil, err
-	}
+	service := &Service{db: db, source: source, attempts: map[string]attempt{}, work: make(chan struct{}, 2), waiting: make(chan struct{}, 16)}
 	service.stop = make(chan struct{})
 	service.stopped = make(chan struct{})
-	if err = service.cleanExpired(time.Now().Unix()); err != nil {
-		log.Printf("清理到期分享失败，将自动重试：%v", err)
-	}
 	go service.expirationLoop()
 	return service, nil
 }
 
-// 进程锁已由账号服务持有；启动时清理未发布的私有暂存目录，正式快照从不按猜测删除。
-func (s *Service) cleanStaging() error {
-	f, err := fileio.Open(s.root, ".", os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	owners, err := f.ReadDir(-1)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	for _, owner := range owners {
-		if id, e := strconv.ParseInt(owner.Name(), 10, 64); e != nil || id <= 0 || strconv.FormatInt(id, 10) != owner.Name() {
-			continue
-		}
-		checked, e := fileio.Open(s.root, owner.Name()+"/.folio/shares", os.O_RDONLY, 0)
-		if errors.Is(e, os.ErrNotExist) {
-			continue
-		}
-		if e != nil {
-			return e
-		}
-		checked.Close()
-		id, _ := strconv.ParseInt(owner.Name(), 10, 64)
-		if e = layout.EnsureOwner(s.root, id); e != nil {
-			return e
-		}
-		checked, e = fileio.Open(s.root, owner.Name()+"/.folio/shares", os.O_RDONLY, 0)
-		if e != nil {
-			return e
-		}
-		entries, e := checked.ReadDir(-1)
-		checked.Close()
-		if e != nil {
-			return e
-		}
-		for _, entry := range entries {
-			suffix := strings.TrimPrefix(entry.Name(), ".folio-tmp-")
-			if suffix != entry.Name() && validToken(suffix) {
-				if e = s.root.RemoveAll(owner.Name() + "/.folio/shares/" + entry.Name()); e != nil {
-					return e
-				}
-			}
-		}
-	}
-	return nil
-}
+// Start 在用户工作区工厂接通后执行启动清理，不依赖活跃用户会话。
+func (s *Service) Start() error { return s.cleanExpired(time.Now().Unix()) }
 
 // StartWork 限制载荷读取、渲染与复制并发，有限等候避免普通多图页面被立即拒绝。
 func (s *Service) StartWork(ctx context.Context) bool {
@@ -237,16 +175,17 @@ func (s *Service) Close() error {
 			close(s.stop)
 			<-s.stopped
 		}
-		s.closeErr = s.root.Close()
+		s.closeErr = nil
 	})
 	return s.closeErr
 }
 func (s *Service) ownerDir(owner int64) string { return layout.OwnerDir(owner) + "/shares" }
-func (s *Service) EnsureOwner(owner int64) error {
-	return layout.EnsureOwner(s.root, owner)
-}
 func (s *Service) Usage(owner int64) (int64, error) {
-	return fileio.TreeBytes(s.root, s.ownerDir(owner), true)
+	store, _, err := s.source(owner)
+	if err != nil {
+		return 0, err
+	}
+	return store.SnapshotUsage()
 }
 func (s *Service) load(id string) (*Record, error) {
 	if !validShareID(id) {
@@ -331,7 +270,7 @@ func (s *Service) List(owner int64, offset, limit int) ([]Record, int, error) {
 	}
 	return out, total, rows.Err()
 }
-func ScanFiles(store *storage.Store, root string, include bool) (Scan, error) {
+func ScanFiles(store storage.Workspace, root string, include bool) (Scan, error) {
 	out := Scan{Files: []storage.BundleFile{}, Warnings: []string{}}
 	queue := []string{root}
 	seen := map[string]bool{}
@@ -516,24 +455,8 @@ func (s *Service) Save(owner int64, id string, input Input) (*Record, error) {
 	}
 	if bundle != nil && input.Mode == "snapshot" {
 		name := s.ownerDir(owner) + "/" + record.ID + "-" + record.Version
-		var size int64
-		for _, f := range bundle {
-			size += int64(len(f.Data))
-		}
-		err = store.CommitExtra(size, func() error {
-			if e := s.writePayload(name, bundle); e != nil {
-				if cleanup := s.root.RemoveAll(name); cleanup != nil {
-					return errors.Join(e, cleanup)
-				}
-				return e
-			}
-			record.Payload = name
-			if e := commit(); e != nil {
-				_ = s.root.RemoveAll(name)
-				return e
-			}
-			return nil
-		})
+		record.Payload = name
+		err = store.PublishSnapshot(path.Base(name), bundle, commit)
 	} else {
 		err = commit()
 	}
@@ -546,77 +469,6 @@ func (s *Service) Save(owner int64, id string, input Input) (*Record, error) {
 		}
 	}
 	return record, nil
-}
-func (s *Service) writePayload(name string, bundle []storage.BundleFile) error {
-	owner := path.Dir(name)
-	base := path.Base(name)
-	temp := ".folio-tmp-" + random()
-	parent, err := s.root.OpenRoot(owner)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-	if err = parent.Mkdir(temp, 0700); err != nil {
-		return err
-	}
-	defer parent.RemoveAll(temp)
-	root, err := parent.OpenRoot(temp)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	for _, f := range bundle {
-		if err = root.MkdirAll(path.Dir(f.Path), 0700); err != nil {
-			return err
-		}
-		file, e := root.OpenFile(f.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if e != nil {
-			return e
-		}
-		_, e = file.Write(f.Data)
-		if e == nil {
-			e = fileio.Sync(file)
-		}
-		closeErr := file.Close()
-		if e != nil {
-			return e
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-	}
-	// 所有载荷先落盘，数据库提交后才对外可见。
-	if err = syncDirectories(root, "."); err != nil {
-		return err
-	}
-	if err = fileio.Rename(parent, temp, parent, base); err != nil {
-		return err
-	}
-	return fileio.SyncRoot(parent)
-}
-func syncDirectories(root *os.Root, name string) error {
-	f, err := fileio.Open(root, name, os.O_RDONLY, 0)
-	if err != nil {
-		return err
-	}
-	entries, err := f.ReadDir(-1)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			if err = syncDirectories(root, path.Join(name, e.Name())); err != nil {
-				return err
-			}
-		}
-	}
-	dir, err := root.OpenRoot(name)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return fileio.SyncRoot(dir)
 }
 
 // 载荷定位只能指向专用内部目录，不能借数据库中的路径跨入用户文件。
@@ -633,15 +485,12 @@ func (s *Service) removePayload(name string) error {
 		return errors.New("分享载荷路径无效，请检查持久数据")
 	}
 
-	if err := s.root.RemoveAll(name); err != nil {
-		return err
-	}
-	parent, err := s.root.OpenRoot(path.Dir(name))
+	owner, _ := strconv.ParseInt(strings.Split(name, "/")[0], 10, 64)
+	store, _, err := s.source(owner)
 	if err != nil {
 		return err
 	}
-	defer parent.Close()
-	return fileio.SyncRoot(parent)
+	return store.RemoveSnapshot(path.Base(name))
 }
 
 func (s *Service) Delete(owner int64, id string) error {
@@ -850,39 +699,21 @@ func (s *Service) read(r *Record, fileID string) (storage.BundleFile, error) {
 	if selected == nil {
 		return storage.BundleFile{}, problem(404, "此文件未包含在分享中")
 	}
-	var store *storage.Store
-	var err error
+	store, _, err := s.source(r.Owner)
+	if err != nil {
+		return storage.BundleFile{}, err
+	}
+	selectedFiles := []storage.BundleFile{{Path: selected.Path}}
+	var files []storage.BundleFile
 	if r.Mode == "snapshot" {
 		if !validPayload(r.Payload) || path.Dir(r.Payload) != s.ownerDir(r.Owner) {
 			return storage.BundleFile{}, errors.New("分享载荷越出所属用户内部目录")
 		}
-		checked, checkErr := fileio.Open(s.root, r.Payload, os.O_RDONLY, 0)
-		if checkErr != nil {
-			return storage.BundleFile{}, checkErr
-		}
-		checked.Close()
-		store, err = storage.Open(filepath.Join(s.root.Name(), filepath.FromSlash(r.Payload)))
-		if err == nil {
-			defer store.Close()
-			ownerStore, _, limitErr := s.source(r.Owner)
-			if limitErr != nil {
-				return storage.BundleFile{}, limitErr
-			}
-			if limitErr = store.SetLimits(ownerStore.Limits()); limitErr != nil {
-				return storage.BundleFile{}, limitErr
-			}
-		}
+		selectedFiles[0].Revision = selected.Revision
+		files, err = store.ReadSnapshot(path.Base(r.Payload), selectedFiles)
 	} else {
-		store, _, err = s.source(r.Owner)
+		files, err = store.ReadBundle(selectedFiles)
 	}
-	if err != nil {
-		return storage.BundleFile{}, err
-	}
-	revision := ""
-	if r.Mode == "snapshot" {
-		revision = selected.Revision
-	}
-	files, err := store.ReadBundle([]storage.BundleFile{{Path: selected.Path, Revision: revision}})
 	if err != nil {
 		return storage.BundleFile{}, err
 	}

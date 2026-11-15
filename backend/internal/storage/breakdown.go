@@ -80,6 +80,13 @@ func (s *Store) StorageDetails(ctx context.Context) (StorageBreakdown, error) {
 		}
 		values["trash"] = n
 	}
+	if s.managed {
+		n, e := s.snapshotUsageLocked()
+		if e != nil {
+			return StorageBreakdown{}, e
+		}
+		values["shares"] = n
+	}
 	if s.extraUsage != nil {
 		n, err := s.extraUsage()
 		if err != nil {

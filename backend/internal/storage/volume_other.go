@@ -1,6 +1,6 @@
 //go:build !windows && !linux
 
-package httpapi
+package storage
 
 import "errors"
 

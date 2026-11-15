@@ -28,6 +28,13 @@ func (s *Store) usageLocked() (Usage, error) {
 		}
 		used += n
 	}
+	if s.managed {
+		n, e := s.snapshotUsageLocked()
+		if e != nil {
+			return Usage{}, e
+		}
+		used += n
+	}
 	if s.extraUsage != nil {
 		n, e := s.extraUsage()
 		if e != nil {
