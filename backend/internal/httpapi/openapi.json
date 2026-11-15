@@ -2672,7 +2672,8 @@
                     "media",
                     "other",
                     "trash",
-                    "shares"
+                    "shares",
+                    "index"
                   ]
                 },
                 "bytes": {

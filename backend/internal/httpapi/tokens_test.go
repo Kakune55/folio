@@ -114,7 +114,7 @@ func TestBearerAccessPermissionsIsolationAndConditions(t *testing.T) {
 	check(call("DELETE", "/trash/nonexistent", write, nil, false, nil), 403)
 	check(call("GET", "/workspace/storage", read, nil, false, nil), 200)
 	// 相同路径按令牌所属用户分派，不能用查询参数或 Cookie 切换身份。
-	user, err := accounts.SaveUser(0, auth.UserInput{Username: "alice", Enabled: true, Quota: 4, Password: "alice-token-password-2026"})
+	user, err := accounts.SaveUser(0, auth.UserInput{Username: "alice", Enabled: true, Quota: 12, Password: "alice-token-password-2026"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +122,8 @@ func TestBearerAccessPermissionsIsolationAndConditions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 保留 4 字节正文余量，索引增长另有专项测试。
+	entry.store.SetIndexUsage(func() (int64, error) { return 8, nil })
 	_, alice, err := accounts.CreateAccessToken(user.ID, entry.id, "alice", 0, auth.TokenPermissions{Files: "write", Search: "read", Trash: "none"})
 	if err != nil {
 		t.Fatal(err)

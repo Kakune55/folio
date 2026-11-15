@@ -18,6 +18,7 @@ type Workspace interface {
 	SetLimits(Limits) error
 	Limits() Limits
 	SetQuota(func() (int64, error))
+	SetIndexUsage(func() (int64, error))
 	Read(string) (*Content, error)
 	Write(string, string, string, bool) (string, error)
 	List(string, int, int) ([]Entry, int, error)

@@ -38,7 +38,7 @@ function AccountPanel({ principal }: { principal: Principal }) {
     </form>
   </div></section>
 }
-const categories: Record<string, string> = { documents: '文档', images: '图片', media: '音视频', other: '其他文件', trash: '回收站', shares: '分享快照' }
+const categories: Record<string, string> = { documents: '文档', images: '图片', media: '音视频', other: '其他文件', trash: '回收站', shares: '分享快照', index: '搜索索引' }
 function StoragePanel() {
   const details = useQuery({ queryKey: ['storage-details'], queryFn: api.storageDetails, retry: false, staleTime: 0 })
   const value = details.data

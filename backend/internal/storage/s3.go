@@ -324,6 +324,7 @@ type S3Store struct {
 	prefix, identity string
 	limits           Limits
 	quota            func() (int64, error)
+	indexUsage       func() (int64, error)
 	blocked          bool
 }
 
@@ -339,7 +340,12 @@ func (r *S3Store) SetLimits(l Limits) error {
 	r.limits = l
 	return nil
 }
-func (r *S3Store) Limits() Limits                   { r.mu.Lock(); defer r.mu.Unlock(); return r.limits }
+func (r *S3Store) Limits() Limits { r.mu.Lock(); defer r.mu.Unlock(); return r.limits }
+func (r *S3Store) SetIndexUsage(get func() (int64, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.indexUsage = get
+}
 func (r *S3Store) SetQuota(q func() (int64, error)) { r.mu.Lock(); defer r.mu.Unlock(); r.quota = q }
 func (r *S3Store) ready() error {
 	if r.blocked {
@@ -501,6 +507,11 @@ func (r *S3Store) usageLocked() (Usage, error) {
 	}
 	if r.quota != nil {
 		u.Quota, err = r.quota()
+	}
+	if err == nil && r.indexUsage != nil {
+		var n int64
+		n, err = r.indexUsage()
+		u.Used += n
 	}
 	return u, err
 }
@@ -1067,7 +1078,14 @@ func (r *S3Store) StorageDetails(ctx context.Context) (StorageBreakdown, error) 
 		}
 		v[key] += o.Size
 	}
-	for _, key := range []string{"documents", "images", "media", "other", "trash", "shares"} {
+	if r.indexUsage != nil {
+		n, e := r.indexUsage()
+		if e != nil {
+			return StorageBreakdown{}, e
+		}
+		v["index"] = n
+	}
+	for _, key := range []string{"documents", "images", "media", "other", "trash", "shares", "index"} {
 		out.Categories = append(out.Categories, StorageCategory{key, v[key]})
 		out.Used += v[key]
 	}

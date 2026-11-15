@@ -33,6 +33,7 @@ func fail(code string) error   { return &Error{Code: code} }
 type Store struct {
 	managed    bool
 	extraUsage func() (int64, error)
+	indexUsage func() (int64, error)
 	quota      func() (int64, error)
 	root       *os.Root
 	mu         sync.Mutex

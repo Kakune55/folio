@@ -153,6 +153,7 @@ func (a *Accounts) get(id int64) (*accountWorkspace, error) {
 		store.Close()
 		return nil, err
 	}
+	store.SetIndexUsage(index.Usage)
 	identity, err := store.Identity()
 	if err != nil {
 		index.Close()

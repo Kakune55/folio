@@ -122,3 +122,74 @@ func TestS3AccountsDownloadSharingAndSearch(t *testing.T) {
 		t.Fatal(disk, err)
 	}
 }
+
+func TestAccountsQuotaIncludesLocalIndexForBothBackends(t *testing.T) {
+	for _, kind := range []string{"local", "s3"} {
+		t.Run(kind, func(t *testing.T) {
+			base := t.TempDir()
+			workspace := filepath.Join(base, "workspace")
+			data := filepath.Join(base, "data")
+			for _, dir := range []string{workspace, data} {
+				if err := os.Mkdir(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a, err := auth.Open(data, "quota-index-integration-password")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.Close()
+			cfg := config.Config{StorageBackend: kind, Workspace: workspace, AppData: data, Limits: storage.DefaultLimits, IndexLimit: 1 << 20}
+			if kind == "s3" {
+				server := httptest.NewServer(&s3test.Server{Objects: map[string]s3test.Object{}})
+				defer server.Close()
+				cfg.S3 = storage.S3Options{AccessKey: "key", SecretKey: "secret", Endpoint: server.URL, Bucket: "bucket", PathStyle: true}
+			}
+			h, err := NewAccounts(fstest.MapFS{}, cfg, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer h.Close()
+			entry, err := h.get(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 停止后台任务使磁盘统计稳定，保留真实索引文件和生产计费回调。
+			if err = entry.index.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var expected int64
+			for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+				info, e := os.Stat(filepath.Join(data, "1", "search.db"+suffix))
+				if os.IsNotExist(e) {
+					continue
+				}
+				if e != nil {
+					t.Fatal(e)
+				}
+				expected += info.Size()
+			}
+			if expected == 0 {
+				t.Fatal("未创建索引数据库")
+			}
+			usage, err := h.options().UserUsage(1)
+			if err != nil || usage.Used != expected {
+				t.Fatal(usage, expected, err)
+			}
+			details, err := entry.store.StorageDetails(context.Background())
+			if err != nil || details.Used != expected {
+				t.Fatal(details, expected, err)
+			}
+			u, err := a.User(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = a.SaveUser(1, auth.UserInput{Username: u.Username, Enabled: true, Quota: expected}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = entry.store.Write("blocked.md", "1", "", true); err == nil {
+				t.Fatal("索引已占满额度却允许新建")
+			}
+		})
+	}
+}

@@ -640,6 +640,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .storage-color-other { background: #65a99a; }
 .storage-color-trash { background: #8c919a; }
 .storage-color-shares { background: #ca8072; }
+.storage-color-index { background: #8a83b5; }
 .storage-categories, .access-token-list { list-style: none; padding: 0; margin: 0; }
 .storage-categories li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .storage-categories li > span { display: flex; align-items: center; gap: 10px; }

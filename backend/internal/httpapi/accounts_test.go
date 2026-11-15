@@ -81,7 +81,7 @@ func TestAccountsIsolationManagementAndQuota(t *testing.T) {
 	}
 	admin := signIn("admin", "admin-password-12345")
 	create := func(name string) login {
-		status, body := call(admin, "POST", "/admin/users", auth.UserInput{Username: name, Enabled: true, Quota: 20, Password: "user-password-12345"}, nil)
+		status, body := call(admin, "POST", "/admin/users", auth.UserInput{Username: name, Enabled: true, Quota: 28, Password: "user-password-12345"}, nil)
 		if status != 201 {
 			t.Fatalf("创建：%d %s", status, body)
 		}
@@ -96,6 +96,9 @@ func TestAccountsIsolationManagementAndQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 固定系统索引用量，避免异步 WAL 增长干扰此处的业务并发配额边界。
+	aliceEntry.store.SetIndexUsage(func() (int64, error) { return 8, nil })
+	bobEntry.store.SetIndexUsage(func() (int64, error) { return 8, nil })
 	if aliceEntry.events == bobEntry.events {
 		t.Fatal("不同账号共用了通知通道")
 	}
@@ -199,7 +202,7 @@ func TestAccountsIsolationManagementAndQuota(t *testing.T) {
 	_, body = call(alice, "GET", "/workspace/usage", nil, nil)
 	var usage storage.Usage
 	json.Unmarshal(body, &usage)
-	if usage.Used != 15 {
+	if usage.Used != 23 {
 		t.Fatalf("回收站未计费：%s", body)
 	}
 	if status, _ = call(bob, "POST", "/trash/"+record.ID+"/restore", nil, nil); status < 400 {
@@ -210,7 +213,7 @@ func TestAccountsIsolationManagementAndQuota(t *testing.T) {
 	}
 	_, body = call(alice, "GET", "/workspace/usage", nil, nil)
 	json.Unmarshal(body, &usage)
-	if usage.Used != 10 {
+	if usage.Used != 18 {
 		t.Fatal("永久删除未释放用量")
 	}
 	// 管理员不能自禁用；账号改名不改变工作区。

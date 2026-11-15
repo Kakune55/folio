@@ -94,6 +94,13 @@ func (s *Store) StorageDetails(ctx context.Context) (StorageBreakdown, error) {
 		}
 		values["shares"] = n
 	}
+	if s.indexUsage != nil {
+		n, e := s.indexUsage()
+		if e != nil {
+			return StorageBreakdown{}, e
+		}
+		values["index"] = n
+	}
 	result := StorageBreakdown{Categories: []StorageCategory{}}
 	if s.quota != nil {
 		q, err := s.quota()
@@ -102,7 +109,7 @@ func (s *Store) StorageDetails(ctx context.Context) (StorageBreakdown, error) {
 		}
 		result.Quota = q
 	}
-	for _, key := range []string{"documents", "images", "media", "other", "trash", "shares"} {
+	for _, key := range []string{"documents", "images", "media", "other", "trash", "shares", "index"} {
 		result.Categories = append(result.Categories, StorageCategory{key, values[key]})
 		result.Used += values[key]
 	}

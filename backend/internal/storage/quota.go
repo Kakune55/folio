@@ -8,6 +8,11 @@ type Usage struct {
 }
 
 func (s *Store) SetQuota(get func() (int64, error)) { s.mu.Lock(); defer s.mu.Unlock(); s.quota = get }
+func (s *Store) SetIndexUsage(get func() (int64, error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.indexUsage = get
+}
 func (s *Store) usageLocked() (Usage, error) {
 	q := int64(0)
 	var err error
@@ -37,6 +42,13 @@ func (s *Store) usageLocked() (Usage, error) {
 	}
 	if s.extraUsage != nil {
 		n, e := s.extraUsage()
+		if e != nil {
+			return Usage{}, e
+		}
+		used += n
+	}
+	if s.indexUsage != nil {
+		n, e := s.indexUsage()
 		if e != nil {
 			return Usage{}, e
 		}
