@@ -80,7 +80,7 @@ func TestOperationDocumentsMatchEmbeddedSource(t *testing.T) {
 			t.Fatal("精简指南丢失关键约定", required)
 		}
 	}
-	_, code, found := strings.Cut(string(applicationAgentGuide), "```json\n")
+	_, code, found := strings.Cut(strings.ReplaceAll(string(applicationAgentGuide), "\r\n", "\n"), "```json\n")
 	if !found {
 		t.Fatal("接入指南缺少JSON配置")
 	}

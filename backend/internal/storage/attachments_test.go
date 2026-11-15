@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -61,6 +62,14 @@ func TestAttachmentUploadConditionalBytes(t *testing.T) {
 			if err := os.Chmod(filepath.Join(root, "file.bin"), 0o640); err != nil {
 				t.Fatal(err)
 			}
+			before, err := os.Stat(filepath.Join(root, "file.bin"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Windows 的权限位只反映有限的只读属性；Unix 仍须精确保留 0640。
+			if runtime.GOOS != "windows" && before.Mode().Perm() != 0o640 {
+				t.Fatalf("权限准备失败：%#o", before.Mode().Perm())
+			}
 			_, err = store.Upload("", "file.bin", bytes.NewReader(next), imageOnly)
 			code(t, err, "target_exists")
 			_, _, err = store.UploadConditional("", "file.bin", bytes.NewReader(next), imageOnly, "", false)
@@ -78,8 +87,11 @@ func TestAttachmentUploadConditionalBytes(t *testing.T) {
 			}
 			attachmentBytes(t, root, "file.bin", next)
 			info, err := os.Stat(filepath.Join(root, "file.bin"))
-			if err != nil || info.Mode().Perm() != 0o640 {
-				t.Fatal("替换未保留权限", err)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != before.Mode().Perm() {
+				t.Fatalf("替换未保留平台可观测权限：原 %#o，现 %#o", before.Mode().Perm(), info.Mode().Perm())
 			}
 		})
 	}

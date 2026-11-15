@@ -5,13 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -251,9 +254,7 @@ func TestMCPDownloadRevalidation(t *testing.T) {
 				if err := os.Rename(filepath.Join(e.dir, "raw.bin"), filepath.Join(e.dir, "original.bin")); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink("original.bin", filepath.Join(e.dir, "raw.bin")); err != nil {
-					t.Fatal(err)
-				}
+				mcpDownloadSymlink(t, "original.bin", filepath.Join(e.dir, "raw.bin"))
 			default:
 				e.service.mu.Lock()
 				key := sha256.Sum256([]byte(ticket))
@@ -312,16 +313,19 @@ func TestMCPDownloadOriginAndUnsafePaths(t *testing.T) {
 			t.Fatal(origin, err)
 		}
 	}
-	if err := os.Symlink(filepath.Join(e.dir, "raw.bin"), filepath.Join(e.dir, "link.bin")); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("symlink", func(t *testing.T) {
+		mcpDownloadSymlink(t, filepath.Join(e.dir, "raw.bin"), filepath.Join(e.dir, "link.bin"))
+		if _, err := e.service.issue("https://files.example", e.user.ID, &e.token, "link.bin"); err == nil {
+			t.Fatal("符号链接通过安全检查")
+		}
+	})
 	if err := os.Link(filepath.Join(e.dir, "raw.bin"), filepath.Join(e.dir, "hard.bin")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(e.dir, "directory"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"", "../outside", "/etc/passwd", "a/../../raw.bin", "link.bin", "hard.bin", "directory"} {
+	for _, name := range []string{"", "../outside", "/etc/passwd", "a/../../raw.bin", "hard.bin", "directory"} {
 		if _, err := e.service.issue("https://files.example", e.user.ID, &e.token, name); err == nil {
 			t.Fatalf("不安全路径通过: %q", name)
 		}
@@ -377,5 +381,16 @@ func TestMCPDownloadBoundedCacheAndRead(t *testing.T) {
 	}
 	if file, _, _, err := openMCPDownload(e.store, "raw.bin", 3); err == nil || file != nil {
 		t.Fatal("helper未关闭超限描述符")
+	}
+}
+
+// 仅跳过 Windows 缺少创建链接特权的情况，其他准备错误仍失败。
+func mcpDownloadSymlink(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skipf("当前 Windows 进程无创建符号链接权限，未执行此链接安全场景：%v", err)
+		}
+		t.Fatal(err)
 	}
 }
