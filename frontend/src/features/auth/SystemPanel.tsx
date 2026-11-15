@@ -67,7 +67,7 @@ export function SystemStatusPanel() {
     {groups.map(([title, rows]) => <div className="system-metrics" key={title}><h3>{title}</h3><dl>{rows.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl></div>)}
     <div className="system-metrics"><div className="users-heading"><h3>磁盘目录用量</h3><Button variant="outline" disabled={disk.isFetching} onClick={() => void disk.refetch()}>{disk.isFetching ? '正在统计…' : '统计磁盘用量'}</Button></div>
       {disk.error && <p role="alert">{disk.error.message}</p>}
-      {disk.data && <dl>{(['workspace', 'appData'] as const).map((key) => <div key={key}><dt>{key === 'workspace' ? '全部工作区文件' : '应用数据（含索引与回收站）'}</dt><dd>{formatBytes(disk.data[key].bytes)} · {disk.data[key].files.toLocaleString()} 个文件 · {disk.data[key].directories.toLocaleString()} 个目录<br />{disk.data[key].volumeError ?? `所在磁盘：可用 ${formatBytes(disk.data[key].available)} / 总计 ${formatBytes(disk.data[key].total)}`}</dd></div>)}</dl>}
+      {disk.data && <dl>{(['workspace', 'appData'] as const).map((key) => <div key={key}><dt>{key === 'workspace' ? '全部工作区文件' : '应用数据'}</dt><dd>{formatBytes(disk.data[key].bytes)} · {disk.data[key].files.toLocaleString()} 个文件 · {disk.data[key].directories.toLocaleString()} 个目录<br />{disk.data[key].volumeError ?? `所在磁盘：可用 ${formatBytes(disk.data[key].available)} / 总计 ${formatBytes(disk.data[key].total)}`}</dd></div>)}</dl>}
     </div>
   </section>
 }
