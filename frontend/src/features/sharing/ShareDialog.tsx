@@ -8,6 +8,7 @@ import { workspace } from '../../sessions/current'
 import { shares } from './api'
 import type { Share, ShareInput, Selection } from './api'
 import { ShareAttachmentsDialog } from './ShareAttachmentsDialog'
+import { notify } from '../../stores/notifications'
 const toLocal = (unix: number) => unix ? new Date(unix * 1000 - new Date(unix * 1000).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''
 export function ShareDialog({ record = 'new', initialPath = '', fixedPath = false, onClose, onSaved }: { record?: Share | 'new'; initialPath?: string; fixedPath?: boolean; onClose: () => void; onSaved: (share: Share) => void }) {
  const client = useQueryClient()
@@ -53,7 +54,7 @@ export function ShareDialog({ record = 'new', initialPath = '', fixedPath = fals
   void Promise.resolve().then(() => { if (!cancelled) void analyze() })
   return () => { cancelled = true }
  }, [fixedPath, analyze])
- return (<Dialog.Root open onOpenChange={value => { if (!value) close() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content share-dialog">{link ? <><Dialog.Title>分享链接已创建</Dialog.Title><Dialog.Description>可复制链接发送给他人，在右上角分享管理中调整限制与暂停。</Dialog.Description><div className="share-created"><label htmlFor="created-share-link">分享链接</label><input id="created-share-link" readOnly value={link} onFocus={e => e.target.select()}/></div>{copyNotice && <p role="status">{copyNotice}</p>}<div className="dialog-actions"><Button onClick={close}>完成</Button><Button className="share-confirm" onClick={async () => {try {await navigator.clipboard.writeText(link);setCopyNotice('链接已复制。')} catch {setCopyNotice('无法自动复制，请选中链接手动复制。')}}}>复制链接</Button></div></> : <><Dialog.Title>{record === 'new' ? '创建外部链接' : '管理分享'}</Dialog.Title><Dialog.Description className="visually-hidden">设置分享内容与访问限制，确认后生成只读外部链接。</Dialog.Description>
+ return (<Dialog.Root open onOpenChange={value => { if (!value) close() }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content share-dialog">{link ? <><Dialog.Title>分享链接已创建</Dialog.Title><Dialog.Description>可复制链接发送给他人，在右上角分享管理中调整限制与暂停。</Dialog.Description><div className="share-created"><label htmlFor="created-share-link">分享链接</label><input id="created-share-link" readOnly value={link} onFocus={e => e.target.select()}/></div>{copyNotice && <p role="status">{copyNotice}</p>}<div className="dialog-actions"><Button onClick={close}>完成</Button><Button className="share-confirm" onClick={async () => {try {await navigator.clipboard.writeText(link);setCopyNotice('');notify.success('链接已复制。')} catch {setCopyNotice('无法自动复制，请选中链接手动复制。')}}}>复制链接</Button></div></> : <><Dialog.Title>{record === 'new' ? '创建外部链接' : '管理分享'}</Dialog.Title><Dialog.Description className="visually-hidden">设置分享内容与访问限制，确认后生成只读外部链接。</Dialog.Description>
    <div className="share-create-file"><span className="share-file-symbol"><Link2 size={24}/></span><strong title={root}>{root.split('/').at(-1) || '选择要分享的文件'}</strong></div>
    <form onSubmit={e => {e.preventDefault();void save()}}>
     {!fixedPath && <><label htmlFor="share-root">主文件路径</label><input id="share-root" value={root} disabled={record !== 'new' || busy} onChange={e => {setRoot(e.target.value);setFiles(null);setSelected([]);setAttachmentsConfirmed(false)}} required maxLength={4096} placeholder="例如：笔记/项目说明.md" /></>}

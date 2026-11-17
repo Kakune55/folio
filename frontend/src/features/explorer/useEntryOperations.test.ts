@@ -7,6 +7,7 @@ import type { Session } from '../../sessions/workspace'
 import { workspace } from '../../sessions/current'
 import { useEntryOperations } from './useEntryOperations'
 import { DirectoryPicker } from './DirectoryPicker'
+import { notify } from '../../stores/notifications'
 
 // 只执行 hook 和返回元素上的事件，不挂载 Radix，也不依赖浏览器 DOM。
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }))
@@ -63,6 +64,7 @@ function harness(uploading = false) {
 beforeEach(() => {
   hooks.values = []; hooks.cursor = 0
   vi.clearAllMocks()
+  notify.clear()
   vi.mocked(api.entryRevision).mockImplementation(async (path) => ({ path, kind: 'file', revision: 'v1' }))
   vi.mocked(api.move).mockResolvedValue(undefined as never)
   vi.mocked(api.trash).mockResolvedValue(undefined as never)
@@ -86,7 +88,8 @@ describe('文件操作固定集合与单项兼容', () => {
     await h.submit()
     expect(vi.mocked(api.trash).mock.calls).toEqual([['目录', 'v1'], ['另一个.md', 'v1']])
     expect(h.props.onDelete.mock.calls).toEqual([['目录'], ['另一个.md']])
-    expect(h.props.onNotice).toHaveBeenCalledTimes(1)
+    expect(notify.snapshot()).toHaveLength(1)
+    expect(h.props.onNotice).not.toHaveBeenCalled()
     h.render().showDelete(entry('未删除.md'))
     const cancel = h.find((element) => element.props.children === '取消')
     ;(cancel.props.onClick as () => void)()
@@ -113,7 +116,8 @@ describe('文件操作固定集合与单项兼容', () => {
     h.target('新'); await h.submit()
     expect(vi.mocked(api.move).mock.calls).toEqual([['旧/a.md', '新/a.md', 'v1'], ['旧/b.md', '新/b.md', 'v1']])
     expect(h.props.onRemap.mock.calls).toEqual([['旧/a.md', '新/a.md'], ['旧/b.md', '新/b.md']])
-    expect(h.props.onNotice).toHaveBeenCalledTimes(1)
+    expect(notify.snapshot()).toHaveLength(1)
+    expect(h.props.onNotice).not.toHaveBeenCalled()
     h.render().showMove([entry('旧/c.md'), entry('旧/d.md')]); await h.submit()
     expect(api.move).toHaveBeenLastCalledWith('旧/d.md', 'd.md', 'v1')
   })
@@ -180,7 +184,7 @@ describe('批量预检与失败保护', () => {
     expect(JSON.stringify(remaining)).not.toContain('a.md')
     await h.submit()
     expect(vi.mocked(api.trash).mock.calls.map(([path]) => path)).toEqual(['a.md', 'b.md', 'b.md', 'c.md'])
-    expect(h.props.onNotice).toHaveBeenLastCalledWith(expect.stringContaining('已完成 3 项'))
+    expect(notify.snapshot().at(-1)?.message).toContain('已完成 3 项')
   })
 
   it.each([new TypeError('网络中断'), new ApiError(503, 'unavailable', '服务不可用'), new ApiError(409, 'durability_uncertain', '落盘结果未知')])('结果未知禁止本轮再次提交：$message', async (problem) => {

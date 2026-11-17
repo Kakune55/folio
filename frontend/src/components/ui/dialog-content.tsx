@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import type { ComponentProps } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
+import { NotificationMount } from './notifications'
 
 // 部分窗口由快捷键/文件菜单打开，没有 Radix Trigger；显式保留并恢复原焦点。
 function previousFocusTarget() {
@@ -13,10 +14,13 @@ function previousFocusTarget() {
   return active
 }
 
-export function DialogContent({ onOpenAutoFocus, onCloseAutoFocus, ...props }: ComponentProps<typeof Dialog.Content>) {
+export function DialogContent({ onOpenAutoFocus, onCloseAutoFocus, onEscapeKeyDown, children, ...props }: ComponentProps<typeof Dialog.Content>) {
   // 在子输入框的 React autoFocus 生效前捕获；Scope 的打开回调可能已经太晚。
   const previous = useRef<HTMLElement | null>(previousFocusTarget())
-  return <Dialog.Content {...props} onOpenAutoFocus={(event) => {
+  return <Dialog.Content {...props} onEscapeKeyDown={(event) => {
+    if (event.target instanceof Element && event.target.closest('.notification-stack')) { event.preventDefault(); return }
+    onEscapeKeyDown?.(event)
+  }} onOpenAutoFocus={(event) => {
     onOpenAutoFocus?.(event)
   }} onCloseAutoFocus={(event) => {
     onCloseAutoFocus?.(event)
@@ -25,5 +29,5 @@ export function DialogContent({ onOpenAutoFocus, onCloseAutoFocus, ...props }: C
     const target = previous.current
     if (target && target !== document.body && target.isConnected && !target.matches(':disabled') && !target.closest('[inert]')) target.focus({ preventScroll: true })
     else document.getElementById('explorer-toggle')?.focus({ preventScroll: true })
-  }} />
+  }}>{children}<NotificationMount /></Dialog.Content>
 }

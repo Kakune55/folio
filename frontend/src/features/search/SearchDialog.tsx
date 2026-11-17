@@ -7,12 +7,12 @@ import { Search, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { literalRange } from './location'
 import { api } from '../../services/api'
+import { notify } from '../../stores/notifications'
 
 export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen: (path: string, query: string, contentMatch: boolean) => void }) {
   const [input, setInput] = useState('')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState('')
-  const [message, setMessage] = useState('')
   const [rebuilding, setRebuilding] = useState(false)
   const list = useRef<HTMLDivElement>(null)
   const anchor = useRef<{ path: string; query: string; offset: number; scroll: number } | null>(null)
@@ -64,7 +64,7 @@ export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen:
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const next = (active + (event.key === 'ArrowDown' ? 1 : -1) + entries.length) % entries.length; setSelected(entries[next].path) }
       if (event.key === 'Enter') { event.preventDefault(); choose(entries[active].path) }
     }} /></div>
-    {(index?.warning || status.error || message) && <p className="search-notice" role="status">{message || status.error?.message || index?.warning}</p>}
+    {(index?.warning || status.error) && <p className="search-notice" role="status">{status.error?.message || index?.warning}</p>}
     <div id="search-results" className="search-results" role="listbox" aria-label="搜索结果" ref={list} aria-busy={waiting}>
       {entries.map((entry, position) => <div role="presentation" key={entry.path}>
         {(position === 0 || position === files.length) && <div className="search-group" role="presentation">{position < files.length ? '文件' : '内容'}</div>}
@@ -77,9 +77,9 @@ export function SearchDialog({ onClose, onOpen }: { onClose: () => void; onOpen:
       {!waiting && !entries.length && !names.error && !(query.trim() && full.error) && <p className="search-empty">{index?.indexing ? '正在更新索引，请稍候…' : '没有匹配的文件。'}</p>}
     </div>
     <div className="search-footer"><span>{index?.indexing ? '正在更新索引…' : `${index?.files ?? 0} 个已索引文件`}{(names.data?.truncated || (!!query.trim() && full.data?.truncated)) ? ' · 结果较多，请缩小查询' : ''}</span><div><Button disabled={rebuilding || index?.indexing} onClick={async () => {
-      setRebuilding(true); setMessage('')
-      try { await api.rebuildIndex(); await client.invalidateQueries({ queryKey: ['file-index'] }); setMessage('已请求重建索引，文件编辑不受影响。'); await client.invalidateQueries({ queryKey: ['search-status'] }); await client.invalidateQueries({ queryKey: ['search'] }) }
-      catch (error) { setMessage(error instanceof Error ? error.message : '重建索引请求失败') }
+      setRebuilding(true)
+      try { await api.rebuildIndex(); await client.invalidateQueries({ queryKey: ['file-index'] }); notify.success('已请求重建索引，文件编辑不受影响。'); await client.invalidateQueries({ queryKey: ['search-status'] }); await client.invalidateQueries({ queryKey: ['search'] }) }
+      catch (error) { notify.error(error instanceof Error ? error.message : '重建索引请求失败') }
       finally { setRebuilding(false) }
     }}>{rebuilding ? '正在请求…' : '重建索引'}</Button></div></div>
   </DialogContent></Dialog.Portal></Dialog.Root>

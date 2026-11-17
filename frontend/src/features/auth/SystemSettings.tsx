@@ -10,6 +10,7 @@ import { DialogContent } from '../../components/ui/dialog-content'
 import { api } from '../../services/api'
 import type { Principal, UserAccount } from '../../services/api'
 import { formatBytes } from '../../services/format'
+import { notify } from '../../stores/notifications'
 
 export function SystemSettings({ principal }: { principal: Principal }) {
   const client = useQueryClient()
@@ -25,7 +26,6 @@ export function SystemSettings({ principal }: { principal: Principal }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const users = useQuery({ queryKey: ['users', search, offset], queryFn: () => api.users(search, offset), enabled: principal.admin, retry: false })
   const begin = (user: UserAccount | 'new') => {
     setEditing(user); setPassword(''); setError('')
@@ -41,7 +41,7 @@ export function SystemSettings({ principal }: { principal: Principal }) {
     <div className="settings-layout"><aside className="settings-nav"><h1>系统设置</h1><nav aria-label="系统管理">{['用户管理', '系统设置', '系统状态'].map((name) => <button key={name} aria-current={page === name ? 'page' : undefined} onClick={() => setPage(name)}>{name}</button>)}</nav></aside>
       {page === '系统设置' ? <SystemConfigurationPanel /> : page === '系统状态' ? <SystemStatusPanel /> : <section className="users-section" aria-labelledby="users-heading"><div className="users-heading"><h2 id="users-heading">用户管理 <span>{users.data?.total ?? ''}</span></h2><Button variant="outline" onClick={() => begin('new')}><Plus size={16} />创建用户</Button></div>
         <label className="user-search"><Search size={16} /><input aria-label="搜索用户名" placeholder="搜索用户名" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0) }} /></label>
-        {notice && <p role="status">{notice}</p>}{users.isPending && <p role="status">正在读取用户…</p>}{users.error && <p role="alert">{users.error.message} <Button onClick={() => void users.refetch()}>重试</Button></p>}
+        {users.isPending && <p role="status">正在读取用户…</p>}{users.error && <p role="alert">{users.error.message} <Button onClick={() => void users.refetch()}>重试</Button></p>}
         {users.data && <><div className="users-table-scroll"><table className="users-table"><thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>已用 / 配额</th><th>操作</th></tr></thead><tbody>
           {users.data.entries.map((user) => <tr key={user.id}><td>{user.username}</td><td>{user.admin ? '管理员' : '用户'}</td><td><span className={user.enabled ? '' : 'muted'}>{user.enabled ? '启用' : '禁用'}</span></td><td className={user.used !== null && user.used > user.quota ? 'quota-full' : ''}>{user.used === null ? <button onClick={() => void users.refetch()}>读取失败，重试</button> : `${formatBytes(user.used)} / ${formatBytes(user.quota)}`}</td><td><div className="user-actions"><Button onClick={() => begin(user)}>编辑</Button><Button onClick={() => { setReset(user); setPassword(''); setError('') }}>重置密码</Button></div></td></tr>)}
           {!users.data.entries.length && <tr><td colSpan={5} className="users-empty">没有匹配的用户</td></tr>}
@@ -57,7 +57,7 @@ export function SystemSettings({ principal }: { principal: Principal }) {
           if ((reset || editing === 'new') && (new TextEncoder().encode(password).length < 8 || new TextEncoder().encode(password).length > 1024)) throw new Error('密码须为 8–1024 字节')
           if (reset) await api.resetUserPassword(reset.id, password)
           else await api.saveUser(editing === 'new' ? 0 : editing!.id, { username, enabled, quota: bytes, password: editing === 'new' ? password : '' })
-          setNotice(reset ? '密码已重置，旧会话已撤销。' : editing === 'new' ? '用户已创建。' : '用户已更新。')
+          notify.success(reset ? '密码已重置，旧会话已撤销。' : editing === 'new' ? '用户已创建。' : '用户已更新。')
           const selfReset = reset?.id === principal.id
           setEditing(null); setReset(null); setPassword('')
           if (selfReset) { window.dispatchEvent(new Event('folio:unauthenticated')); return }

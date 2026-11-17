@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router'
 import RootPage from './app/RootPage'
+import { NotificationProvider } from './components/ui/notifications'
 import './styles/app.css'
 
 const client = new QueryClient()
 createRoot(document.getElementById('root')!).render(
-  <StrictMode><BrowserRouter><QueryClientProvider client={client}><RootPage /></QueryClientProvider></BrowserRouter></StrictMode>,
+  <StrictMode><BrowserRouter><QueryClientProvider client={client}><NotificationProvider><RootPage /></NotificationProvider></QueryClientProvider></BrowserRouter></StrictMode>,
 )

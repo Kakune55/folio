@@ -6,6 +6,7 @@ import { RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { api, type TrashRecord } from '../../services/api'
 import { FileIcon, FolderIcon } from './FileIcon'
+import { notify } from '../../stores/notifications'
 
 export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (value: boolean) => void }) {
   const client = useQueryClient()
@@ -34,15 +35,18 @@ export function TrashDialog({ open, onOpenChange }: { open: boolean; onOpenChang
     if (!targets.length || disabled) return
     setWorking('准备处理…'); setMessage(''); setSelected(new Set()); setPurgeRecords([])
     let completed = 0
+    const notification = notify.loading(action === 'restore' ? '正在恢复文件' : '正在永久删除', { progress: 0 })
     try {
       for (const record of targets) {
         setWorking(`${action === 'restore' ? '正在恢复' : '正在删除'} ${completed + 1} / ${targets.length}`)
         if (action === 'restore') await api.restore(record.id)
         else await api.purge(record.id)
         completed++
+        notify.update(notification, { progress: completed / targets.length * 100 })
       }
-      setMessage(action === 'restore' && targets.length === 1 ? `已恢复 ${targets[0].path}` : `已${action === 'restore' ? '恢复' : '永久删除'} ${completed} 项。`)
+      notify.success(action === 'restore' && targets.length === 1 ? `已恢复 ${targets[0].path}` : `已${action === 'restore' ? '恢复' : '永久删除'} ${completed} 项。`, { id: notification })
     } catch (error) {
+      notify.dismiss(notification)
       setMessage(`${completed ? `已完成 ${completed} 项，其余操作已停止。` : ''}${error instanceof Error ? error.message : '操作失败，记录仍保留'}`)
       setNeedsReview(true)
     } finally {

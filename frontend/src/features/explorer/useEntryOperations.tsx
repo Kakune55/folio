@@ -8,6 +8,7 @@ import type { Entry, EntryRevision } from '../../services/api'
 import { workspace } from '../../sessions/current'
 import type { Session } from '../../sessions/workspace'
 import { DirectoryPicker } from './DirectoryPicker'
+import { notify } from '../../stores/notifications'
 
 type Operation = { type: 'move' | 'delete'; entries: Entry[]; total: number; completed: number; batch: boolean; blocked: boolean }
 class UncertainOperationError extends Error {}
@@ -46,6 +47,7 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
     let mutationStarted = false
     let mutationConfirmed = false
     let notice = ''
+    let attention = false
     try {
       const revision = await prepare(entry, affected)
       mutationStarted = true
@@ -65,15 +67,16 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
           } catch { typeRefreshFailed = true }
         }
         notice = typeRefreshFailed ? '路径已更新，但文件类型刷新失败。当前草稿仍保留，请关闭并重新打开文件；相关 Markdown 链接需手动检查。' : '文件路径已更新。Markdown 链接不会自动改写，请检查相关引用。'
+        attention = typeRefreshFailed
       } else {
         await api.trash(entry.path, revision.revision)
         mutationConfirmed = true
         for (const session of affected) workspace.remove(session.path, true)
         onDelete(entry.path); notice = '已移到回收站，可从回收站恢复。'
       }
-      try { await refresh() } catch { notice += ' 列表刷新失败，请刷新确认；不要重复操作已完成项。' }
-      if (!quiet) onNotice(notice)
-      return notice
+      try { await refresh() } catch { attention = true; notice += ' 列表刷新失败，请刷新确认；不要重复操作已完成项。' }
+      if (!quiet) { if (attention) onNotice(notice); else notify.success(notice) }
+      return { message: notice, attention }
     } catch (problem) {
       const message = problem instanceof Error ? problem.message : '文件操作失败，请保留草稿并刷新列表确认'
       if ((problem instanceof ApiError && [404, 412].includes(problem.status)) || problem instanceof EntryTypeChangedError) workspace.operationFailed(affected, message, true)
@@ -117,6 +120,7 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
         let remaining = operation.entries
         let completed = operation.completed
         const notices = new Set<string>()
+        let attention = false
         try {
           for (const [index, destination] of destinations.entries()) {
             checkDestination(remaining[index], destination)
@@ -124,11 +128,14 @@ export function useEntryOperations({ onRemap, onDelete, onNotice, uploading }: {
             if (remaining.some((entry) => destination === entry.path || (entry.kind === 'directory' && destination.startsWith(`${entry.path}/`)))) throw new Error('目标与选中项目冲突，不能移入选中目录或覆盖选中项目')
           }
           for (const [index, entry] of operation.entries.entries()) {
-            notices.add(await perform(entry, destinations[index], true))
+            const result = await perform(entry, destinations[index], true)
+            notices.add(result.message); attention ||= result.attention
             completed++; remaining = remaining.slice(1)
             setOperation({ ...operation, entries: remaining, completed })
           }
-          onNotice(operation.batch ? `已完成 ${completed} 项。${[...notices].join(' ')}` : [...notices].join(' '))
+          const message = operation.batch ? `已完成 ${completed} 项。${[...notices].join(' ')}` : [...notices].join(' ')
+          if (attention) onNotice(message)
+          else notify.success(message)
           setOperation(undefined)
         } catch (problem) {
           const uncertain = problem instanceof UncertainOperationError

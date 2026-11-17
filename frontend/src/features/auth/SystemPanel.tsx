@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/button'
 import { api } from '../../services/api'
 import type { SystemConfiguration } from '../../services/api'
 import { formatBytes } from '../../services/format'
+import { notify } from '../../stores/notifications'
 
 const fields = [
   ['Text', '文本大小上限', 1024 ** 2, 100], ['Image', '图片大小上限', 1024 ** 2, 1024],
@@ -16,12 +17,11 @@ function ConfigurationForm({ initial }: { initial: SystemConfiguration }) {
   const [value, setValue] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   return <form className="system-form" onSubmit={async (event) => {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('')
+    event.preventDefault(); setBusy(true); setError('')
     try {
       const saved = await api.saveSystemConfiguration(value)
-      setValue(saved); setNotice('设置已生效，索引上限变化时将自动重建。')
+      setValue(saved); notify.success('设置已生效，索引上限变化时将自动重建。')
       await Promise.all(['system-configuration', 'file-index', 'search', 'search-status'].map((key) => client.invalidateQueries({ queryKey: [key] })))
     } catch (e) { setError(e instanceof Error ? e.message : '设置保存失败，请重试') }
     finally { setBusy(false) }
@@ -31,7 +31,7 @@ function ConfigurationForm({ initial }: { initial: SystemConfiguration }) {
         value={(key === 'indexLimit' ? value.indexLimit : value.limits[key]) / scale}
         onChange={(event) => { const number = Math.round(Number(event.target.value) * scale); setValue((old) => key === 'indexLimit' ? { ...old, indexLimit: number } : { ...old, limits: { ...old.limits, [key]: number } }) }} /><span>{key === 'ImagePixels' ? '百万像素' : 'MiB'}</span></div>
     </div>)}
-    {error && <p role="alert" className="form-error">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {error && <p role="alert" className="form-error">{error}</p>}
     <Button variant="outline" type="submit" disabled={busy}>{busy ? '正在保存…' : '保存设置'}</Button>
   </form>
 }

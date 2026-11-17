@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/button'
 import { api } from '../../services/api'
 import type { AccessToken, Principal, TokenPermissions } from '../../services/api'
 import { formatBytes } from '../../services/format'
+import { notify } from '../../stores/notifications'
 
 const sections = [{ key: 'account', name: '账号', icon: UserRound }, { key: 'storage', name: '存储', icon: HardDrive }, { key: 'applications', name: '应用', icon: AppWindow }]
 export function UserSettings({ principal }: { principal: Principal }) {
@@ -92,14 +93,13 @@ function MCPGuide() {
   const endpoint = new URL('/mcp', window.location.origin).href
   const prompt = `请按 ${new URL('/api/v1/agent.md', window.location.origin).href} 为当前客户端接入 Folio MCP，并指引用户配置认证信息。`
   const configuration = JSON.stringify({ mcpServers: { folio: { type: 'http', url: endpoint, headers: { Authorization: 'Bearer <Access Token>' } } } }, null, 2)
-  const [copied, setCopied] = useState<'address' | 'config' | 'prompt' | null>(null), [error, setError] = useState('')
+  const [error, setError] = useState('')
   const address = useRef<HTMLInputElement>(null)
   const configurationBlock = useRef<HTMLPreElement>(null)
   const promptBlock = useRef<HTMLPreElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const copyBlock = async (kind: 'config' | 'prompt') => {
-    setCopied(null)
-    try { await navigator.clipboard.writeText(kind === 'config' ? configuration : prompt); setCopied(kind); setError('') }
+    try { await navigator.clipboard.writeText(kind === 'config' ? configuration : prompt); notify.success(kind === 'config' ? 'JSON 配置已复制，请替换令牌占位符。' : '接入指引已复制，不含令牌。'); setError('') }
     catch {
       const block = kind === 'config' ? configurationBlock.current : promptBlock.current
       if (block) {
@@ -113,18 +113,18 @@ function MCPGuide() {
       setError(kind === 'config' ? '复制失败，请手动复制已选中的 JSON 配置。' : '复制失败，请手动复制已选中的接入指引。')
     }
   }
-  return <Dialog.Root onOpenChange={() => { setCopied(null); setError('') }}>
+  return <Dialog.Root onOpenChange={() => { setError('') }}>
     <Dialog.Trigger asChild><Button>MCP 指南</Button></Dialog.Trigger>
     <Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><DialogContent className="dialog-content mcp-guide" onOpenAutoFocus={event => { event.preventDefault(); heading.current?.focus({ preventScroll: true }) }}>
       <Dialog.Title ref={heading} tabIndex={-1}>MCP 快速配置</Dialog.Title>
       <h3>一句话接入</h3>
       <pre ref={promptBlock} tabIndex={0} aria-label="一句话接入指引"><code>{prompt}</code></pre>
-      <Button variant="outline" onClick={() => void copyBlock('prompt')}><Copy size={16} />{copied === 'prompt' ? '指引已复制' : '复制接入指引'}</Button>
+      <Button variant="outline" onClick={() => void copyBlock('prompt')}><Copy size={16} />复制接入指引</Button>
       <details><summary>手动配置与 JSON 导入</summary>
       <ol className="mcp-guide-steps">
         <li><h3>生成专用令牌</h3><p>在本页为客户端单独生成令牌并配置相关权限。</p></li>
         <li><h3>添加远程 MCP 服务</h3><p>协议 <code>Streamable HTTP</code>，连接地址：</p>
-          <label className="sr-only" htmlFor="mcp-endpoint">MCP 连接地址</label><div className="token-secret-row"><input ref={address} id="mcp-endpoint" readOnly value={endpoint} spellCheck={false} onFocus={e => e.target.select()} /><Button aria-label="复制 MCP 地址" onClick={async () => { setCopied(null); try { await navigator.clipboard.writeText(endpoint); setCopied('address'); setError('') } catch { address.current?.focus(); address.current?.select(); setError('复制失败，请手动复制上方地址。') } }}><Copy size={16} />{copied === 'address' ? '已复制' : '复制'}</Button></div>
+          <label className="sr-only" htmlFor="mcp-endpoint">MCP 连接地址</label><div className="token-secret-row"><input ref={address} id="mcp-endpoint" readOnly value={endpoint} spellCheck={false} onFocus={e => e.target.select()} /><Button aria-label="复制 MCP 地址" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); notify.success('MCP 地址已复制。'); setError('') } catch { address.current?.focus(); address.current?.select(); setError('复制失败，请手动复制上方地址。') } }}><Copy size={16} />复制</Button></div>
         </li>
         <li><h3>配置认证请求头</h3><pre><code>{'Authorization: Bearer <Access Token>'}</code></pre><p>将 <code>&lt;Access Token&gt;</code> 替换为刚生成的完整令牌，<code>Bearer</code> 后保留一个空格。填在客户端的请求头或安全凭据配置中，不要放入 URL、聊天或工具参数。各客户端配置字段可能不同。</p></li>
         <li><h3>连接并发现工具</h3><p>保存后连接或刷新工具列表，即可发现当前权限允许的工具。</p></li>
@@ -132,9 +132,9 @@ function MCPGuide() {
       <h3>JSON 快速配置</h3>
       <p>适用于 mcpServers 格式的客户端；导入前替换 &lt;Access Token&gt;，具体字段以客户端要求为准，合并 folio 条目，不覆盖其他服务。</p>
       <pre ref={configurationBlock} tabIndex={0} aria-label="MCP JSON 配置"><code>{configuration}</code></pre>
-      <Button variant="outline" onClick={() => void copyBlock('config')}><Copy size={16} />{copied === 'config' ? 'JSON 已复制' : '复制 JSON 配置'}</Button>
+      <Button variant="outline" onClick={() => void copyBlock('config')}><Copy size={16} />复制 JSON 配置</Button>
       </details>
-      {error && <p role="alert" className="form-error">{error}</p>}{copied && <p role="status">{{ config: 'JSON 配置已复制，请替换令牌占位符。', address: 'MCP 地址已复制。', prompt: '接入指引已复制，不含令牌。' }[copied]}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
       <div className="dialog-actions"><Dialog.Close asChild><Button variant="outline">关闭</Button></Dialog.Close></div>
     </DialogContent></Dialog.Portal>
   </Dialog.Root>

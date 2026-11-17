@@ -42,6 +42,7 @@ import { DocumentEditor } from '../editors/registry'
 import { imageMarkdown, relativeFileLink, resolveFileLink } from '../editors/bridge'
 import type { EditorBridge } from '../editors/bridge'
 import { ImagePreviewDialog, type ImagePreviewFile } from '../viewers/ImagePreviewDialog'
+import { notify } from '../stores/notifications'
 
 const basename = (path: string) => path.split('/').at(-1) ?? path
 const isSessionBusy = (session: Session) => session.composing || session.pendingUploads > 0 || session.locked || session.state === 'saving'
@@ -110,7 +111,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const onSearchLocated = useCallback<SearchLocated>((target, found) => {
     if (target.id !== searchSequence.current) return
     setSearchTarget(undefined)
-    if (!found && target.contentMatch) setNotice('当前正文中未找到该关键词，文件可能已修改；Markdown 标记中的命中可切换源码后重搜。')
+    if (!found && target.contentMatch) notify.info('当前正文中未找到该关键词，文件可能已修改；Markdown 标记中的命中可切换源码后重搜。')
   }, [])
   const ThemeIcon = theme === 'system' ? Monitor : theme === 'light' ? Sun : Moon
   const themeLabel = theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'
@@ -141,7 +142,7 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       if (sequence !== requestSequence.current) return
       workspace.add({ path, source: file?.content ?? '', revision: file?.revision ?? '', viewer: metadata.viewer, metadata, mode: metadata.viewer === 'markdown' ? 'rich' : 'source' })
       open(path); if (window.matchMedia('(max-width: 767px)').matches) setSidebar(false)
-    } catch (error) { if (sequence === requestSequence.current) setNotice(error instanceof Error ? error.message : '文件打开失败') }
+    } catch (error) { if (sequence === requestSequence.current) notify.error(error instanceof Error ? error.message : '文件打开失败') }
     finally { if (sequence === requestSequence.current) setLoading(false) }
   }, [open, setNotice, setLoading, setSidebar])
 
@@ -163,8 +164,8 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
 
   const bridge = useMemo<EditorBridge | undefined>(() => current?.viewer === 'markdown' ? {
     reference: (entry) => {
-      if (entry.kind !== 'file') { setNotice('请拖入文件，暂不支持插入目录引用。'); return }
-      if (current.locked || workspace.isLocked(current.path) || workspace.isLocked(entry.path)) { setNotice('相关文件正在处理操作，请稍后再插入引用。'); return }
+      if (entry.kind !== 'file') { notify.info('请拖入文件，暂不支持插入目录引用。'); return }
+      if (current.locked || workspace.isLocked(current.path) || workspace.isLocked(entry.path)) { notify.info('相关文件正在处理操作，请稍后再插入引用。'); return }
       return { url: relativeFileLink(current.path, entry.path), alt: entry.name, image: /\.(png|jpe?g|webp|gif)$/i.test(entry.name) }
     },
     beginUpload: () => workspace.beginUpload(current.path),
@@ -178,30 +179,32 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
         if (!workspace.has(current.path) || workspace.get(current.path) !== current || current.locked) throw new Error(`图片已上传到「${path}」，原笔记已关闭或正在处理文件操作，请重新打开笔记后手动插入引用。`)
         if (!workspace.appendAttachment(current.path, imageMarkdown(relativeFileLink(current.path, path), file.name))) throw new Error(`图片已上传到「${path}」，原笔记输入法候选尚未确认或正在处理，请确认后从文件列表插入。`)
       }
+      const notification = notify.loading(`${basename(current.path)}：正在上传图片`, { progress: 0 })
       try {
-        const metadata = await uploadFile(named, parent, (percent) => setNotice(`${basename(current.path)}：正在上传图片 ${percent}%`), true)
+        const metadata = await uploadFile(named, parent, (percent) => notify.update(notification, { progress: percent }), true)
         uploadQueue.remove(pending.id)
-        void client.invalidateQueries({ queryKey: ['tree'] }); setNotice(`${basename(current.path)}：图片已上传。`)
+        void client.invalidateQueries({ queryKey: ['tree'] }); notify.success(`${basename(current.path)}：图片已上传。`, { id: notification })
         return relativeFileLink(current.path, metadata.path)
       } catch (error) {
+        notify.dismiss(notification)
         uploadQueue.fail(pending.id, error instanceof Error ? error.message : '图片上传失败')
         throw error
       }
     },
     imageURL: (href) => { try { return fileURL(resolveFileLink(current.path, href), true) } catch { return '' } },
     previewImage: (href, label) => {
-      if (current.composing || current.compositionInterrupted) { setNotice('请先确认或取消输入法候选，再放大图片。'); return }
+      if (current.composing || current.compositionInterrupted) { notify.info('请先确认或取消输入法候选，再放大图片。'); return }
       try {
         const path = resolveFileLink(current.path, href)
         setImagePreview({ owner: `${current.id}:${current.generation}:${current.path}:${current.mode}`, file: { url: fileURL(path, true), downloadURL: fileURL(path), label } })
-      } catch (error) { setNotice(error instanceof Error ? error.message : '图片地址不可用。') }
+      } catch (error) { notify.error(error instanceof Error ? error.message : '图片地址不可用。') }
     },
     openLink: (href) => {
       try {
         if (/^https?:\/\//i.test(href)) { const url = new URL(href); window.open(url.href, '_blank', 'noopener,noreferrer'); return }
-        if (href.startsWith('#')) { setNotice('当前版本暂不支持段内锚点跳转。'); return }
+        if (href.startsWith('#')) { notify.info('当前版本暂不支持段内锚点跳转。'); return }
         void openFile(resolveFileLink(current.path, href))
-      } catch (error) { setNotice(error instanceof Error ? error.message : '此链接不受支持') }
+      } catch (error) { notify.error(error instanceof Error ? error.message : '此链接不受支持') }
     },
     detachedImage: (url, alt) => {
       if (!workspace.appendAttachment(current.path, imageMarkdown(url, alt))) setNotice(`图片已上传为「${alt}」，原笔记有未确认输入或正在处理，未自动插入；请从文件列表插入。`)
@@ -214,16 +217,20 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
     setUploading(true)
     const failures: string[] = []
     let completed = 0
+    const notification = notify.loading('正在上传文件', { progress: 0 })
     try {
-      for (const entry of entries) {
+      for (const [index, entry] of entries.entries()) {
         const file = entry.file
         try {
-          const metadata = await uploadFile(file, directory, (percent) => setNotice(`正在上传 ${file.name} · ${percent}%`), entry.imageOnly)
+          const metadata = await uploadFile(file, directory, (percent) => notify.update(notification, { message: `正在上传 ${file.name}`, progress: (index + percent / 100) / entries.length * 100 }), entry.imageOnly)
           try { entry.onUploaded?.(metadata.path) } catch (error) { failures.push(error instanceof Error ? error.message : `图片已上传到「${metadata.path}」，引用插入失败，请手动插入。`) }
           uploadQueue.remove(entry.id); completed++; void client.invalidateQueries({ queryKey: ['tree'] })
         } catch (error) { const message = error instanceof Error ? error.message : '上传失败'; uploadQueue.fail(entry.id, message); failures.push(`${file.name}：${message}`) }
       }
-      setNotice(failures.length ? `已上传 ${completed} 个文件。以下项目需要处理，请核对提示：${failures.join('；')}` : `已上传 ${completed} 个文件。`)
+      if (failures.length) {
+        notify.dismiss(notification)
+        setNotice(`已上传 ${completed} 个文件。以下项目需要处理，请核对提示：${failures.join('；')}`)
+      } else notify.success(`已上传 ${completed} 个文件。`, { id: notification })
     } finally { setUploading(false); if (uploadInput.current) uploadInput.current.value = ''; if (cameraInput.current) cameraInput.current.value = '' }
   }
 
@@ -334,19 +341,19 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       if (session.source !== source || session.path !== originalPath || session.generation !== generation || isSessionBusy(session)) { setComparisonError('副本已保存，但原会话又有新变化，仍保留原草稿。'); return }
       if (remote) workspace.acceptRemote(originalPath, remote.content, remote.revision)
       else { workspace.acceptRemote(originalPath, source, session.revision); workspace.remove(originalPath) }
-      comparisonSequence.current++; setComparison(undefined); open(saved.path); setNotice('本地副本已保存，未覆盖磁盘原文件。')
+      comparisonSequence.current++; setComparison(undefined); open(saved.path); notify.success('本地副本已保存，未覆盖磁盘原文件。')
     } catch (error) { setComparisonError(error instanceof Error ? error.message : '保留副本失败，草稿仍在') }
     finally { setBusy(false) }
   }
   const reloadCurrent = async () => {
     if (!current) return
-    try { await reloadCleanSession(workspace, current); setNotice('已加载磁盘版本。') }
+    try { await reloadCleanSession(workspace, current); notify.success('已加载磁盘版本。') }
     catch (error) { setNotice(error instanceof Error ? error.message : '重新加载失败，当前正文仍保留') }
   }
   const handleLogout = async () => {
     if (uploadQueue.snapshot().length) { setNotice('还有待确认的附件，请先重试上传或下载原件并移除待上传记录。'); return }
     for (const session of workspace.list()) if (!(await workspace.flush(session.path))) { setNotice('有文件未能保存，已保留登录状态。请先处理错误或冲突。'); return }
-    try { await api.logout(); onLogout() } catch (error) { setNotice(error instanceof Error ? error.message : '退出失败') }
+    try { await api.logout(); notify.clear(); onLogout() } catch (error) { notify.error(error instanceof Error ? error.message : '退出失败') }
   }
 
   return <div style={{ '--editor-width': `${width}px`, '--editor-font-size': `${fontSize}px` } as CSSProperties} className={`workbench ${sidebar ? '' : 'sidebar-hidden'}`} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={(event) => { if (event.defaultPrevented || !event.dataTransfer.files.length) return; event.preventDefault(); void uploadAttachments(Array.from(event.dataTransfer.files)) }}>
