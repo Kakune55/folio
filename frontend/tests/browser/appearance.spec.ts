@@ -54,10 +54,20 @@ test('个性化即时应用、持久保存、移动布局与编辑器实例保�
   await expect(dialog.getByRole('radio', { name: '大 18 px' })).toBeChecked()
   await dialog.getByRole('button', { name: '完成' }).click()
   await openFile()
-  for (const width of [1440, 1024, 390, 320]) {
+  for (const width of [1440, 1024, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 844 })
     const close = page.getByRole('button', { name: '关闭文件列表' })
     if (await close.isVisible()) await close.click()
+    const spacing = await rich.evaluate(element => {
+      const host = element.closest('.source-host')!
+      const gutters = host.querySelector('.cm-gutters')!
+      return {
+        gutterOffset: gutters.getBoundingClientRect().left - host.getBoundingClientRect().left,
+        textPadding: parseFloat(getComputedStyle(element.querySelector('.cm-line')!).paddingLeft),
+      }
+    })
+    expect(spacing.gutterOffset).toBeCloseTo(width < 768 ? 8 : 12, 0)
+    expect(spacing.textPadding).toBe(width < 768 ? 4 : 16)
     await openSettings()
     await expect(dialog).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

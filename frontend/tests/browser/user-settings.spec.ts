@@ -3,6 +3,26 @@ import AxeBuilder from '@axe-core/playwright'
 import { mkdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
+test('工作区左下角显示构建版本，手机文件抽屉保留版本标识', async ({ page }) => {
+  const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.getByLabel('密码', { exact: true }).fill('folio-browser-test-password-2026')
+  await page.getByRole('button', { name: '进入工作区' }).click()
+  const label = page.getByLabel(`Folio 版本 ${version}`, { exact: true })
+  await expect(label).toHaveText(`Folio v${version}`)
+  await expect(label).toBeVisible()
+  const desktopBox = await label.boundingBox()
+  expect(desktopBox && desktopBox.x < 320 && desktopBox.y > 600).toBeTruthy()
+  await page.setViewportSize({ width: 320, height: 800 })
+  await page.getByRole('button', { name: '关闭文件列表', exact: true }).click()
+  await page.getByRole('button', { name: '展开文件列表', exact: true }).click()
+  await expect(label).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button', { name: '关闭文件列表', exact: true }).click()
+  await expect(page.getByRole('button', { name: '查看浏览器恢复稿', exact: true })).toBeVisible()
+})
+
 test('MCP 指南提供当前站点地址、复制恢复与明暗手机布局', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.emulateMedia({ reducedMotion: 'reduce' })

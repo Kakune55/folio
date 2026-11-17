@@ -102,7 +102,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .source-host .cm-activeLine { background: transparent; }
 .source-host .cm-selectionBackground, .source-host .cm-focused .cm-selectionBackground { background: var(--selection) !important; }
 .source-host .cm-cursor { border-left-color: var(--foreground); }
-.source-host.live-preview-host { padding-inline: 36px; }
 .source-host.live-preview-host .cm-content { width: 100%; max-width: var(--editor-width, 1200px); margin-inline: auto; font-family: var(--font-ui); line-height: 1.75; }
 .source-host.live-preview-host :is(pre, code) { font-family: var(--font-code); }
 
@@ -113,7 +112,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .dialog-content h2 { margin: 0 20px 12px 0; font-size: 18px; }
 .dialog-content p { color: var(--muted-foreground); }
 .dialog-close { position: absolute; top: 12px; right: 12px; }
-@media (max-width: 1023px) { .explorer { width: 210px; } .source-host.live-preview-host { padding-inline: 28px; } .history-hint { display: none; } }
+@media (max-width: 1023px) { .explorer { width: 210px; } .history-hint { display: none; } }
 @media (max-width: 767px) {
   .workspace-name, .phase { display: none; }
   .topbar { height: 48px; }
@@ -499,9 +498,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .document-navigation { width: 130px; }
   .document-navigation nav button { min-height: 40px; }
   .minimap-navigation { width: 56px; }
-  .source-host.live-preview-host { padding: 8px 14px 0; }
+  .source-host.live-preview-host { padding: 8px 8px 0; }
   .source-host.live-preview-host .cm-content { padding-bottom: 60px; }
-  .editor-with-navigation:has(.document-navigation) .source-host.live-preview-host { padding-inline: 8px; }
   .editor-formatbar { padding-inline: 8px; }
   .editor-formatbar button { min-width: 40px; min-height: 40px; }
 }
