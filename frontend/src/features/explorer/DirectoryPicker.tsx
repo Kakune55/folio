@@ -10,17 +10,18 @@ export function isDirectoryForbidden(directory: string, entries: Entry[]) {
   return entries.some(entry => entry.kind === 'directory' && (directory === entry.path || directory.startsWith(`${entry.path}/`)))
 }
 
-export function DirectoryPicker({ directory, entries, disabled, onChange, onReadyChange }: {
+export function DirectoryPicker({ directory, entries, disabled, onChange, onReadyChange, workspaceId }: {
   directory: string
   entries: Entry[]
   disabled: boolean
   onChange: (path: string) => void
   onReadyChange: (ready: boolean) => void
+  workspaceId?: string
 }) {
   const forbidden = isDirectoryForbidden(directory, entries)
   const query = useInfiniteQuery({
-    queryKey: ['move-directories', directory],
-    queryFn: ({ pageParam }) => api.tree(directory, pageParam),
+    queryKey: ['move-directories', workspaceId ?? '', directory],
+    queryFn: ({ pageParam }) => api.tree(directory, pageParam, workspaceId),
     initialPageParam: 0,
     getNextPageParam: last => last.offset + last.entries.length < last.total ? last.offset + last.entries.length : undefined,
     enabled: !forbidden && !disabled,

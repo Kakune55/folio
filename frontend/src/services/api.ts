@@ -65,7 +65,7 @@ export const api = {
   me: () => request<Principal>('/auth/me'),
   login: async (username: string, password: string) => { const principal = await request<Principal>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setCSRF(principal.csrfToken); return principal },
   logout: () => request('/auth/logout', { method: 'POST' }),
-  tree: (path: string, offset = 0) => request<TreePage>(`/workspace/tree?path=${encodeURIComponent(path)}&offset=${offset}`),
+  tree: (path: string, offset = 0, workspaceId?: string) => request<TreePage>(`/workspace/tree?path=${encodeURIComponent(path)}&offset=${offset}`, workspaceId ? { headers: { 'X-Folio-Workspace': workspaceId } } : undefined),
   textRevision: (path: string, signal?: AbortSignal) => request<{ path: string; revision: string }>(`/files/revision?path=${encodeURIComponent(path)}`, { signal }),
   entryRevision: (path: string, signal?: AbortSignal) => request<EntryRevision>(`/entries/revision?path=${encodeURIComponent(path)}`, { signal }),
   move: (from: string, to: string, revision: string) => request('/entries/move', { method: 'PATCH', headers: { 'If-Match': `"${revision}"` }, body: JSON.stringify({ from, to }) }),

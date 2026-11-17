@@ -841,6 +841,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 767px) { .external-change-peek .external-change-peek-close { min-height: 40px; } .external-change-peek pre:first-of-type { min-height: 40px; } }
 
 .entry-move-dialog { width: min(620px, calc(100vw - 32px)); padding: 24px; }
+.share-import-dialog { width: min(620px, calc(100vw - 32px)); }
+.share-import-dialog h2 { margin-bottom: 4px; }
+.share-import-dialog .operation-selection { margin: 12px 0 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-import-dialog .share-import-destination { font-size: 12px; overflow-wrap: anywhere; margin: 8px 0; }
 .entry-move-dialog h2 { margin-bottom: 4px; }
 .entry-move-dialog .operation-selection { margin: 0 24px 16px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-move-dialog .button { min-height: 40px; }

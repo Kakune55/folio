@@ -2,13 +2,12 @@ import { SharePasswordInput } from './SharePasswordInput'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router'
-import * as Dialog from '@radix-ui/react-dialog'
 import { Button } from '../../components/ui/button'
-import { DialogContent } from '../../components/ui/dialog-content'
 import { Login } from '../auth/Login'
 import type { FileMetadata, Principal } from '../../services/api'
 import { publicRequest, shareFileURL } from './api'
-import type { Share } from './api'
+import type { Share, ShareFile } from './api'
+import { ShareImportDialog } from './ShareImportDialog'
 import { useTheme } from '../../app/useTheme'
 import { notify } from '../../stores/notifications'
 const PdfViewer = lazy(() => import('../../viewers/PdfViewer'))
@@ -20,7 +19,8 @@ export default function SharePage({ id }: { id: string }) {
  const [record, setRecord] = useState<Share>(), [password, setPassword] = useState('')
  const entering = useRef(false)
  const [busy, setBusy] = useState(false), [error, setError] = useState('')
- const [login, setLogin] = useState(false), [importOpen, setImportOpen] = useState(false), [directory, setDirectory] = useState('')
+ const [login, setLogin] = useState(false)
+ const [importTarget, setImportTarget] = useState<{ file: ShareFile; principal: Principal; includeAttachments: boolean } | null>(null)
  const [showSource, setShowSource] = useState(false), [imageError, setImageError] = useState(false)
  const info = useQuery({ queryKey: ['public-share', id], queryFn: () => publicRequest<{ protected: boolean }>(id), retry: false })
  const principal = useQuery({ queryKey: ['share-principal'], queryFn: async () => {
@@ -40,7 +40,7 @@ export default function SharePage({ id }: { id: string }) {
  if (login) return <><Button className="share-login-back" onClick={() => setLogin(false)}>返回分享</Button><Login expired={false} onLogin={() => window.location.reload()} /></>
  return <main className="public-share"><header className="share-page-header"><Link className="share-brand" to="/"><span className="brand-mark">f</span>Folio</Link><span>文件分享</span><div className="share-header-actions">{principal.data ? <Link className="button" to="/">我的工作区</Link> : <Button onClick={() => setLogin(true)}>登录</Button>}</div></header>
   {!record ? <section className="share-entry"><h1>打开分享</h1>{info.isPending ? <p role="status">正在检查分享…</p> : info.error ? <p role="alert">{info.error.message}<Button onClick={() => void info.refetch()}>重试</Button></p> : <form onSubmit={e => {e.preventDefault();void enter()}}>{info.data?.protected && <><label htmlFor="access-password">六位数字访问密码</label><SharePasswordInput value={password} onChange={value => {setPassword(value);setError('');if (value.length === 6 && value !== password) void enter(value)}} disabled={busy} invalid={!!error} /></>}{error && <p id="share-access-error" className="form-error" role="alert">{error}</p>}<Button variant="outline" type="submit" disabled={busy}>{busy ? '正在验证…' : '进入分享'}</Button></form>}</section> : <>
-   <div className="share-content-heading"><div><h1>{record.title}</h1><p>{record.mode === 'snapshot' ? '分享快照' : '实时内容'} · {record.files.length} 个文件</p></div><div className="share-content-actions"><Button variant="outline" disabled={!principal.data || !file || busy || !!metadata.error} title={principal.data ? '创建独立副本，不覆盖已有文件' : '登录后可保存到自己的工作区'} onClick={() => {setDirectory(`分享-${Date.now()}`);setError('');setImportOpen(true)}}>保存到我的工作区</Button>{file && <a className="button button-outline" href={shareFileURL(id, file.id, 'download')} download>下载当前文件</a>}</div></div>
+    <div className="share-content-heading"><div><h1>{record.title}</h1><p>{record.mode === 'snapshot' ? '分享快照' : '实时内容'} · {record.files.length} 个文件</p></div><div className="share-content-actions"><Button variant="outline" disabled={!principal.data || !file || busy || !!metadata.error} title={principal.data ? '创建独立副本，不覆盖已有文件' : '登录后可保存到自己的工作区'} onClick={() => {if (principal.data && file) setImportTarget({ file, principal: principal.data, includeAttachments: file.path === record.root })}}>保存到我的工作区</Button>{file && <a className="button button-outline" href={shareFileURL(id, file.id, 'download')} download>下载当前文件</a>}</div></div>
    {principal.error && <p role="alert">{principal.error.message}<Button onClick={() => void principal.refetch()}>重试登录状态</Button></p>}
    <div className="share-reader-layout">{record.files.length > 1 && <nav className="share-files" aria-label="分享中的文件">{record.files.map(entry => <button key={entry.id} aria-current={file?.id === entry.id ? 'page' : undefined} onClick={() => select(entry.id)}>{entry.path}</button>)}</nav>}
    <section className="share-reader" aria-label="分享内容">{file && <div className="share-file-heading"><span>{file.path}</span><Button onClick={() => {setImageError(false);void metadata.refetch();void content.refetch()}}>刷新内容</Button>{metadata.data?.viewer === 'markdown' && <Button aria-pressed={showSource} onClick={() => setShowSource(value => !value)}>{showSource ? '查看预览' : '查看源码'}</Button>}</div>}
@@ -56,13 +56,6 @@ export default function SharePage({ id }: { id: string }) {
     </Suspense>}
    </section></div>
   </>}
-  <Dialog.Root open={importOpen} onOpenChange={value => {if (!busy) setImportOpen(value)}}><Dialog.Portal><Dialog.Overlay className="dialog-overlay"/><DialogContent className="dialog-content"><Dialog.Title>保存到我的工作区</Dialog.Title><Dialog.Description>{file?.path === record?.root ? '主文件与分享内附件一起保存' : '仅保存当前文件'}。创建独立文件夹并保留包内路径，同名目录不会覆盖。</Dialog.Description><form onSubmit={async event => {
-   event.preventDefault();if (!principal.data || !file) return;setBusy(true);setError('')
-   try {
-    const response = await fetch(`/api/v1/shares/${id}/import`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': principal.data.csrfToken, 'X-Folio-Workspace': principal.data.workspaceId }, body: JSON.stringify({ file: file.id, directory }) })
-    const result = await response.json();if (!response.ok) throw new Error(result.error?.message ?? '转存失败，请刷新工作区确认后重试')
-    setImportOpen(false);notify.success(`已保存到我的工作区：${result.path}。这是独立副本。`)
-   } catch(e) {setError(e instanceof TypeError || e instanceof SyntaxError ? '转存结果尚未确认，请先检查目标文件夹是否已创建，再重试。' : e instanceof Error ? e.message : '转存失败，请检查目标目录后重试')} finally {setBusy(false)}
-  }}><label htmlFor="import-directory">新文件夹路径</label><input id="import-directory" value={directory} onChange={e => setDirectory(e.target.value)} required maxLength={4096}/>{error && <p role="alert" className="form-error">{error}</p>}<div className="dialog-actions"><Button type="button" disabled={busy} onClick={() => setImportOpen(false)}>取消</Button><Button type="submit" variant="outline" disabled={busy}>{busy ? '正在转存…' : '确认转存'}</Button></div></form></DialogContent></Dialog.Portal></Dialog.Root>
+  {importTarget && <ShareImportDialog shareId={id} {...importTarget} onClose={() => setImportTarget(null)} />}
  </main>
 }
