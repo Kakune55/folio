@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -402,8 +403,7 @@ func (i *Index) Query(ctx context.Context, query, mode string, limit int) (Respo
 	} else if utf8.RuneCountInString(query) < 3 {
 		rows, err = i.db.QueryContext(ctx, `SELECT path,substr(body,max(1,instr(lower(body),lower(?))-50),180) FROM documents WHERE instr(lower(path),lower(?))>0 OR instr(lower(body),lower(?))>0 ORDER BY length(path),path LIMIT ?`, query, query, query, limit+1)
 	} else {
-		literal := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
-		rows, err = i.db.QueryContext(ctx, `SELECT path,snippet(documents,1,'','','…',30) FROM documents WHERE documents MATCH ? ORDER BY bm25(documents),path LIMIT ?`, literal, limit+1)
+		return i.queryFull(ctx, query, output)
 	}
 	if err != nil {
 		return output, fmt.Errorf("%w: %v", ErrUnavailable, err)
@@ -429,6 +429,104 @@ func (i *Index) Query(ctx context.Context, query, mode string, limit int) (Respo
 		return output, err
 	}
 	return output, nil
+}
+
+func (i *Index) queryFull(ctx context.Context, query string, output Response) (Response, error) {
+	// 排名和正文读取共用快照，避免索引刷新后 rowid 被删除或复用。
+	tx, err := i.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return output, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	defer tx.Rollback()
+	literal := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
+	rows, err := tx.QueryContext(ctx, `SELECT rowid,path FROM documents WHERE documents MATCH ? ORDER BY bm25(documents),path LIMIT ?`, literal, output.Limit+1)
+	if err != nil {
+		return output, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		if len(output.Entries) == output.Limit {
+			output.Truncated = true
+			break
+		}
+		var id int64
+		var entry Result
+		if err := rows.Scan(&id, &entry.Path); err != nil {
+			return output, err
+		}
+		entry.Name = path.Base(entry.Path)
+		ids = append(ids, id)
+		output.Entries = append(output.Entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return output, err
+	}
+	if err := rows.Close(); err != nil {
+		return output, err
+	}
+	match := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(query))
+	queryRunes := utf8.RuneCountInString(query)
+	// 逐份读取并丢弃正文，不把多个大正文留在排序临时表或 Go 结果集中。
+	for n, id := range ids {
+		var body string
+		if err := tx.QueryRowContext(ctx, "SELECT body FROM documents WHERE rowid=?", id).Scan(&body); err != nil {
+			return output, err
+		}
+		output.Entries[n].Excerpt, err = literalExcerpt(ctx, body, match, queryRunes)
+		if err != nil {
+			return output, err
+		}
+	}
+	return output, tx.Commit()
+}
+
+func literalExcerpt(ctx context.Context, body string, match *regexp.Regexp, queryRunes int) (string, error) {
+	position := 0
+	for offset := 0; offset < len(body); {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		end := min(len(body), offset+32*1024)
+		for end < len(body) && !utf8.RuneStart(body[end]) {
+			end++
+		}
+		if found := match.FindStringIndex(body[offset:end]); found != nil {
+			position = offset + found[0]
+			break
+		}
+		if end == len(body) {
+			break
+		}
+		// 重叠覆盖最长字面查询，避免漏掉跨分片及大小写折叠后字节长度不同的命中。
+		offset = end - queryRunes*utf8.UTFMax
+		for offset > 0 && !utf8.RuneStart(body[offset]) {
+			offset--
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	start := position
+	// 为两端省略号预留字符，长查询仍完整保留在摘要内。
+	width := min(238, max(180, queryRunes+50))
+	for count := 0; count < min(50, width-queryRunes) && start > 0; count++ {
+		_, size := utf8.DecodeLastRuneInString(body[:start])
+		start -= size
+	}
+	end := start
+	for count := 0; count < width && end < len(body); count++ {
+		_, size := utf8.DecodeRuneInString(body[end:])
+		end += size
+	}
+	excerpt := body[start:end]
+	if start > 0 {
+		excerpt = "…" + excerpt
+	}
+	if end < len(body) {
+		excerpt += "…"
+	}
+	return excerpt, nil
 }
 
 // SetBodyLimit 与扫描并发安全；当前事务完成后全量重建以应用新上限。
