@@ -1,6 +1,7 @@
 import { externalMarks } from './external-marks'
 import type { ExternalUpdate } from './external-marks'
 import type { FileMetadata, ViewerKind } from '../services/api'
+import type { ReadingPosition } from './reading-position'
 
 export type EditorMode = 'rich' | 'source'
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict'
@@ -12,7 +13,7 @@ export type Session = {
   externalUpdate?: ExternalUpdate
   composing?: boolean
   compositionInterrupted?: boolean
-  sourceView?: { anchor: number; head: number; scrollTop: number; scrollLeft: number }
+  sourceView?: ReadingPosition & { generation: number }
 }
 type FileInput = { path: string; source: string; mode: EditorMode; revision?: string; viewer?: ViewerKind; metadata?: FileMetadata }
 type SaveTransport = (path: string, source: string, revision: string) => Promise<{ revision: string }>

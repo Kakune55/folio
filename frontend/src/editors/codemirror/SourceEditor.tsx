@@ -4,7 +4,7 @@ import { markdownLinkAt } from './links'
 import { SourceNavigation } from '../navigation/SourceNavigation'
 import { literalRange } from '../../features/search/location'
 import type { SearchTarget, SearchLocated } from '../../features/search/location'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -30,6 +30,8 @@ import { markdownCommands, markdownFormatKeymap } from './markdown-commands'
 import { Bold, Italic, Code, Link2, List, ListTodo, Quote } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { useAppearance, type ComfortScroll } from '../../stores/appearance'
+import { readPosition, writePosition, type ReadingPosition } from '../../sessions/reading-position'
+import { createWordCounter, type WordCount } from './word-count'
 
 // 舒适区滚动：光标不低于编辑区指定高度；末尾留白由 CSS 提供，仅影响显示。
 const comfortScrolling = (position: ComfortScroll): Extension => {
@@ -61,7 +63,9 @@ function tableNavigationKeys(options: { canEdit: () => boolean; onBoundary: () =
   return keymap.of([{ key: 'Tab', run: navigate(false) }, { key: 'Shift-Tab', run: navigate(true) }])
 }
 
-export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen, formatbarVisible = true }: { navigationOpen?: boolean; formatbarVisible?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: EditorBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
+export type EditorFeedback = { positionKey?: string; onWordCount?: (id: string, generation: number, count: WordCount) => void }
+
+export default function SourceEditor({ session, sessions, onBlocked, bridge, searchTarget, onSearchLocated, navigationOpen, formatbarVisible = true, positionKey, onWordCount }: EditorFeedback & { navigationOpen?: boolean; formatbarVisible?: boolean; session: Session; sessions: WorkspaceSessions; onBlocked?: (message: string) => void; bridge?: EditorBridge; searchTarget?: SearchTarget; onSearchLocated?: SearchLocated }) {
   const [navigationView, setNavigationView] = useState<EditorView | null>(null)
   const editorView = useRef<EditorView | null>(null)
   const restoreFrame = useRef<number | null>(null)
@@ -75,15 +79,29 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
   useEffect(() => {
     if (!session.externalUpdate) editorView.current?.dispatch({ effects: clearSourceChangeMarks.of() })
   }, [session.externalUpdate])
-  useEffect(() => {
+  useLayoutEffect(() => {
     let disposed = false
     let compositionTimer: ReturnType<typeof setTimeout> | undefined
+    let countTimer: ReturnType<typeof setTimeout> | undefined
     const generation = session.generation
     const path = session.path
     const current = () => sessions.has(path) && sessions.get(path) === session && session.path === path && session.generation === generation
     const canEdit = () => !disposed && current() && !session.locked && !sessions.isLocked(path)
     const canEditWidget = () => canEdit() && !session.composing && !session.compositionInterrupted
     const lineEndings = preserveLineEndings(session.source)
+    const countWords = createWordCounter()
+    let positionWarning = false
+    const warnPosition = () => {
+      if (positionWarning) return
+      positionWarning = true
+      onBlocked?.('本机续写位置不可用；请检查或清除站点的续写位置记录。正文和草稿不受影响。')
+    }
+    let saved: ReadingPosition | undefined = session.sourceView?.generation === generation ? session.sourceView : undefined
+    if (!saved && positionKey) {
+      try { saved = readPosition(localStorage, positionKey, session) }
+      catch { warnPosition() }
+    }
+    if (saved && (saved.anchor > lineEndings.doc.length || saved.head > lineEndings.doc.length)) saved = undefined
     const codeLanguages = createCodeLanguages(name => {
       if (!disposed) onBlocked?.(`${name} 语法高亮加载失败，原文仍可编辑和复制；请保存或下载草稿后刷新页面重试。`)
     })
@@ -151,6 +169,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     displayedMode.current = session.mode
     const view = new EditorView({ parent: host.current!, state: EditorState.create({
       doc: lineEndings.doc,
+      selection: saved ? { anchor: saved.anchor, head: saved.head } : undefined,
       extensions: [sourceChangeMarks(session.externalUpdate), lineNumbers(), highlightSpecialChars(), drawSelection(), dropCursor(), history(), bracketMatching(),
         lineEndings.extension, codeTheme, isMarkdown ? [tableNavigationKeys({ canEdit: canEditWidget, onBlocked, onBoundary: () => host.current?.parentElement?.querySelector<HTMLButtonElement>('[data-table-trigger]')?.focus() }), keymap.of(markdownFormatKeymap)] : [], keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         preview.current.of(rendering()),
@@ -203,6 +222,10 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
             return handleFiles(event, view, event.dataTransfer?.files)
           } }),
         EditorView.updateListener.of((update) => {
+          if (onWordCount && (update.docChanged || update.selectionSet)) {
+            clearTimeout(countTimer)
+            countTimer = setTimeout(() => { if (!disposed && current()) onWordCount(session.id, generation, countWords(update.view.state)) }, 120)
+          }
           if (update.selectionSet && update.view.hasFocus) queueMicrotask(() => { if (!disposed && update.view.hasFocus) focusTableCell(update.view) })
           if (update.docChanged || update.viewportChanged || update.selectionSet) update.view.dom.dispatchEvent(new Event('folio-navigation'))
           if (update.docChanged) {
@@ -217,11 +240,6 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
     }) })
     view.scrollDOM.tabIndex = 0
     view.scrollDOM.setAttribute('aria-label', '编辑器滚动区域')
-    if (session.sourceView) {
-      const saved = session.sourceView
-      view.dispatch({ selection: { anchor: Math.min(saved.anchor, view.state.doc.length), head: Math.min(saved.head, view.state.doc.length) } })
-      restoreFrame.current = requestAnimationFrame(() => { restoreFrame.current = null; if (!disposed) { view.scrollDOM.scrollTop = saved.scrollTop; view.scrollDOM.scrollLeft = saved.scrollLeft } })
-    }
     editorView.current = view
     setNavigationView(view)
     if (session.viewer === 'markdown') view.dispatch({ effects: language.reconfigure(markdown({ base: commonmarkLanguage, extensions: [GFM, mathMarkdown], codeLanguages, pasteURLAsLink: false })) })
@@ -229,15 +247,42 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       const description = LanguageDescription.matchFilename(languages, session.path)
       if (description) void description.load().then((support) => { if (!disposed) view.dispatch({ effects: language.reconfigure(support) }) }).catch(() => onBlocked?.('语言高亮加载失败，当前仍可编辑纯文本。'))
     }
+    if (saved) {
+      const position = saved
+      restoreFrame.current = requestAnimationFrame(() => {
+        restoreFrame.current = null
+        if (position.mode === session.mode) {
+          view.scrollDOM.scrollTop = position.scrollTop
+          view.scrollDOM.scrollLeft = position.scrollLeft
+        } else {
+          view.dispatch({ effects: EditorView.scrollIntoView(position.head, { y: 'center' }) })
+        }
+      })
+    }
+    if (onWordCount) onWordCount(session.id, generation, countWords(view.state))
+    const capturePosition = () => {
+      // 旧视图的偏移不能标记成外部新正文的版本。
+      if (session.generation !== generation || session.path !== path || restoreFrame.current !== null) return
+      const { anchor, head } = view.state.selection.main
+      const position = { anchor, head, mode: displayedMode.current, scrollTop: Math.max(0, view.scrollDOM.scrollTop), scrollLeft: Math.max(0, view.scrollDOM.scrollLeft) }
+      session.sourceView = { ...position, generation }
+      if (positionKey) {
+        try { writePosition(localStorage, positionKey, session, position) }
+        catch { warnPosition() }
+      }
+    }
+    if (positionKey) window.addEventListener('pagehide', capturePosition)
     return () => {
-      disposed = true; clearTimeout(compositionTimer)
+      window.removeEventListener('pagehide', capturePosition)
+      // 在 React 移除编辑器 DOM 前读取滚动位置。
+      capturePosition()
+      disposed = true; clearTimeout(compositionTimer); clearTimeout(countTimer)
       if (sessions.has(session.path) && sessions.get(session.path) === session && session.composing) sessions.setComposing(session.path, false, true)
       if (restoreFrame.current !== null) cancelAnimationFrame(restoreFrame.current)
       restoreFrame.current = null
-      session.sourceView = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }
       editorView.current = null; view.destroy()
     }
-  }, [session, sessions, onBlocked, bridge, isMarkdown])
+  }, [session, sessions, onBlocked, bridge, isMarkdown, positionKey, onWordCount])
   useEffect(() => {
     const view = editorView.current
     if (!view || displayedMode.current === session.mode) return

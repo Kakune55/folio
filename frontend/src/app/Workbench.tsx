@@ -27,6 +27,8 @@ import { useUI } from '../stores/ui'
 import { getDraftManager } from '../sessions/drafts'
 import { DraftRecovery } from '../features/recovery/DraftRecovery'
 import { FileStatus } from '../features/search/FileStatus'
+import { readingPositionKey } from '../sessions/reading-position'
+import type { WordCount } from '../editors/codemirror/word-count'
 import { SearchDialog } from '../features/search/SearchDialog'
 import { useMobile } from './useMobile'
 import { uploadQueue } from '../sessions/uploads'
@@ -66,6 +68,8 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
   const route = useLocation()
   const navigate = useNavigate()
   const current = workspace.has(activePath) ? workspace.get(activePath) : undefined
+  const [wordCount, setWordCount] = useState<{ id: string; generation: number; count: WordCount }>()
+  const onWordCount = useCallback((id: string, generation: number, count: WordCount) => setWordCount({ id, generation, count }), [])
   const imageOwner = current ? `${current.id}:${current.generation}:${current.path}:${current.mode}` : ''
   const formatOwner = current ? `${current.id}:${current.generation}` : ''
   const [mobileFormats, setMobileFormats] = useState({ owner: '', open: false })
@@ -404,11 +408,11 @@ export default function Workbench({ onLogout, workspaceId, principal }: { onLogo
       {external.warning && <div className="notice" role="status"><Info size={16} /><span>{external.warning}</span><Button disabled={external.checking} onClick={() => void external.check()}>重新检查</Button></div>}
       {current?.external && !current.dirty && <div className="notice" role="status"><Info size={16} /><span>{current.external === 'missing' ? '磁盘文件已被移走或删除，当前显示缓存内容。可下载草稿或另存副本。' : '磁盘文件已发生变化，当前显示旧版本。重新加载会重置撤销历史。'}</span>{current.external === 'changed' && <Button variant="outline" onClick={() => void reloadCurrent()}>加载磁盘版本</Button>}{['markdown', 'text'].includes(current.viewer) && <Button onClick={() => void loadComparison()}>比较并另存</Button>}</div>}
       {current && ['error', 'conflict'].includes(current.state) && <div className="notice save-error" role="alert"><Info size={16} /><span>{current.error}</span>{current.state === 'conflict' ? <Button variant="outline" onClick={() => void loadComparison()}>比较版本</Button> : <Button variant="outline" onClick={() => void handleSave(current.path)}>重试保存</Button>}</div>}
-      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.id + current.path + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor formatbarVisible={!mobile || formatsOpen} navigationOpen={navigationOpen} session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
+      {loading ? <div className="editor-loading" role="status">正在读取文件…</div> : current ? <div className="editor-scroll" inert={current.locked} key={current.id + current.path + current.generation + editorAttempt}><EditorBoundary retry={() => { workspace.setMode(current.path, 'source'); setEditorAttempt((value) => value + 1) }}><Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}><DocumentEditor formatbarVisible={!mobile || formatsOpen} navigationOpen={navigationOpen} session={current} sessions={workspace} onBlocked={onBlocked} bridge={bridge} searchTarget={searchTarget} onSearchLocated={onSearchLocated} positionKey={readingPositionKey(workspaceId, principal.id)} onWordCount={onWordCount} /></Suspense></EditorBoundary></div> : <div className="empty-workspace"><FileText size={28} strokeWidth={1.3} /><h1>为想法留一个位置</h1><p>从左侧打开文件，或写下第一篇笔记。</p><Button variant="outline" onClick={() => startCreate('file')}><FilePlus2 size={15} />新建笔记</Button></div>}
     </section></main></div>
     <footer className="statusbar" aria-label="编辑状态">
       <div className="statusbar-left"><span className="save-status" role="status">{current ? current.composing ? '输入法候选待确认，自动保存暂停' : current.external && !current.dirty ? '磁盘版本已变化' : current.locked ? '正在处理文件操作…' : current.pendingUploads ? '正在上传图片…' : ['markdown', 'text'].includes(current.viewer) ? saveLabels[current.state] : '只读预览' : ''}</span><span className="draft-cache-state" data-phase={current?.dirty ? recovery.phase : undefined}>{current?.dirty && ['markdown', 'text'].includes(current.viewer) ? recovery.phase === 'ready' ? '本机恢复副本已更新' : recovery.phase === 'failed' ? '本机恢复副本不可用' : '正在更新本机恢复副本…' : ''}</span></div>
-      {current && <FileStatus session={current} onSearch={() => setSearchOpen(true)} />}
+      {current && <FileStatus session={current} wordCount={!loading && wordCount && wordCount.id === current.id && wordCount.generation === current.generation ? wordCount.count : undefined} onSearch={() => setSearchOpen(true)} />}
       <Button className="draft-recovery-trigger" aria-label="查看浏览器恢复稿" title="查看浏览器中保留的未保存草稿" onClick={() => setRecoveryOpen(true)}><History size={13} /><span className="recovery-label">浏览器恢复稿</span><span className="recovery-count">{recovery.entries.length || ''}</span></Button>
     </footer>
     <ImagePreviewDialog key={imagePreview.file?.url} image={imagePreview.owner === imageOwner ? imagePreview.file : undefined} onClose={() => setImagePreview({ owner: imageOwner })} />

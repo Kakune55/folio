@@ -443,6 +443,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .search-progress { margin: 0; padding: 8px 12px; color: var(--muted-foreground); font-size: 12px; }
 
 .statusbar .file-status { display: flex; align-items: center; flex: 0 0 210px; gap: 12px; min-width: 0; white-space: nowrap; }
+.statusbar .file-status:has(.file-word-count) { flex-basis: 305px; }
+.file-word-count { flex: 0 0 83px; overflow: hidden; text-overflow: ellipsis; }
 .file-status .file-size { flex: 0 0 62px; text-align: right; }
 .file-index-state { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .file-index-state:hover { color: var(--foreground); }
@@ -457,6 +459,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .statusbar-left:has(.draft-cache-state[data-phase="failed"]) .save-status { display: none; }
   .statusbar .draft-cache-state[data-phase="failed"] { display: block; color: var(--destructive); }
   .statusbar .file-status { grid-column: 2; gap: 10px; }
+  .file-word-count { flex: 0 1 auto; max-width: 83px; }
   .file-status .file-size { flex: 0 0 auto; text-align: left; }
   .file-status .file-index-state { flex: 1; min-height: 40px; }
   .statusbar .draft-recovery-trigger { grid-column: 3; position: relative; width: 40px; min-height: 40px; justify-content: center; padding: 0; }
