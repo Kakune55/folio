@@ -98,6 +98,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .source-host .cm-editor.cm-focused { outline: none; }
 .source-host .cm-content { padding: 8px 0 80px; caret-color: var(--foreground); line-height: 1.8; }
 .source-host .cm-line { padding: 0 16px; }
+.source-host .cm-comfort-scroll .cm-content, .source-host.live-preview-host .cm-comfort-scroll .cm-content { padding-bottom: 30vh; }
+.source-host .cm-comfort-scroll-high .cm-content, .source-host.live-preview-host .cm-comfort-scroll-high .cm-content { padding-bottom: 40vh; }
 .source-host .cm-gutters { background: var(--background); color: var(--muted-foreground); border: 0; }
 .source-host .cm-activeLine { background: transparent; }
 .source-host .cm-selectionBackground, .source-host .cm-focused .cm-selectionBackground { background: var(--selection) !important; }

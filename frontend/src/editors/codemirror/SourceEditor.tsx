@@ -29,6 +29,17 @@ import { tableNavigation } from './tables'
 import { markdownCommands, markdownFormatKeymap } from './markdown-commands'
 import { Bold, Italic, Code, Link2, List, ListTodo, Quote } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { useAppearance, type ComfortScroll } from '../../stores/appearance'
+
+// 舒适区滚动：光标不低于编辑区指定高度；末尾留白由 CSS 提供，仅影响显示。
+const comfortScrolling = (position: ComfortScroll): Extension => {
+  if (position === 'off') return []
+  const margin = position === '2/3' ? 1 / 3 : 1 / 4
+  return [
+    EditorView.scrollMargins.of(view => ({ bottom: Math.round(view.scrollDOM.clientHeight * margin) })),
+    EditorView.editorAttributes.of({ class: position === '2/3' ? 'cm-comfort-scroll cm-comfort-scroll-high' : 'cm-comfort-scroll' }),
+  ]
+}
 
 const formats = [
   { label: '加粗', icon: Bold, run: markdownCommands.bold }, { label: '斜体', icon: Italic, run: markdownCommands.italic },
@@ -55,7 +66,8 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
   const editorView = useRef<EditorView | null>(null)
   const restoreFrame = useRef<number | null>(null)
   const host = useRef<HTMLDivElement>(null)
-  const preview = useRef(new Compartment()), editable = useRef(new Compartment())
+  const preview = useRef(new Compartment()), editable = useRef(new Compartment()), comfort = useRef(new Compartment())
+  const comfortScroll = useAppearance(state => state.comfortScroll)
   const displayedMode = useRef(session.mode)
   const codeControls = useRef<Extension>([])
   const cellOptions = useRef<TableWidgetOptions>({})
@@ -142,6 +154,7 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       extensions: [sourceChangeMarks(session.externalUpdate), lineNumbers(), highlightSpecialChars(), drawSelection(), dropCursor(), history(), bracketMatching(),
         lineEndings.extension, codeTheme, isMarkdown ? [tableNavigationKeys({ canEdit: canEditWidget, onBlocked, onBoundary: () => host.current?.parentElement?.querySelector<HTMLButtonElement>('[data-table-trigger]')?.focus() }), keymap.of(markdownFormatKeymap)] : [], keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), language.of([]), EditorView.lineWrapping,
         preview.current.of(rendering()),
+        comfort.current.of(comfortScrolling(useAppearance.getState().comfortScroll)),
         editable.current.of([EditorState.readOnly.of(session.locked), EditorView.editable.of(!session.locked)]),
         EditorState.transactionFilter.of(transaction => {
           if (!transaction.docChanged) return transaction
@@ -234,6 +247,9 @@ export default function SourceEditor({ session, sessions, onBlocked, bridge, sea
       ? [markdownLivePreview({ canEdit, onBlocked }), markdownPreviewBlocks({ ...cellOptions.current, bridge, revealTables: () => !!session.externalUpdate }), markdownMathPreview({ revealSource: () => !!session.externalUpdate, canReveal: () => !session.composing && !session.compositionInterrupted, onBlocked }), codeControls.current] : [])]) })
     view.requestMeasure()
   }, [session.mode, isMarkdown, session, sessions, bridge, onBlocked])
+  useEffect(() => {
+    editorView.current?.dispatch({ effects: comfort.current.reconfigure(comfortScrolling(comfortScroll)) })
+  }, [comfortScroll])
   useEffect(() => {
     editorView.current?.dispatch({ effects: editable.current.reconfigure([EditorState.readOnly.of(session.locked), EditorView.editable.of(!session.locked)]) })
   }, [session.locked, session.composing, session.compositionInterrupted])
